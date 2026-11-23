@@ -27,11 +27,13 @@ interface GasAssumptions {
 }
 
 // Planning assumptions in USD as of ASSUMPTIONS_AS_OF. A bridge estimate includes gas.
+const BSC_GAS = { transactionUsd: 0.1, bridgeUsd: 0.5 };
 const GAS_ASSUMPTIONS = new Map<string, GasAssumptions>([
   ["Arbitrum", { transactionUsd: 0.09, bridgeUsd: 0.35 }],
   ["Avalanche", { transactionUsd: 0.15, bridgeUsd: 0.65 }],
   ["Base", { transactionUsd: 0.05, bridgeUsd: 0.3 }],
-  ["BSC", { transactionUsd: 0.1, bridgeUsd: 0.5 }],
+  ["Binance", BSC_GAS],
+  ["BSC", BSC_GAS],
   ["Ethereum", { transactionUsd: 3, bridgeUsd: 8 }],
   ["Optimism", { transactionUsd: 0.07, bridgeUsd: 0.35 }],
   ["Polygon", { transactionUsd: 0.06, bridgeUsd: 0.5 }],

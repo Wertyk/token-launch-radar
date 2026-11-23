@@ -50,6 +50,20 @@ test("uses the cheapest available chain and resolves equal estimates by chain na
   expect(makeFarmPlan(protocol({ chains: ["Unmapped Z", "Unmapped A"] })).chain).toBe("Unmapped A");
 });
 
+test.each([{ chains: ["Binance"] }, { chains: ["Avalanche", "Binance"] }])(
+  "uses the Binance rate and snapshot label for $chains",
+  ({ chains }) => {
+    const plan = makeFarmPlan(protocol({ chains }));
+    expect(plan.chain).toBe("Binance");
+    expect(plan.totalCostUsd).toBe(0.8);
+    expect(plan.steps.map(({ costUsd }) => costUsd)).toEqual([0, 0.5, 0.1, 0.1, 0.1]);
+    for (const step of plan.steps) {
+      expect(step.chain).toBe("Binance");
+      expect(renderFarmStep(step)).toContain(" | Binance | ");
+    }
+  },
+);
+
 test("records the selected deposit size and totals the estimated fees and minutes", () => {
   const plan = makeFarmPlan(protocol({ chains: ["Base"], category: "Lending" }), 1234.5);
   expect(plan.depositUsd).toBe(1234.5);

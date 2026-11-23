@@ -87,7 +87,11 @@ test("the kit snapshot produces a complete, valid and deterministic board", () =
     }
     expect(row.farm_steps.length).toBeGreaterThanOrEqual(3);
     expect(row.farm_steps.length).toBeLessThanOrEqual(12);
-    expect(row.protocol.chains).toContain(row.plan.chain);
+    if (row.protocol.chains.length === 0) {
+      expect(row.plan.chain).toBeNull();
+    } else {
+      expect(row.protocol.chains).toContain(row.plan.chain);
+    }
     for (const step of row.farm_steps) {
       expect(step.trim().length).toBeGreaterThanOrEqual(20);
       expect(step.trim().length).toBeLessThanOrEqual(600);

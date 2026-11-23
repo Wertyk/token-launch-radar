@@ -8,7 +8,7 @@ const EXCLUDED_CATEGORIES = new Set([
   "Restaked BTC",
   "CEX",
 ]);
-const VERSION_SUFFIX = / (?:v\d+(?:\.\d+)*|\d+(?:\.\d+)+)$/i;
+const VERSION_SUFFIX = /\s(?:v\d+(?:\.\d+)*|\d+(?:\.\d+)+)$/i;
 const PRODUCT_WORD = /(?<![\p{L}\p{M}\p{N}_])(?:wrapped|staked|staking)(?![\p{L}\p{M}\p{N}_])/iu;
 const EXCHANGE_NAME =
   /^(?:Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gemini)(?![\p{L}\p{M}\p{N}_])/iu;

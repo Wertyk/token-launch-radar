@@ -197,6 +197,21 @@ test.each([
   expect(runGate(["screenshots"])).toMatch(/FAIL screenshots .*a\.png/);
 });
 
+test.each(["IHDR", "IEND"])("screenshots rejects a PNG with a high bit flipped in %s", (chunk) => {
+  const bytes = readFileSync(new URL("../../screenshots/1-board.png", import.meta.url));
+  const path = join(out, "screenshots", "a.png");
+  writeFileSync(path, bytes);
+  saveDossier();
+  runGate();
+
+  const offset = chunk === "IHDR" ? 12 : bytes.length - 8;
+  expect(bytes.subarray(offset, offset + 4)).toEqual(Buffer.from(chunk));
+  bytes.writeUInt8(bytes.readUInt8(offset) ^ 0x80, offset);
+  writeFileSync(path, bytes);
+  saveDossier();
+  expect(runGate(["screenshots"])).toMatch(/FAIL screenshots .*a\.png/);
+});
+
 test("dossier_matches rejects a valid JSON file with different bytes", () => {
   const path = join(out, "dossier.json");
   writeFileSync(path, `${readFileSync(path, "utf8")}\n`);

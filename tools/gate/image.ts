@@ -7,6 +7,8 @@ export const screenshotLimit = 512 * 1024;
 export const screenshotTarget = 350_000;
 
 const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const pngHeaderChunk = Buffer.from("IHDR");
+const pngEndChunk = Buffer.from("IEND");
 const jpegStart = 0xffd8;
 const jpegEnd = 0xffd9;
 
@@ -14,7 +16,7 @@ function pngDimensions(bytes: Buffer): Dimensions | undefined {
   if (
     bytes.length < 45 ||
     bytes.readUInt32BE(8) !== 13 ||
-    bytes.toString("ascii", 12, 16) !== "IHDR"
+    !bytes.subarray(12, 16).equals(pngHeaderChunk)
   ) {
     return;
   }
@@ -23,7 +25,7 @@ function pngDimensions(bytes: Buffer): Dimensions | undefined {
     const size = bytes.readUInt32BE(offset);
     const end = offset + 12 + size;
     if (end > bytes.length) return;
-    if (bytes.toString("ascii", offset + 4, offset + 8) === "IEND") {
+    if (bytes.subarray(offset + 4, offset + 8).equals(pngEndChunk)) {
       if (size === 0 && end === bytes.length) {
         return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
       }

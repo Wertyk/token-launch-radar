@@ -30,6 +30,8 @@ test.each([
 
 test.each([
   ["Foo V2", /version marker/i],
+  ["Pool\u00a0V2", /version marker/i],
+  ["Pool\tV2", /version marker/i],
   ["Foo v3", /version marker/i],
   ["Foo 2.0", /version marker/i],
   ["Foo 3.1", /version marker/i],

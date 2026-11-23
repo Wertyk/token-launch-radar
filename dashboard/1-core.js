@@ -162,7 +162,7 @@ var Radar = (() => {
     "Restaked BTC",
     "CEX"
   ]);
-  var VERSION_SUFFIX = / (?:v\d+(?:\.\d+)*|\d+(?:\.\d+)+)$/i;
+  var VERSION_SUFFIX = /\s(?:v\d+(?:\.\d+)*|\d+(?:\.\d+)+)$/i;
   var PRODUCT_WORD = /(?<![\p{L}\p{M}\p{N}_])(?:wrapped|staked|staking)(?![\p{L}\p{M}\p{N}_])/iu;
   var EXCHANGE_NAME = /^(?:Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gemini)(?![\p{L}\p{M}\p{N}_])/iu;
   function classify(protocol) {
@@ -216,11 +216,13 @@ var Radar = (() => {
 
   // src/domain/farming/plans.ts
   var DEFAULT_DEPOSIT_USD = 1e3;
+  var BSC_GAS = { transactionUsd: 0.1, bridgeUsd: 0.5 };
   var GAS_ASSUMPTIONS = /* @__PURE__ */ new Map([
     ["Arbitrum", { transactionUsd: 0.09, bridgeUsd: 0.35 }],
     ["Avalanche", { transactionUsd: 0.15, bridgeUsd: 0.65 }],
     ["Base", { transactionUsd: 0.05, bridgeUsd: 0.3 }],
-    ["BSC", { transactionUsd: 0.1, bridgeUsd: 0.5 }],
+    ["Binance", BSC_GAS],
+    ["BSC", BSC_GAS],
     ["Ethereum", { transactionUsd: 3, bridgeUsd: 8 }],
     ["Optimism", { transactionUsd: 0.07, bridgeUsd: 0.35 }],
     ["Polygon", { transactionUsd: 0.06, bridgeUsd: 0.5 }],
