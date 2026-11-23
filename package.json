@@ -1,0 +1,29 @@
+{
+  "name": "token-launch-radar",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Offline radar that ranks DeFi protocols recording no token by implied launch value, with a costed farm plan for each",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {},
+  "engines": {
+    "node": ">=22.18"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.23.0",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@12.23.0",
+  "devDependencies": {
+    "@biomejs/biome": "2.6.8",
+    "@types/node": "22.20.5",
+    "dependency-cruiser": "18.9.0",
+    "esbuild": "0.28.2",
+    "playwright": "1.65.1",
+    "typescript": "7.0.2",
+    "vitest": "5.1.1"
+  }
+}
