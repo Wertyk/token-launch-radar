@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import {
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -18,6 +19,7 @@ import { buildDossier } from "../../vendor/makefun-board.ts";
 import { dossierCaps, kitSnapshotPath, writeAssetFixture } from "../radar-fixtures.ts";
 
 const main = fileURLToPath(new URL("../../main.ts", import.meta.url));
+const gate = fileURLToPath(new URL("../../tools/gate.ts", import.meta.url));
 let root: string;
 
 beforeEach(() => {
@@ -75,6 +77,32 @@ test("writes a byte-identical output tree and the vendor dossier on both runs", 
     Buffer.from(buildDossier(first, dossierCaps)),
   );
 });
+
+test("passes all seven gate checks and reproduces every byte with the repo assets", () => {
+  const screenshots = fileURLToPath(new URL("../../screenshots/", import.meta.url));
+  expect(existsSync(screenshots), "Missing repo screenshots. Run pnpm shots.").toBe(true);
+
+  const input = kitSnapshotPath();
+  const first = join(root, "first");
+  const second = join(root, "second");
+  for (const output of [first, second]) {
+    const result = run("--input", input, "--output", output);
+    expect(result.status, result.stderr || result.error?.message).toBe(0);
+  }
+  const result = spawnSync(process.execPath, [gate, "--out", first, "--input", input], {
+    encoding: "utf8",
+  });
+  expect(result.status, result.stderr || result.stdout || result.error?.message).toBe(0);
+  expect(result.stdout.match(/^PASS /gm)).toHaveLength(7);
+
+  const files = outputFiles(first);
+  expect(outputFiles(second)).toEqual(files);
+  for (const file of files) {
+    expect(readFileSync(join(first, file)).equals(readFileSync(join(second, file))), file).toBe(
+      true,
+    );
+  }
+}, 15_000);
 
 test("a rerun replaces the asset trees and builds the dossier from the new files", () => {
   const firstAssets = join(root, "first-assets");

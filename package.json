@@ -6,17 +6,17 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.core.json && tsc -p tsconfig.node.json && tsc -p tsconfig.web.json",
+    "typecheck": "tsc -p tsconfig.core.json && tsc -p tsconfig.node.json && tsc -p tsconfig.web.json && tsc -p tsconfig.tools.json",
     "lint": "biome check",
     "format": "biome format --write",
     "arch": "node .dependency-cruiser.cjs",
     "test": "vitest run",
     "build:web": "node tools/build-web.ts",
     "radar": "node main.ts --input ../token-radar-kit/token-radar-01-kit/input/snapshot.json --output out",
-    "shots": "node -e 'console.error(\"shots will be added in task-10.\"); process.exitCode = 1'",
-    "gate": "node -e 'console.error(\"gate will be added in task-10.\"); process.exitCode = 1'",
-    "sandbox": "node -e 'console.error(\"sandbox will be added in task-10.\"); process.exitCode = 1'",
-    "verify": "pnpm typecheck && pnpm lint && pnpm arch && pnpm test && node tools/build-web.ts --check"
+    "shots": "node tools/screenshots.ts",
+    "gate": "node tools/gate.ts --out out --input ../token-radar-kit/token-radar-01-kit/input/snapshot.json",
+    "sandbox": "bash tools/sandbox.sh",
+    "verify": "pnpm typecheck && pnpm lint && pnpm arch && pnpm test && pnpm build:web --check && pnpm radar && pnpm gate"
   },
   "engines": {
     "node": ">=22.18"

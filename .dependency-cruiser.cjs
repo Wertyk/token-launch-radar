@@ -41,7 +41,7 @@ const config = {
     {
       name: "vendor-is-infrastructure-only",
       severity: "error",
-      from: { pathNot: infrastructure },
+      from: { pathNot: [infrastructure, "^tools/gate(?:\\.ts$|/)"] },
       to: { path: vendor },
     },
     {

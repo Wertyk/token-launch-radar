@@ -154,6 +154,7 @@ function start(main: HTMLElement, data: RadarData, api: typeof BrowserApi): void
   let lastPage: string | undefined;
 
   function draw(): void {
+    delete main.dataset.ready;
     const route = parseRoute(location.hash);
     const page = route.page === "protocol" ? `protocol/${route.slug}` : route.page;
     const changedPage = lastPage !== undefined && lastPage !== page;
@@ -173,8 +174,9 @@ function start(main: HTMLElement, data: RadarData, api: typeof BrowserApi): void
     }
     if (changedPage) {
       window.scrollTo(0, 0);
-      main.querySelector<HTMLElement>("h2, input")?.focus({ preventScroll: true });
+      main.querySelector<HTMLElement>('h2[tabindex="-1"]')?.focus({ preventScroll: true });
     }
+    main.dataset.ready = "";
   }
 
   function sortBy(sort: SortKey): void {

@@ -389,6 +389,7 @@
     let updateBoard;
     let lastPage;
     function draw() {
+      delete main2.dataset.ready;
       const route = parseRoute(location.hash);
       const page = route.page === "protocol" ? `protocol/${route.slug}` : route.page;
       const changedPage = lastPage !== void 0 && lastPage !== page;
@@ -406,8 +407,9 @@
       }
       if (changedPage) {
         window.scrollTo(0, 0);
-        main2.querySelector("h2, input")?.focus({ preventScroll: true });
+        main2.querySelector('h2[tabindex="-1"]')?.focus({ preventScroll: true });
       }
+      main2.dataset.ready = "";
     }
     function sortBy(sort) {
       const { state } = parseRoute(location.hash);
