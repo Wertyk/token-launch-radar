@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": [],
+    "resolveJsonModule": true
+  },
+  "files": ["tsconfig.base.json"],
+  "include": ["src/domain/**/*.ts", "src/application/**/*.ts"]
+}
