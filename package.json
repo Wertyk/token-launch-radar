@@ -5,7 +5,19 @@
   "description": "Offline radar that ranks DeFi protocols recording no token by implied launch value, with a costed farm plan for each",
   "license": "MIT",
   "type": "module",
-  "scripts": {},
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.core.json && tsc -p tsconfig.node.json && tsc -p tsconfig.web.json",
+    "lint": "biome check",
+    "format": "biome format --write",
+    "arch": "node .dependency-cruiser.cjs",
+    "test": "vitest run",
+    "build:web": "node -e 'console.error(\"build:web will be added in task-9.\"); process.exitCode = 1'",
+    "radar": "node -e 'console.error(\"radar will be added in task-8.\"); process.exitCode = 1'",
+    "shots": "node -e 'console.error(\"shots will be added in task-10.\"); process.exitCode = 1'",
+    "gate": "node -e 'console.error(\"gate will be added in task-10.\"); process.exitCode = 1'",
+    "sandbox": "node -e 'console.error(\"sandbox will be added in task-10.\"); process.exitCode = 1'",
+    "verify": "pnpm typecheck && pnpm lint && pnpm arch && pnpm test"
+  },
   "engines": {
     "node": ">=22.18"
   },

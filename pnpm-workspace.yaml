@@ -2,3 +2,10 @@ allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:
   - dependency-cruiser@18.9.0
+# dependency-cruiser parses TypeScript through the compiler's JS API, which
+# typescript 7.0 (native port) does not ship; it supports <7.0.0 || >=7.1.0.
+# Give it its own 6.x parser while the project compiles with 7.0.
+packageExtensions:
+  dependency-cruiser:
+    dependencies:
+      typescript: 6.0.3
