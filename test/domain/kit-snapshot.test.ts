@@ -1,10 +1,10 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
-import { boardEntries, buildCensus } from "../../src/domain/census/census.ts";
-import { makeFarmPlan, renderFarmStep } from "../../src/domain/farming/plans.ts";
+import { toBoardRows } from "../../src/application/board-rows.ts";
+import { buildRadar } from "../../src/application/build-radar.ts";
 import type { Snapshot } from "../../src/domain/snapshot.ts";
 import { parseSnapshot } from "../../src/domain/snapshot.ts";
-import { fitValueModel, rankBoard } from "../../src/domain/valuation/model.ts";
 
 const snapshotPath =
   process.env.RADAR_SNAPSHOT ?? "../token-radar-kit/token-radar-01-kit/input/snapshot.json";
@@ -24,40 +24,50 @@ function readSnapshot(): Snapshot {
   return parseSnapshot(JSON.parse(json));
 }
 
-function domainResults(snapshot: Snapshot) {
-  const census = buildCensus(snapshot.protocols);
-  const model = fitValueModel(census, snapshot.as_of);
-  const board = rankBoard(boardEntries(census, snapshot.watchlist), snapshot.as_of, model).map(
-    (row) => {
-      const plan = makeFarmPlan(row.protocol);
-      return { ...row, plan, farm_steps: plan.steps.map(renderFarmStep) };
-    },
-  );
-  return { census, model, board };
-}
-
 test("the kit snapshot produces a complete, valid and deterministic board", () => {
   const snapshot = readSnapshot();
-  const result = domainResults(snapshot);
+  const result = buildRadar(snapshot);
   const { census, board } = result;
 
-  expect(census.map(({ protocol: row }) => row.slug)).toEqual(
-    snapshot.protocols.map((row) => row.slug),
+  expect(census).toHaveLength(758);
+  expect(census.map(({ slug }) => slug)).toEqual(snapshot.protocols.map(({ slug }) => slug));
+  const counts = new Map<string, number>();
+  for (const { status } of census) counts.set(status, (counts.get(status) ?? 0) + 1);
+  expect(Object.fromEntries(counts)).toEqual({
+    traded: 128,
+    "token-unpriced": 288,
+    excluded: 144,
+    "pre-token": 198,
+  });
+  expect(
+    census.map(({ slug, name, category, tvl_usd }) => ({ slug, name, category, tvl_usd })),
+  ).toEqual(
+    snapshot.protocols.map(({ slug, name, category, tvl_usd }) => ({
+      slug,
+      name,
+      category,
+      tvl_usd,
+    })),
   );
-  for (const { status, reason } of census) {
-    expect(["traded", "token-unpriced", "pre-token", "excluded"]).toContain(status);
+  for (const { reason, familyKey } of census) {
     expect(reason.trim()).not.toBe("");
+    expect(familyKey.trim()).not.toBe("");
   }
+  const { houseRule } = result;
+  expect(houseRule.truePositives).toEqual([...snapshot.watchlist].sort());
+  expect(houseRule.falsePositives).toHaveLength(20);
+  expect(houseRule.falseNegatives).toEqual([]);
+  expect(houseRule.recall).toBe(1);
+  expect(houseRule.precision).toBe(2 / 3);
   expect(result.model.n).toBe(128);
   expect(snapshot.watchlist).toHaveLength(40);
-  expect(board.length).toBeGreaterThanOrEqual(100);
-  expect(board.length).toBeLessThanOrEqual(4000);
+  expect(board).toHaveLength(198);
   const boardSlugs = new Set(board.map(({ protocol: row }) => row.slug));
   expect(boardSlugs.size).toBe(board.length);
   expect(boardSlugs).toEqual(
     new Set([
       ...snapshot.watchlist,
-      ...census.filter(({ status }) => status === "pre-token").map(({ protocol: row }) => row.slug),
+      ...census.filter(({ status }) => status === "pre-token").map(({ slug }) => slug),
     ]),
   );
   expect(new Set(board.map(({ implied_value_usd }) => implied_value_usd)).size).toBeGreaterThan(1);
@@ -97,5 +107,27 @@ test("the kit snapshot produces a complete, valid and deterministic board", () =
       expect(step.trim().length).toBeLessThanOrEqual(600);
     }
   }
-  expect(domainResults(snapshot)).toEqual(result);
+  expect(buildRadar(snapshot)).toEqual(result);
+});
+
+test("the published kit board differs from the pre-census board only by the parent flag", () => {
+  const result = buildRadar(readSnapshot());
+  const board = toBoardRows(result);
+  const flag = "parent-protocol-likely";
+  expect(
+    board.rows
+      .filter(({ flags }) => flags.includes(flag))
+      .map(({ slug }) => slug)
+      .sort(),
+  ).toEqual(result.houseRule.falsePositives.map(({ slug }) => slug));
+  const priorBoard = {
+    rows: board.rows.map((row) => ({ ...row, flags: row.flags.filter((value) => value !== flag) })),
+  };
+  // Normalize floating-point metadata so the baseline tolerates differences across JS engines.
+  const json = JSON.stringify(priorBoard, (_, value) =>
+    typeof value === "number" && !Number.isInteger(value) ? Number(value.toPrecision(12)) : value,
+  );
+  expect(createHash("sha256").update(json).digest("hex")).toBe(
+    "0848697f840d8818e612e9099759b00eace97937898936a31f0993753cbeccfe",
+  );
 });

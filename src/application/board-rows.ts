@@ -1,6 +1,7 @@
 import type { RadarResult } from "./build-radar.ts";
 
 export function toBoardRows(result: RadarResult) {
+  const slugsWithLikelyParent = new Set(result.houseRule.falsePositives.map(({ slug }) => slug));
   const rows = result.board.map((row) => ({
     slug: row.protocol.slug,
     name: row.protocol.name,
@@ -14,7 +15,9 @@ export function toBoardRows(result: RadarResult) {
     listed_at: row.protocol.listed_at,
     status: row.status,
     board_reasons: row.boardReasons,
-    flags: row.flags,
+    flags: slugsWithLikelyParent.has(row.protocol.slug)
+      ? [...row.flags, "parent-protocol-likely" as const]
+      : row.flags,
     decomposition: row.decomposition,
     plan_chain: row.plan.chain,
     plan_total_cost_usd: row.plan.totalCostUsd,

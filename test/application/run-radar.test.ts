@@ -5,6 +5,7 @@ import { buildRadar } from "../../src/application/build-radar.ts";
 import type { DossierBuilder, OutputSink, SnapshotSource } from "../../src/application/ports.ts";
 import { runRadar } from "../../src/application/run-radar.ts";
 import { parseSnapshot } from "../../src/domain/snapshot.ts";
+import { protocol } from "../domain/protocol-fixture.ts";
 import { readKitSnapshot } from "../radar-fixtures.ts";
 
 class MemoryOutput implements OutputSink {
@@ -101,6 +102,7 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   expect(dataScript.endsWith(";\n")).toBe(true);
   expect(dataScript).not.toMatch(/https?:\/\//i);
   const data = JSON.parse(dataScript.slice(prefix.length, -2));
+  const radar = buildRadar(snapshot);
   expect(data).toEqual({
     meta: {
       as_of: snapshot.as_of,
@@ -109,11 +111,12 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     },
     protocols: snapshot.protocols,
     watchlist: snapshot.watchlist,
+    census: radar.census,
+    houseRule: radar.houseRule,
     board,
   });
   expect(data.protocols).toHaveLength(758);
 
-  const radar = buildRadar(snapshot);
   expect(radar.census).toHaveLength(snapshot.protocols.length);
   expect(radar.census.every(({ reason }) => reason.length > 0)).toBe(true);
   expect(radar.model.n).toBe(128);
@@ -163,11 +166,37 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     listed_at: row.protocol.listed_at,
     status: row.status,
     board_reasons: row.boardReasons,
-    flags: row.flags,
+    flags: [...row.flags, "parent-protocol-likely"],
     decomposition: row.decomposition,
     plan_chain: row.plan.chain,
     plan_total_cost_usd: row.plan.totalCostUsd,
     plan_total_minutes: row.plan.totalMinutes,
+  });
+});
+
+test("fits a traded family once using its summed TVL, market cap and representative age", () => {
+  const radar = buildRadar({
+    as_of: "2024-03-17",
+    source: "fixture",
+    floor_usd: 100,
+    protocols: [
+      protocol({ slug: "z-member", gecko_id: "shared", tvl_usd: 30, mcap_usd: 100 }),
+      protocol({ slug: "a-member", gecko_id: "shared", tvl_usd: 20, listed_at: "2024-03-01" }),
+      protocol({ slug: "candidate", tvl_usd: 40 }),
+    ],
+    watchlist: [],
+  });
+  expect(radar.model.n).toBe(1);
+  expect(radar.model.featureMeans).toEqual({ lnTvl: Math.log(50), lnAge: Math.log(16) });
+  expect(radar.model.coefficients.intercept).toBeCloseTo(Math.log(100), 12);
+  expect(radar.census[1]).toEqual({
+    slug: "a-member",
+    name: "Sample Protocol",
+    category: null,
+    tvl_usd: 20,
+    status: "traded",
+    reason: "The family records a positive market cap.",
+    familyKey: "gecko:shared",
   });
 });
 

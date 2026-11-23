@@ -16,9 +16,10 @@ export function runRadar(
   dossier: DossierBuilder,
 ): RadarSummary {
   const snapshot = parseSnapshot(source.load());
-  const board = toBoardRows(buildRadar(snapshot));
+  const radar = buildRadar(snapshot);
+  const board = toBoardRows(radar);
   output.write("board.json", `${JSON.stringify(board)}\n`);
-  output.write("data.js", renderDataScript(snapshot, board));
+  output.write("data.js", renderDataScript(snapshot, board, radar));
   const assets = output.publishAssets();
   output.write("dossier.json", dossier.build());
 

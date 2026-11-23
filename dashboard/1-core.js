@@ -131,6 +131,7 @@ var Radar = (() => {
 
   // src/application/board-rows.ts
   function toBoardRows(result) {
+    const slugsWithLikelyParent = new Set(result.houseRule.falsePositives.map(({ slug }) => slug));
     const rows = result.board.map((row) => ({
       slug: row.protocol.slug,
       name: row.protocol.name,
@@ -144,13 +145,48 @@ var Radar = (() => {
       listed_at: row.protocol.listed_at,
       status: row.status,
       board_reasons: row.boardReasons,
-      flags: row.flags,
+      flags: slugsWithLikelyParent.has(row.protocol.slug) ? [...row.flags, "parent-protocol-likely"] : row.flags,
       decomposition: row.decomposition,
       plan_chain: row.plan.chain,
       plan_total_cost_usd: row.plan.totalCostUsd,
       plan_total_minutes: row.plan.totalMinutes
     }));
     return { rows };
+  }
+
+  // src/domain/shared/order.ts
+  function compareText(first, second) {
+    if (first < second) return -1;
+    if (first > second) return 1;
+    return 0;
+  }
+
+  // src/domain/census/families.ts
+  function familyKey({ slug, gecko_id }) {
+    return gecko_id === null ? `slug:${slug}` : `gecko:${gecko_id}`;
+  }
+  function groupFamilies(protocols) {
+    const families = /* @__PURE__ */ new Map();
+    for (const protocol of [...protocols].sort((a, b) => compareText(a.slug, b.slug))) {
+      const { tvl_usd, mcap_usd } = protocol;
+      const key = familyKey(protocol);
+      const marketCap = mcap_usd !== null && mcap_usd > 0 ? mcap_usd : null;
+      const family = families.get(key);
+      if (family) {
+        family.members.push(protocol);
+        family.tvl_usd += tvl_usd;
+        family.mcap_usd ??= marketCap;
+      } else {
+        families.set(key, {
+          key,
+          representative: protocol,
+          members: [protocol],
+          tvl_usd,
+          mcap_usd: marketCap
+        });
+      }
+    }
+    return [...families.values()];
   }
 
   // src/domain/census/census.ts
@@ -165,35 +201,79 @@ var Radar = (() => {
   var VERSION_SUFFIX = /\s(?:v\d+(?:\.\d+)*|\d+(?:\.\d+)+)$/i;
   var PRODUCT_WORD = /(?<![\p{L}\p{M}\p{N}_])(?:wrapped|staked|staking)(?![\p{L}\p{M}\p{N}_])/iu;
   var EXCHANGE_NAME = /^(?:Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gemini)(?![\p{L}\p{M}\p{N}_])/iu;
-  function classify(protocol) {
-    if (protocol.mcap_usd !== null && protocol.mcap_usd > 0) {
-      return { status: "traded", reason: "The snapshot records a positive market cap." };
-    }
-    if (protocol.gecko_id !== null || protocol.symbol !== null) {
-      return {
-        status: "token-unpriced",
-        reason: "The protocol records a token without a positive market cap."
-      };
-    }
+  function tokenFields({ gecko_id, symbol }) {
+    if (gecko_id !== null) return symbol === null ? "gecko_id" : "gecko_id and symbol";
+    return symbol === null ? null : "symbol";
+  }
+  function exclusionReason(protocol) {
     const { category } = protocol;
     if (category !== null && EXCLUDED_CATEGORIES.has(category)) {
-      return { status: "excluded", reason: `Category ${category} is excluded by the house rule.` };
+      return `Category ${category} is excluded by the house rule.`;
     }
     const name = protocol.name.trim();
     if (VERSION_SUFFIX.test(name)) {
-      return { status: "excluded", reason: "Name ends in a version marker." };
+      return "Name ends in a version marker.";
     }
     const productWord = name.match(PRODUCT_WORD)?.[0];
     if (productWord !== void 0) {
-      return { status: "excluded", reason: `Name contains the word “${productWord}”.` };
+      return `Name contains the word “${productWord}”.`;
     }
-    if (EXCHANGE_NAME.test(name)) {
-      return { status: "excluded", reason: "Name begins with an exchange name." };
+    const exchange = name.match(EXCHANGE_NAME)?.[0];
+    return exchange === void 0 ? null : `Name begins with an exchange name, “${exchange}”.`;
+  }
+  function classify(protocol, marketCap = protocol.mcap_usd) {
+    if (marketCap !== null && marketCap > 0) {
+      return { status: "traded", reason: "The family records a positive market cap." };
     }
+    const fields = tokenFields(protocol);
+    if (fields !== null) {
+      return {
+        status: "token-unpriced",
+        reason: `The protocol records a token via ${fields} without a positive market cap.`
+      };
+    }
+    const reason = exclusionReason(protocol);
+    if (reason !== null) return { status: "excluded", reason };
     return { status: "pre-token", reason: "The protocol records no token." };
   }
-  function buildCensus(protocols) {
-    return protocols.map((protocol) => ({ protocol, ...classify(protocol) }));
+  function buildCensus(protocols, families = groupFamilies(protocols)) {
+    const marketCaps = new Map(families.map(({ key, mcap_usd }) => [key, mcap_usd]));
+    return protocols.map((protocol) => {
+      const key = familyKey(protocol);
+      return { protocol, familyKey: key, ...classify(protocol, marketCaps.get(key) ?? null) };
+    });
+  }
+  function checkHouseRule({
+    protocols,
+    floor_usd,
+    watchlist
+  }) {
+    const watchlisted = new Set(watchlist);
+    const matches = new Set(
+      protocols.filter(
+        (protocol) => protocol.tvl_usd >= floor_usd && tokenFields(protocol) === null && exclusionReason(protocol) === null
+      ).map(({ slug }) => slug).sort(compareText)
+    );
+    const truePositives = [];
+    const falsePositives = [];
+    for (const slug of matches) {
+      if (watchlisted.has(slug)) {
+        truePositives.push(slug);
+      } else {
+        falsePositives.push({
+          slug,
+          reason: "DefiLlama names a parent protocol for it (parentProtocol), a field the snapshot does not carry"
+        });
+      }
+    }
+    const falseNegatives = [...watchlisted].filter((slug) => !matches.has(slug)).sort(compareText);
+    return {
+      truePositives,
+      falsePositives,
+      falseNegatives,
+      recall: watchlisted.size === 0 ? 0 : truePositives.length / watchlisted.size,
+      precision: matches.size === 0 ? 0 : truePositives.length / matches.size
+    };
   }
   function boardEntries(census, watchlist) {
     const watchlisted = new Set(watchlist);
@@ -205,13 +285,6 @@ var Radar = (() => {
       if (boardReasons.length > 0) entries.push({ ...entry, boardReasons });
     }
     return entries;
-  }
-
-  // src/domain/shared/order.ts
-  function compareText(first, second) {
-    if (first < second) return -1;
-    if (first > second) return 1;
-    return 0;
   }
 
   // src/domain/farming/plans.ts
@@ -571,14 +644,33 @@ var Radar = (() => {
   // src/application/build-radar.ts
   function buildRadar(snapshot) {
     const { protocols, watchlist, as_of } = snapshot;
-    const census = buildCensus(protocols);
-    const model = fitValueModel(census, as_of);
-    const ranked = rankBoard(boardEntries(census, watchlist), as_of, model);
+    const families = groupFamilies(protocols);
+    const entries = buildCensus(protocols, families);
+    const comparables = families.flatMap(
+      ({ key, representative, tvl_usd, mcap_usd }) => mcap_usd === null ? [] : [
+        {
+          protocol: { ...representative, tvl_usd, mcap_usd },
+          familyKey: key,
+          ...classify(representative, mcap_usd)
+        }
+      ]
+    );
+    const model = fitValueModel(comparables, as_of);
+    const ranked = rankBoard(boardEntries(entries, watchlist), as_of, model);
     const board = ranked.map((row) => {
       const plan = makeFarmPlan(row.protocol);
       return { ...row, plan, farm_steps: plan.steps.map(renderFarmStep) };
     });
-    return { census, model, board };
+    const census = entries.map(
+      ({ protocol: { slug, name, category, tvl_usd }, ...classification }) => ({
+        slug,
+        name,
+        category,
+        tvl_usd,
+        ...classification
+      })
+    );
+    return { census, houseRule: checkHouseRule(snapshot), model, board };
   }
   return __toCommonJS(browser_api_exports);
 })();

@@ -1,4 +1,7 @@
-import type { Protocol } from "../snapshot.ts";
+import { compareText } from "../shared/order.ts";
+import type { Protocol, Snapshot } from "../snapshot.ts";
+import type { ProtocolFamily } from "./families.ts";
+import { familyKey, groupFamilies } from "./families.ts";
 
 const EXCLUDED_CATEGORIES = new Set([
   "Bridge",
@@ -22,6 +25,21 @@ export interface Classification {
 
 export interface CensusEntry extends Classification {
   protocol: Protocol;
+  familyKey: string;
+}
+
+export interface CensusRecord
+  extends Classification,
+    Pick<Protocol, "slug" | "name" | "category" | "tvl_usd"> {
+  familyKey: string;
+}
+
+export interface HouseRuleCheck {
+  truePositives: string[];
+  falsePositives: { slug: string; reason: string }[];
+  falseNegatives: string[];
+  recall: number;
+  precision: number;
 }
 
 export type BoardReason = "pre-token" | "watchlist";
@@ -30,36 +48,93 @@ export interface BoardEntry extends CensusEntry {
   boardReasons: BoardReason[];
 }
 
-export function classify(protocol: Protocol): Classification {
-  if (protocol.mcap_usd !== null && protocol.mcap_usd > 0) {
-    return { status: "traded", reason: "The snapshot records a positive market cap." };
-  }
-  if (protocol.gecko_id !== null || protocol.symbol !== null) {
-    return {
-      status: "token-unpriced",
-      reason: "The protocol records a token without a positive market cap.",
-    };
-  }
+function tokenFields({ gecko_id, symbol }: Protocol): string | null {
+  if (gecko_id !== null) return symbol === null ? "gecko_id" : "gecko_id and symbol";
+  return symbol === null ? null : "symbol";
+}
+
+function exclusionReason(protocol: Protocol): string | null {
   const { category } = protocol;
   if (category !== null && EXCLUDED_CATEGORIES.has(category)) {
-    return { status: "excluded", reason: `Category ${category} is excluded by the house rule.` };
+    return `Category ${category} is excluded by the house rule.`;
   }
   const name = protocol.name.trim();
   if (VERSION_SUFFIX.test(name)) {
-    return { status: "excluded", reason: "Name ends in a version marker." };
+    return "Name ends in a version marker.";
   }
   const productWord = name.match(PRODUCT_WORD)?.[0];
   if (productWord !== undefined) {
-    return { status: "excluded", reason: `Name contains the word “${productWord}”.` };
+    return `Name contains the word “${productWord}”.`;
   }
-  if (EXCHANGE_NAME.test(name)) {
-    return { status: "excluded", reason: "Name begins with an exchange name." };
+  const exchange = name.match(EXCHANGE_NAME)?.[0];
+  return exchange === undefined ? null : `Name begins with an exchange name, “${exchange}”.`;
+}
+
+export function classify(protocol: Protocol, marketCap = protocol.mcap_usd): Classification {
+  if (marketCap !== null && marketCap > 0) {
+    return { status: "traded", reason: "The family records a positive market cap." };
   }
+  const fields = tokenFields(protocol);
+  if (fields !== null) {
+    return {
+      status: "token-unpriced",
+      reason: `The protocol records a token via ${fields} without a positive market cap.`,
+    };
+  }
+  const reason = exclusionReason(protocol);
+  if (reason !== null) return { status: "excluded", reason };
   return { status: "pre-token", reason: "The protocol records no token." };
 }
 
-export function buildCensus(protocols: readonly Protocol[]): CensusEntry[] {
-  return protocols.map((protocol) => ({ protocol, ...classify(protocol) }));
+export function buildCensus(
+  protocols: readonly Protocol[],
+  families: readonly ProtocolFamily[] = groupFamilies(protocols),
+): CensusEntry[] {
+  const marketCaps = new Map(families.map(({ key, mcap_usd }) => [key, mcap_usd]));
+  return protocols.map((protocol) => {
+    const key = familyKey(protocol);
+    return { protocol, familyKey: key, ...classify(protocol, marketCaps.get(key) ?? null) };
+  });
+}
+
+export function checkHouseRule({
+  protocols,
+  floor_usd,
+  watchlist,
+}: Pick<Snapshot, "protocols" | "floor_usd" | "watchlist">): HouseRuleCheck {
+  const watchlisted = new Set(watchlist);
+  const matches = new Set(
+    protocols
+      .filter(
+        (protocol) =>
+          protocol.tvl_usd >= floor_usd &&
+          tokenFields(protocol) === null &&
+          exclusionReason(protocol) === null,
+      )
+      .map(({ slug }) => slug)
+      .sort(compareText),
+  );
+  const truePositives: string[] = [];
+  const falsePositives: HouseRuleCheck["falsePositives"] = [];
+  for (const slug of matches) {
+    if (watchlisted.has(slug)) {
+      truePositives.push(slug);
+    } else {
+      falsePositives.push({
+        slug,
+        reason:
+          "DefiLlama names a parent protocol for it (parentProtocol), a field the snapshot does not carry",
+      });
+    }
+  }
+  const falseNegatives = [...watchlisted].filter((slug) => !matches.has(slug)).sort(compareText);
+  return {
+    truePositives,
+    falsePositives,
+    falseNegatives,
+    recall: watchlisted.size === 0 ? 0 : truePositives.length / watchlisted.size,
+    precision: matches.size === 0 ? 0 : truePositives.length / matches.size,
+  };
 }
 
 export function boardEntries(
