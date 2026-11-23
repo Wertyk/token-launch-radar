@@ -4,7 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Token Launch Radar</title>
-    <link rel="stylesheet" href="3-app.css">
+    <script src="../data.js"></script>
+    <link rel="stylesheet" href="1-tokens.css">
+    <link rel="stylesheet" href="4-app.css">
   </head>
   <body>
     <header class="shell masthead">
@@ -12,12 +14,14 @@
         <h1>Token Launch Radar</h1>
         <p id="snapshot-date"></p>
       </div>
-      <nav aria-label="Radar pages"><a href="#/">Board</a> · <a href="#/plan">Farm planner</a></nav>
+      <nav aria-label="Radar pages">
+        <a href="#/">Board</a> · <a href="#/method">Method</a> · <a href="#/census">Census</a> ·
+        <a href="#/plan">Farm planner</a>
+      </nav>
       <div id="summary"></div>
     </header>
-    <main class="shell"></main>
-    <script src="../data.js"></script>
-    <script src="1-core.js"></script>
-    <script src="2-ui.js"></script>
+    <main class="shell" tabindex="-1"></main>
+    <script src="2-core.js"></script>
+    <script src="3-ui.js"></script>
   </body>
 </html>

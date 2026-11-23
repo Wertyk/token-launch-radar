@@ -119,8 +119,11 @@ beforeEach(() => {
   saveSnapshot();
   mkdirSync(join(out, "dashboard"));
   writeFileSync(join(out, "dashboard", "index.html"), "<!doctype html><title>Test</title>");
-  writeFileSync(join(out, "dashboard", "app.css"), "body {}");
-  writeFileSync(join(out, "dashboard", "app.js"), "void 0;");
+  writeFileSync(join(out, "dashboard", "0-guide.md"), "# Radar");
+  writeFileSync(join(out, "dashboard", "1-tokens.css"), ":root { --ink: #202823; }");
+  writeFileSync(join(out, "dashboard", "2-core.js"), "void 0;");
+  writeFileSync(join(out, "dashboard", "4-app.css"), "body {}");
+  writeFileSync(join(out, "dashboard", "3-ui.js"), "void 0;");
   mkdirSync(join(out, "screenshots"));
   writeFileSync(join(out, "screenshots", "a.png"), png(1440, 800, 512 * 1024));
   writeFileSync(join(out, "screenshots", "b.jpg"), jpeg(800, 1440, 0xc0));
@@ -136,7 +139,7 @@ afterEach(() => {
 test("passes all seven checks and reports what the judge sees", () => {
   const stdout = runGate();
   expect(stdout).toMatch(/text: \d+ bytes, \d+ bytes of headroom/);
-  expect(stdout).toContain("dashboard/app.css shown whole");
+  expect(stdout).toContain("dashboard/4-app.css shown whole");
   expect(stdout).toContain("a.png 524288 bytes, 1440×800");
   expect(stdout).toContain("b.jpg 23 bytes, 800×1440");
   expect(stdout).toMatch(/dossier\.json: \d+ \/ 1572864 bytes/);
@@ -150,10 +153,10 @@ test("accepts a bare board array and checks order by rank", () => {
 });
 
 test("dashboard_files rejects links in comments and names the first file", () => {
-  writeFileSync(join(out, "dashboard", "app.js"), "// https://example.test/");
+  writeFileSync(join(out, "dashboard", "3-ui.js"), "// https://example.test/");
   writeFileSync(join(out, "dashboard", "index.html"), "<!-- http://example.test/ -->");
   saveDossier();
-  expect(runGate(["dashboard_files"])).toMatch(/FAIL dashboard_files .*dashboard\/app\.js/);
+  expect(runGate(["dashboard_files"])).toMatch(/FAIL dashboard_files .*dashboard\/3-ui\.js/);
 });
 
 test("board_file identifies invented slugs", () => {
@@ -220,13 +223,13 @@ test("dossier_matches rejects a valid JSON file with different bytes", () => {
 
 test("the dossier report shows cuts and dropped files without counting source headings", () => {
   writeFileSync(
-    join(out, "dashboard", "app.js"),
+    join(out, "dashboard", "3-ui.js"),
     `/*\n### index.html\n*/\n${"// Long line of script content.\n".repeat(2400)}`,
   );
   writeFileSync(join(out, "dashboard", "tile.png"), png(12, 12));
   saveDossier();
   const stdout = runGate();
-  expect(stdout).toMatch(/dashboard\/app\.js cut \(\d+ of \d+ lines not shown\)/);
+  expect(stdout).toMatch(/dashboard\/3-ui\.js cut \(\d+ of \d+ lines not shown\)/);
   expect(stdout).toContain("dashboard/index.html dropped");
   expect(stdout).toContain("dashboard/tile.png dropped");
 });

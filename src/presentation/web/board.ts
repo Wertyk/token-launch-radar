@@ -5,6 +5,7 @@ export interface BoardRow {
   name: string;
   rank: number;
   value: number;
+  interval: readonly [number, number] | null;
   tvl: number;
   growth: number | null;
   age: number | null;
@@ -15,7 +16,7 @@ export interface BoardRow {
   chains: readonly string[];
 }
 
-function compareText(a: string, b: string): number {
+export function compareText(a: string, b: string): number {
   return a < b ? -1 : Number(a > b);
 }
 

@@ -4,12 +4,12 @@ import { build } from "esbuild";
 const bundles = [
   {
     entry: "src/application/browser-api.ts",
-    outfile: "dashboard/1-core.js",
+    outfile: "dashboard/2-core.js",
     globalName: "Radar",
   },
   {
     entry: "src/presentation/web/main.ts",
-    outfile: "dashboard/2-ui.js",
+    outfile: "dashboard/3-ui.js",
   },
 ];
 const check = process.argv.includes("--check");

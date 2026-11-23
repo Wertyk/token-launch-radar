@@ -44,7 +44,7 @@ export function fitLaunchClock(protocols: readonly Protocol[], asOf: string): La
   return { points, medianAgeDays: median(ages) ?? null };
 }
 
-function shareAt(points: readonly ClockPoint[], age: number): number {
+export function shareAt(points: readonly ClockPoint[], age: number): number {
   let left = points[0];
   if (!left) return 0;
   if (age <= left.ageDays) return left.share;

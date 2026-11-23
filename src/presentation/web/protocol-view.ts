@@ -1,24 +1,24 @@
-import type { RadarRow } from "../../application/browser-api.ts";
+import type { clockShareAt, RadarRow } from "../../application/browser-api.ts";
+import type { ProtocolFamily } from "../../domain/census/families.ts";
 import type { EconomicsAssumptions } from "../../domain/farming/economics.ts";
+import type { LaunchClock } from "../../domain/launch-clock/clock.ts";
+import type { ValueDiagnostics } from "../../domain/valuation/diagnostics.ts";
 import { chip, growthText } from "./board-view.ts";
+import { ageSparkline } from "./clock-view.ts";
 import { escapeHtml as esc, formatInteger } from "./format.ts";
+import { svg, table } from "./render.ts";
 
-const statusLabels = {
-  traded: "Token trades",
-  "token-unpriced": "Records an unpriced token",
-  "pre-token": "Records no token",
-  excluded: "Excluded by the house rule",
-};
+import { statusLabels } from "./state.ts";
 
 const reasonLabels = {
   "pre-token": "Meets the pre-token rule",
-  watchlist: "On the house watchlist",
+  watchlist: "House watchlist",
 };
 
 const flagLabels = {
-  "growth-missing": "7-day TVL change is missing. The model uses zero growth.",
-  "age-missing": "Listing date is missing. The model uses the comparable median age.",
-  "outside-comps-range": "TVL or age falls outside the range of the traded comparables.",
+  "growth-missing": "Missing TVL change. The model uses zero growth.",
+  "age-missing": "Missing listing date. The model uses median comparable age.",
+  "outside-comps-range": "TVL or age falls outside the comparable range.",
 };
 
 type FormatUsd = (value: number) => string;
@@ -39,81 +39,105 @@ function decomposition(row: RadarRow, usd: FormatUsd): string {
     .map(({ label, factor, value }) => {
       const finite = Number.isFinite(value);
       const width = finite ? ((value / largest) * 100).toFixed(2) : "0";
-      return `<li>
-        <span>${label}</span>
-        <span>${factor === undefined ? "" : `×${factor.toPrecision(4)}`}</span>
-        <svg viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true">
-          <rect width="${width}" height="6"></rect>
-        </svg>
-        <strong>${finite ? usd(Math.round(value)) : "—"}</strong>
-      </li>`;
+      return `<li><span>${label}</span><span>${factor === undefined ? "" : `×${factor.toPrecision(4)}`}</span>${svg(100, 6, `<rect width="${width}" height="6"></rect>`)}<strong>${finite ? usd(Math.round(value)) : "—"}</strong></li>`;
     })
     .join("")}</ol>`;
 }
 
+interface CardOptions {
+  age: number | null;
+  back: string;
+  usd: FormatUsd;
+  farm: Pick<EconomicsAssumptions, "hourlyRateUsd" | "farmerHaircut">;
+  diagnostics: (ValueDiagnostics & { launch_p12: number }) | undefined;
+  families: ReadonlyMap<string, Pick<ProtocolFamily, "representative" | "mcap_usd">>;
+  launchClock: LaunchClock;
+  clockShareAt: typeof clockShareAt;
+}
+
 export function protocolView(
   row: RadarRow,
-  age: number | null,
-  back: string,
-  usd: FormatUsd,
-  { hourlyRateUsd, farmerHaircut }: Pick<EconomicsAssumptions, "hourlyRateUsd" | "farmerHaircut">,
+  { age, back, usd, farm, diagnostics, families, launchClock, clockShareAt }: CardOptions,
 ): string {
   const { protocol, plan, economics, status } = row;
+  const { hourlyRateUsd, farmerHaircut } = farm;
   const { airdropYieldApr, breakEvenDepositUsd } = economics;
-  const isTokenRecorded = status === "traded" || status === "token-unpriced";
   const facts = [
     ["TVL", usd(protocol.tvl_usd)],
     ["7d TVL change", growthText(protocol.change_7d)],
     ["Listed", esc(protocol.listed_at ?? "Unlisted")],
-    [isTokenRecorded ? "Days since listing" : "Days with no token", formatInteger(age)],
+    [
+      status === "traded" || status === "token-unpriced"
+        ? "Days since listing"
+        : "Days with no token",
+      formatInteger(age),
+    ],
   ];
-  return `
-    <a class="back" href="${esc(back)}">← Back to board</a>
-    <div class="protocol-heading">
-      <div>
-        <h2 tabindex="-1">${esc(protocol.name)}</h2>
-        <div class="chips">
-          ${chip(protocol.category ?? "Unlisted category")}
-          ${protocol.chains.map(chip).join("")}
-        </div>
-      </div>
-      <span class="badge">Board rank ${formatInteger(row.rank)}</span>
-    </div>
+  const interval = diagnostics
+    ? `${usd(diagnostics.interval_p10_usd)}–${usd(diagnostics.interval_p90_usd)}`
+    : "—";
+  const influence = diagnostics?.influence;
+  const delta = influence?.rank_delta ?? 0;
+  const places = Math.abs(delta);
+  const movement = delta > 0 ? "down " : delta < 0 ? "up " : "";
+  const clockAge = Math.max(0, age ?? launchClock.medianAgeDays ?? 0);
+  const { points } = launchClock;
+  const p12 = diagnostics?.launch_p12 ?? economics.launchProbability12;
+  const twins = (diagnostics?.twins ?? []).map((slug) => {
+    const family = families.get(slug);
+    return [
+      esc(family?.representative.name ?? slug),
+      family?.mcap_usd ? usd(family.mcap_usd) : "—",
+    ];
+  });
+  const steps = table(
+    ["Action", "Est. fee", "Minutes", "Cadence"],
+    plan.steps.map((step) => [
+      esc(step.action) + (step.exitCondition ? `<small>${esc(step.exitCondition)}</small>` : ""),
+      usd(step.costUsd),
+      formatInteger(step.minutes),
+      step.cadence,
+    ]),
+    { total: ["Total planned", usd(plan.totalCostUsd), formatInteger(plan.totalMinutes), "All"] },
+  );
+  return `<a class="back" href="${esc(back)}">← Back to board</a>
+    <header class="protocol-heading"><div><h2>${esc(protocol.name)}</h2>
+      <div class="chips">${chip(protocol.category ?? "Unlisted category")}${protocol.chains.map((chain) => chip(chain)).join("")}</div>
+    </div>${chip(`Board rank ${row.rank}`, "badge")}</header>
     <div class="detail-grid">
       <div class="detail-facts">
-        <section class="panel">
-          <h3>Protocol record</h3>
+        <section class="panel"><h3>Protocol record</h3>
           <dl class="facts">${facts.map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("")}</dl>
           <p><strong>${statusLabels[status]}</strong>${status === "pre-token" ? "" : ` · ${esc(row.reason)}`}</p>
-          <p class="muted">Board inclusion · ${row.boardReasons.map((reason) => reasonLabels[reason]).join(" · ")}</p>
+          <p class="muted">Included · ${row.boardReasons.map((reason) => reasonLabels[reason]).join(" · ")}</p>
           ${row.flags.length ? `<ul class="flags">${row.flags.map((flag) => `<li>${flagLabels[flag]}</li>`).join("")}</ul>` : ""}
         </section>
-        <section class="panel valuation">
-          <h3>Conditional value at launch</h3>
+        <section class="panel"><h3>Conditional value at launch</h3>
           <p class="figure">${usd(row.implied_value_usd)}</p>
-          <p class="muted">If the protocol’s record stays as it is.</p>
+          <p>P10–P90 · ${interval}</p>
+          <p class="caption">If the protocol’s record stays as it is.</p>
           ${decomposition(row, usd)}
-          <p class="caption">Bars show cumulative dollar values. The board rounds to whole dollars and bounds values from $1 to $100T.</p>
+          ${influence ? `<p class="caption">Removing ${esc(influence.family_key)} moves this row ${movement}${places} ${places === 1 ? "place" : "places"}.</p>` : ""}
+        </section>
+        <section class="panel clock"><h3>Launch clock F(t)</h3>
+          ${ageSparkline(points, clockAge, clockShareAt(points, clockAge))}
+          <p><strong>P12 · ${(p12 * 100).toFixed(1)}%</strong></p>
+          <p class="caption">Age marker · ${formatInteger(clockAge)} days${age === null ? " (median proxy)" : ""}</p>
         </section>
       </div>
-      <section class="panel farm">
-        <h3>Farm plan</h3>
-        <p class="plan-meta"><strong>${esc(plan.chain ?? "Chain unlisted")}</strong> · ${usd(plan.depositUsd)} plan · ${plan.horizonMonths} months</p>
-        <div class="chips">${economics.deposits.map(({ depositUsd, verdict }) => `<span class="badge">${usd(depositUsd)} ${verdict}</span>`).join("")}</div>
-        <p class="caption">${usd(hourlyRateUsd)}/h for labor · ${farmerHaircut * 100}% farmer haircut</p>
-        <p>Expected airdrop yield ${(airdropYieldApr * 100).toFixed(2)}% APR · Net capital cost ${(plan.capitalApr * 100).toFixed(2)}% APR</p>
-        <p>Break-even deposit · ${breakEvenDepositUsd === "never" ? "never" : usd(breakEvenDepositUsd)}</p>
-        <table>
-          <thead><tr><th scope="col">Action</th><th scope="col">Est. fee</th><th scope="col">Minutes</th><th scope="col">Cadence</th></tr></thead>
-          <tbody>${plan.steps
-            .map(
-              (step) =>
-                `<tr><td>${esc(step.action)}${step.exitCondition ? `<small>${esc(step.exitCondition)}</small>` : ""}</td><td>${usd(step.costUsd)}</td><td>${formatInteger(step.minutes)}</td><td>${step.cadence}</td></tr>`,
-            )
-            .join("")}</tbody>
-          <tfoot><tr><th scope="row">Total planned</th><td>${usd(plan.totalCostUsd)}</td><td>${formatInteger(plan.totalMinutes)}</td><td>All</td></tr></tfoot>
-        </table>
-        <p class="caption">Active minutes and fees per occurrence. Fee assumptions ${plan.assumptionsAsOf}${plan.flags.length ? " · default chain fees" : ""}.</p>
-      </section>
+      <div class="detail-facts">
+        <section class="panel farm"><h3>Farm plan</h3>
+          <p class="plan-meta"><strong>${esc(plan.chain ?? "Chain unlisted")}</strong> · ${usd(plan.depositUsd)} plan · ${plan.horizonMonths} months</p>
+          <div class="chips">${economics.deposits.map(({ depositUsd, verdict }) => chip(`${usd(depositUsd)} ${verdict}`, "badge")).join("")}</div>
+          <p class="caption">${usd(hourlyRateUsd)}/h for labor · ${farmerHaircut * 100}% farmer haircut</p>
+          <p>Expected airdrop yield ${(airdropYieldApr * 100).toFixed(2)}% APR · Capital cost ${(plan.capitalApr * 100).toFixed(2)}% APR</p>
+          <p>Break-even deposit · ${breakEvenDepositUsd === "never" ? "never" : usd(breakEvenDepositUsd)}</p>
+          ${steps}
+          <p class="caption">Per-occurrence minutes and fees. Assumptions ${plan.assumptionsAsOf}${plan.flags.length ? " · fallback fees" : ""}.</p>
+        </section>
+        <section class="panel compact"><h3>Nearest comparables</h3>
+          ${table(["Twin", "Family market cap"], twins)}
+        </section>
+      </div>
     </div>`;
 }

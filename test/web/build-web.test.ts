@@ -20,18 +20,18 @@ test("checks the generated bundles byte for byte without writing them", () => {
     expect(build.status, build.stderr).toBe(0);
     expect(run("--check").status).toBe(0);
 
-    const core = readFileSync(join(cwd, "dashboard/1-core.js"), "utf8");
+    const core = readFileSync(join(cwd, "dashboard/2-core.js"), "utf8");
     expect(core).not.toMatch(
       /fitCategoryModel|categoryGroup|categoryPenalty|selectLambda|fitLaunchClock|pava/,
     );
     expect(core).not.toMatch(/parseSnapshot|duplicate slug|Log the supply rate|Ethereum:\[3,8\]/);
 
-    const bundle = join(cwd, "dashboard/2-ui.js");
+    const bundle = join(cwd, "dashboard/3-ui.js");
     const original = readFileSync(bundle, "utf8");
     appendFileSync(bundle, "\n// Changed bundle\n");
     const check = run("--check");
     expect(check.status).toBe(1);
-    expect(check.stderr).toContain("2-ui.js");
+    expect(check.stderr).toContain("3-ui.js");
     expect(readFileSync(bundle, "utf8")).toContain("// Changed bundle");
 
     const rebuild = run();
@@ -44,9 +44,13 @@ test("checks the generated bundles byte for byte without writing them", () => {
 });
 
 test("keeps the guide and browser bundles within the judge's source budget", () => {
-  const bytes = ["0-guide.md", "1-core.js", "2-ui.js"].reduce(
+  const bytes = ["0-guide.md", "1-tokens.css", "2-core.js", "3-ui.js"].reduce(
     (total, file) => total + readFileSync(new URL(`dashboard/${file}`, root)).length,
     0,
   );
-  expect(bytes).toBeLessThanOrEqual(58_000);
+  expect(bytes).toBeLessThanOrEqual(60_000);
+});
+
+test("keeps the handwritten design tokens within 1.5 KB", () => {
+  expect(readFileSync(new URL("dashboard/1-tokens.css", root)).length).toBeLessThanOrEqual(1_500);
 });

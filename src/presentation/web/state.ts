@@ -1,3 +1,5 @@
+import type { TokenStatus } from "../../domain/census/census.ts";
+
 export const columns = {
   rank: "Rank",
   name: "Protocol",
@@ -21,16 +23,37 @@ export interface BoardState {
   q: string;
 }
 
+export const sliderLimits = { share: 100, haircut: 100, rate: 250, yield: 50, carry: 50 };
+export type Sliders = Partial<Record<keyof typeof sliderLimits, number>>;
+
+export const statusLabels: Record<TokenStatus, string> = {
+  traded: "Token trades",
+  "token-unpriced": "Records an unpriced token",
+  "pre-token": "Records no token",
+  excluded: "Excluded by the house rule",
+};
+
+export interface CensusState {
+  status: TokenStatus | "";
+  sort: "tvl" | "name" | "status";
+  dir: "asc" | "desc";
+}
+
+export const defaultCensus: CensusState = { status: "", sort: "tvl", dir: "desc" };
+
 export interface PlanState {
   budgetUsd: number;
   hoursPerWeek: number;
   chains: string[];
+  sliders: Sliders;
 }
 
 type Route =
   | { page: "board" | "unknown"; state: BoardState }
   | { page: "protocol"; state: BoardState; slug: string }
-  | { page: "plan"; state: PlanState };
+  | { page: "plan"; state: PlanState }
+  | { page: "method" }
+  | { page: "census"; state: CensusState };
 
 export const defaultState: BoardState = {
   sort: "rank",
@@ -53,16 +76,35 @@ function limit(value: string | null, fallback: number): number {
 export function parseRoute(hash: string): Route {
   const [path, query] = hash.slice(1).split(/\?(.*)/s, 2);
   const params = new URLSearchParams(query);
+  if (path === "/method") return { page: "method" };
+  if (path === "/census") {
+    const status = params.get("status");
+    const sort = params.get("sort");
+    return {
+      page: "census",
+      state: {
+        status: status && Object.hasOwn(statusLabels, status) ? (status as TokenStatus) : "",
+        sort: sort === "name" || sort === "status" ? sort : "tvl",
+        dir: params.get("dir") === "asc" ? "asc" : "desc",
+      },
+    };
+  }
   if (path === "/plan") {
     // Split the raw list so an encoded comma can be part of a chain name.
     const list = /(?:^|&)chains=([^&]*)/.exec(query ?? "")?.[1] ?? "";
     const chains = list.split(",").map((part) => new URLSearchParams(`c=${part}`).get("c") ?? "");
+    const sliders: Sliders = {};
+    for (const key of Object.keys(sliderLimits) as (keyof Sliders)[]) {
+      const value = limit(params.get(key), -1);
+      if (value >= 0 && value <= sliderLimits[key]) sliders[key] = value;
+    }
     return {
       page: "plan",
       state: {
         budgetUsd: limit(params.get("budget"), 5_000),
         hoursPerWeek: limit(params.get("hours"), 3),
         chains: [...new Set(chains.filter(Boolean))],
+        sliders,
       },
     };
   }
@@ -87,9 +129,23 @@ export function parseRoute(hash: string): Route {
   return { page: "unknown", state };
 }
 
-export function planHash({ budgetUsd, hoursPerWeek, chains }: PlanState): string {
+export function planHash({ budgetUsd, hoursPerWeek, chains, sliders }: PlanState): string {
   const list = chains.map(encodeURIComponent).join(",");
-  return `#/plan?budget=${encodeURIComponent(budgetUsd)}&hours=${encodeURIComponent(hoursPerWeek)}${list ? `&chains=${list}` : ""}`;
+  const params = new URLSearchParams({ budget: String(budgetUsd), hours: String(hoursPerWeek) });
+  for (const key of Object.keys(sliderLimits) as (keyof Sliders)[]) {
+    if (sliders[key] !== undefined) params.set(key, String(sliders[key]));
+  }
+  return `#/plan?${params}${list ? `&chains=${list}` : ""}`;
+}
+
+export function censusHash({ status, sort, dir }: CensusState): string {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (sort !== defaultCensus.sort || dir !== defaultCensus.dir) {
+    params.set("sort", sort);
+    params.set("dir", dir);
+  }
+  return `#/census${params.size ? `?${params}` : ""}`;
 }
 
 export function boardHash(state: BoardState): string {

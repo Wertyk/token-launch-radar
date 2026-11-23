@@ -9,6 +9,7 @@ const alpha: BoardRow = {
   name: "Alpha Capital",
   rank: 1,
   value: 100,
+  interval: null,
   tvl: 120,
   growth: 2,
   age: 20,

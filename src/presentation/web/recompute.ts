@@ -1,6 +1,6 @@
 import type { BoardRows } from "../../application/browser-api.ts";
 
-type CheckRow = Pick<
+export type CheckRow = Pick<
   BoardRows["rows"][number],
   "slug" | "rank" | "implied_value_usd" | "farm_steps"
 >;

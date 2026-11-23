@@ -94,6 +94,9 @@ test("passes all seven gate checks and reproduces every byte with the repo asset
   });
   expect(result.status, result.stderr || result.stdout || result.error?.message).toBe(0);
   expect(result.stdout.match(/^PASS /gm)).toHaveLength(7);
+  for (const file of ["0-guide.md", "1-tokens.css", "2-core.js", "3-ui.js"]) {
+    expect(result.stdout).toContain(`dashboard/${file} shown whole`);
+  }
 
   const files = outputFiles(first);
   expect(outputFiles(second)).toEqual(files);

@@ -1,20 +1,23 @@
 var Radar=(()=>{var __defProp=Object.defineProperty;var __getOwnPropDesc=Object.getOwnPropertyDescriptor;var __getOwnPropNames=Object.getOwnPropertyNames;var __hasOwnProp=Object.prototype.hasOwnProperty;var __export=(target,all)=>{for(var name in all)__defProp(target,name,{get:all[name],enumerable:true})};
 var __copyProps=(to,from,except,desc)=>{if(from&&typeof from==="object"||typeof from==="function"){for(let key of __getOwnPropNames(
 from))if(!__hasOwnProp.call(to,key)&&key!==except)__defProp(to,key,{get:()=>from[key],enumerable:!(desc=
-__getOwnPropDesc(from,key))||desc.enumerable})}return to};var __toCommonJS=mod=>__copyProps(__defProp({},"__esModule",{value:true}),mod);var browser_api_exports={};__export(browser_api_exports,{buildRadar:()=>recomputeRadar,daysBetween:()=>daysBetween,
-farmAssumptions:()=>FARM_ASSUMPTIONS,formatUsd:()=>formatUsd,planPortfolio:()=>planPortfolio,readPublishedSnapshot:()=>readPublishedSnapshot});var ASSUMPTIONS_AS_OF="2026-11-14";var FARM_ASSUMPTIONS={asOf:ASSUMPTIONS_AS_OF,airdropShareOfLaunchCap:.25,
+__getOwnPropDesc(from,key))||desc.enumerable})}return to};var __toCommonJS=mod=>__copyProps(__defProp({},"__esModule",{value:true}),mod);var browser_api_exports={};__export(browser_api_exports,{buildRadar:()=>recomputeRadar,clockShareAt:()=>shareAt,
+daysBetween:()=>daysBetween,estimateFarmEconomics:()=>estimateFarmEconomics,farmAssumptions:()=>FARM_ASSUMPTIONS,
+formatUsd:()=>formatUsd,planPortfolio:()=>planPortfolio,readPublishedSnapshot:()=>readPublishedSnapshot});var ASSUMPTIONS_AS_OF="2026-11-14";var FARM_ASSUMPTIONS={asOf:ASSUMPTIONS_AS_OF,airdropShareOfLaunchCap:.25,
 farmerHaircut:.5,hourlyRateUsd:25,capitalApr:{yieldBearing:.02,nonYielding:.05},horizonMonths:12,monthsPerYear:12,
 weeksPerYear:52,minutesPerHour:60,farmThreshold:1.5,thinThreshold:.75,depositsUsd:[1e3,1e4],tradeVolumeUsd:200,
-tradingFeeRate:6e-4,setupMinutes:5,bridgeMinutes:10};function compareText(first,second){if(first<second)return-1;if(first>second)return 1;return 0}function formatUsd(value){const[whole="0",cents]=Math.abs(value).toFixed(2).split(".");const grouped=whole.
+tradingFeeRate:6e-4,setupMinutes:5,bridgeMinutes:10};function formatUsd(value){const[whole="0",cents]=Math.abs(value).toFixed(2).split(".");const grouped=whole.
 replace(/\B(?=(\d{3})+(?!\d))/g,",");const fraction=cents&&cents!=="00"?`.${cents}`:"";return`${value<
 0?"-":""}$${grouped}${fraction}`}function farmEconomicsTerms(plan,valueUsd,tvlUsd,launchProbability,settings=FARM_ASSUMPTIONS){const fixedCosts=plan.
 totalCostUsd+plan.totalMinutes/settings.minutesPerHour*settings.hourlyRateUsd;const horizonYears2=settings.
-horizonMonths/settings.monthsPerYear;const capitalCarry=plan.capitalApr*horizonYears2;const k=valueUsd*
-settings.airdropShareOfLaunchCap*launchProbability*settings.farmerHaircut/tvlUsd;return{fixedCosts,horizonYears:horizonYears2,
-capitalCarry,k}}function estimateFarmEconomics(plan,valueUsd,tvlUsd,launchProbability){const{fixedCosts,
-horizonYears:horizonYears2,capitalCarry,k}=farmEconomicsTerms(plan,valueUsd,tvlUsd,launchProbability);
-const atDeposit=depositUsd=>{const expectedValueUsd=k*depositUsd;const costUsd=fixedCosts+depositUsd*
-capitalCarry;const ratio=expectedValueUsd/costUsd;const verdict=ratio>=FARM_ASSUMPTIONS.farmThreshold?
+horizonMonths/settings.monthsPerYear;const{yieldBearing,nonYielding}=settings.capitalApr??FARM_ASSUMPTIONS.
+capitalApr;let capitalApr=plan.capitalApr;if(capitalApr===FARM_ASSUMPTIONS.capitalApr.yieldBearing)capitalApr=
+yieldBearing;else if(capitalApr===FARM_ASSUMPTIONS.capitalApr.nonYielding)capitalApr=nonYielding;const capitalCarry=capitalApr*
+horizonYears2;const k=valueUsd*settings.airdropShareOfLaunchCap*launchProbability*settings.farmerHaircut/
+tvlUsd;return{fixedCosts,horizonYears:horizonYears2,capitalCarry,k}}function estimateFarmEconomics(plan,valueUsd,tvlUsd,launchProbability,settings=FARM_ASSUMPTIONS){
+const{fixedCosts,horizonYears:horizonYears2,capitalCarry,k}=farmEconomicsTerms(plan,valueUsd,tvlUsd,
+launchProbability,settings);const atDeposit=depositUsd=>{const expectedValueUsd=k*depositUsd;const costUsd=fixedCosts+
+depositUsd*capitalCarry;const ratio=expectedValueUsd/costUsd;const verdict=ratio>=FARM_ASSUMPTIONS.farmThreshold?
 "FARM":ratio>=FARM_ASSUMPTIONS.thinThreshold?"THIN":"SKIP";return{depositUsd,expectedValueUsd,costUsd,
 verdict}};const[small,large]=FARM_ASSUMPTIONS.depositsUsd;return{launchProbability12:launchProbability,
 airdropYieldApr:k/horizonYears2,deposits:[atDeposit(small),atDeposit(large)],breakEvenDepositUsd:k>capitalCarry?
@@ -24,7 +27,7 @@ never"?"never":`≈ ${formatUsd(breakEvenDepositUsd)}`;return`Economics at ${for
 over ${FARM_ASSUMPTIONS.horizonMonths} months · expected airdrop ≈ ${formatUsd(expectedValueUsd)}\
  vs cost ≈ ${formatUsd(costUsd)} → ${verdict}. Break-even deposit ${breakEven}. Assumes ${FARM_ASSUMPTIONS.
 airdropShareOfLaunchCap*100}% of circulating launch cap because a mostly unlocked airdrop can accoun\
-t for much of a small launch float.`}var DEFAULT_DEPOSIT_USD=FARM_ASSUMPTIONS.depositsUsd[0];var horizonYears=FARM_ASSUMPTIONS.horizonMonths/
+t for much of a small launch float.`}function compareText(first,second){if(first<second)return-1;if(first>second)return 1;return 0}var DEFAULT_DEPOSIT_USD=FARM_ASSUMPTIONS.depositsUsd[0];var horizonYears=FARM_ASSUMPTIONS.horizonMonths/
 FARM_ASSUMPTIONS.monthsPerYear;var occurrences={once:1,weekly:Math.floor(FARM_ASSUMPTIONS.weeksPerYear*
 horizonYears),monthly:FARM_ASSUMPTIONS.horizonMonths};function estimate(chain,gasTransactions,bridgeTransfers,{
 chains,fallback}){const fees=chain!==null&&Object.hasOwn(chains,chain)?chains[chain]:void 0;const[transactionUsd,
@@ -108,7 +111,7 @@ slug:candidate.slug,reason}});const closest=positions.length?[]:remaining.flatMa
 for(const{position,affordable,withinHours}of offers(candidate)){if(affordable&&withinHours&&(!best||
 position.netUsd>best.netUsd)){best=position}}return best?[{...best,shortfallUsd:Math.max(0,-best.netUsd)}]:
 []}).sort((a,b)=>a.shortfallUsd-b.shortfallUsd||compareText(a.slug,b.slug)).slice(0,5);return{positions,
-totals,rejected,closest}}var DAY_MS=864e5;function daysBetween(fromIso,toIso){return(Date.parse(toIso)-Date.parse(fromIso))/DAY_MS}function familyKey({slug,gecko_id}){return gecko_id===null?`slug:${slug}`:`gecko:${gecko_id}`}function groupFamilies(protocols){
+totals,rejected,closest}}function familyKey({slug,gecko_id}){return gecko_id===null?`slug:${slug}`:`gecko:${gecko_id}`}function groupFamilies(protocols){
 const families=new Map;for(const protocol of[...protocols].sort((a,b)=>compareText(a.slug,b.slug))){
 const{tvl_usd,mcap_usd}=protocol;const key=familyKey(protocol);const marketCap=mcap_usd!==null&&mcap_usd>
 0?mcap_usd:null;const family=families.get(key);if(family){family.members.push(protocol);family.tvl_usd+=
@@ -135,7 +138,7 @@ entry.protocol.slug))boardReasons.push("watchlist");if(boardReasons.length>0)ent
 boardReasons})}return entries}function clamp(value,min,max){return Math.min(max,Math.max(min,value))}function median(observations){
 const sorted=[...observations].sort((a,b)=>a.value-b.value||compareText(a.slug,b.slug));const mid=Math.
 floor(sorted.length/2);const upper=sorted[mid];const lower=sorted[mid-1];if(!upper)return void 0;return sorted.
-length%2===0&&lower?(lower.value+upper.value)/2:upper.value}var YEAR_DAYS=365;function shareAt(points,age){let left=points[0];if(!left)return 0;if(age<=left.ageDays)return left.share;
+length%2===0&&lower?(lower.value+upper.value)/2:upper.value}var DAY_MS=864e5;function daysBetween(fromIso,toIso){return(Date.parse(toIso)-Date.parse(fromIso))/DAY_MS}var YEAR_DAYS=365;function shareAt(points,age){let left=points[0];if(!left)return 0;if(age<=left.ageDays)return left.share;
 for(const right of points){if(age<=right.ageDays){const fraction=(age-left.ageDays)/(right.ageDays-left.
 ageDays);return left.share+fraction*(right.share-left.share)}left=right}return left.share}function launchProbability12(points,age){
 const now=shareAt(points,age);if(now===1)return 0;return clamp((shareAt(points,age+YEAR_DAYS)-now)/(1-
@@ -222,7 +225,8 @@ map(row=>{const{protocol,implied_value_usd}=row;const age=protocol.listed_at===n
 0:Math.max(0,daysBetween(protocol.listed_at,as_of));const p12=launchProbability12(launchClock.points,
 age);const plan=makeFarmPlan(protocol,tables);const economics=estimateFarmEconomics(plan,implied_value_usd,
 protocol.tvl_usd,p12);return{...row,plan,economics,farm_steps:[...plan.steps.map(renderFarmStep),renderEconomics(
-economics)]}});return{entries,model,board}}function recomputeRadar(snapshot,lambda,launchClock,tables){const{model,board}=rankRadar(snapshot,radarInputs(
-snapshot),lambda,launchClock,tables);return{model,board}}function readPublishedSnapshot({meta,protocols,watchlist}){if(!Array.isArray(protocols)||!Array.isArray(
+economics)]}});return{entries,model,board}}function recomputeRadar(snapshot,lambda,launchClock,tables){const inputs=radarInputs(snapshot);const{
+model,board}=rankRadar(snapshot,inputs,lambda,launchClock,tables);return{model,board,families:inputs.
+families}}function readPublishedSnapshot({meta,protocols,watchlist}){if(!Array.isArray(protocols)||!Array.isArray(
 watchlist)||protocols.length!==meta?.protocolCount){return null}const{as_of,floor_usd,source}=meta;return{
 as_of,floor_usd,source,protocols,watchlist}}return __toCommonJS(browser_api_exports);})();

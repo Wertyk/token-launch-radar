@@ -1,7 +1,9 @@
 import type { Snapshot } from "../domain/snapshot.ts";
 
 export { FARM_ASSUMPTIONS as farmAssumptions } from "../domain/farming/assumptions.ts";
+export { estimateFarmEconomics } from "../domain/farming/economics.ts";
 export { planPortfolio } from "../domain/farming/portfolio.ts";
+export { shareAt as clockShareAt } from "../domain/launch-clock/clock.ts";
 export { formatUsd } from "../domain/shared/money.ts";
 export { daysBetween } from "../domain/snapshot.ts";
 export type { BoardRows } from "./board-rows.ts";

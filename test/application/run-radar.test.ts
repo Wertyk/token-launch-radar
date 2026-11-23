@@ -118,6 +118,7 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     ValueDiagnostics & {
       launch_p12: number;
     })[];
+  expect(data.intervalCounts).toEqual({ missLow: 12, covered: 104, missHigh: 12 });
   expect(data.intervalCoverage).toBeGreaterThan(0);
   expect(data.intervalCoverage).toBeLessThanOrEqual(1);
   expect(data.launchClock.points).toHaveLength(6);
@@ -285,6 +286,7 @@ test("fits a traded family once using its summed TVL, market cap and representat
   });
   expect(radar.model.n).toBe(1);
   expect(radar.intervalCoverage).toBeNull();
+  expect(radar.intervalCounts).toBeNull();
   expect(radar.model.featureMeans).toEqual({ lnTvl: Math.log(50), lnAge: Math.log(16) });
   expect(radar.model.coefficients.intercept).toBeCloseTo(Math.log(100), 12);
   expect(radar.census[1]).toEqual({

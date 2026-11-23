@@ -12,10 +12,17 @@ export function renderDataScript(
     model,
     rowDiagnostics,
     intervalCoverage,
+    intervalCounts,
     launchClock,
   }: Pick<
     RadarResult,
-    "census" | "houseRule" | "model" | "rowDiagnostics" | "intervalCoverage" | "launchClock"
+    | "census"
+    | "houseRule"
+    | "model"
+    | "rowDiagnostics"
+    | "intervalCoverage"
+    | "intervalCounts"
+    | "launchClock"
   >,
   tables: FarmTables,
 ): string {
@@ -35,6 +42,7 @@ export function renderDataScript(
     houseRule,
     model,
     intervalCoverage,
+    intervalCounts,
     launchClock,
     board: {
       rows: board.rows.map((row) => {

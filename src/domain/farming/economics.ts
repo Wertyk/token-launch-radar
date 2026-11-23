@@ -25,6 +25,7 @@ export interface EconomicsAssumptions {
   hourlyRateUsd: number;
   airdropShareOfLaunchCap: number;
   farmerHaircut: number;
+  capitalApr?: { yieldBearing: number; nonYielding: number };
 }
 
 export function farmEconomicsTerms(
@@ -37,7 +38,12 @@ export function farmEconomicsTerms(
   const fixedCosts =
     plan.totalCostUsd + (plan.totalMinutes / settings.minutesPerHour) * settings.hourlyRateUsd;
   const horizonYears = settings.horizonMonths / settings.monthsPerYear;
-  const capitalCarry = plan.capitalApr * horizonYears;
+  const { yieldBearing, nonYielding } = settings.capitalApr ?? assumptions.capitalApr;
+  // Playbooks carry the baseline rate. Preserve custom playbook rates.
+  let capitalApr = plan.capitalApr;
+  if (capitalApr === assumptions.capitalApr.yieldBearing) capitalApr = yieldBearing;
+  else if (capitalApr === assumptions.capitalApr.nonYielding) capitalApr = nonYielding;
+  const capitalCarry = capitalApr * horizonYears;
   const k =
     (valueUsd * settings.airdropShareOfLaunchCap * launchProbability * settings.farmerHaircut) /
     tvlUsd;
@@ -49,12 +55,14 @@ export function estimateFarmEconomics(
   valueUsd: number,
   tvlUsd: number,
   launchProbability: number,
+  settings: EconomicsAssumptions = assumptions,
 ): FarmEconomics {
   const { fixedCosts, horizonYears, capitalCarry, k } = farmEconomicsTerms(
     plan,
     valueUsd,
     tvlUsd,
     launchProbability,
+    settings,
   );
   const atDeposit = (depositUsd: number): DepositEconomics => {
     const expectedValueUsd = k * depositUsd;

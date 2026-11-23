@@ -35,6 +35,7 @@ export interface RadarResult {
   model: ValueModel & ModelValidation;
   rowDiagnostics: ReadonlyMap<string, ValueDiagnostics>;
   intervalCoverage: number | null;
+  intervalCounts: ReturnType<typeof jackknifePlusCoverage>;
   launchClock: LaunchClock;
 }
 
@@ -103,6 +104,7 @@ export function buildRadar(snapshot: Snapshot, tables = farmTables()): RadarResu
     board,
     model: { ...model, ...validateModel(validationRows) },
     rowDiagnostics,
+    intervalCounts: coverage,
     intervalCoverage: coverage ? coverage.covered / inputs.comparables.length : null,
     launchClock,
   };
@@ -113,7 +115,8 @@ export function recomputeRadar(
   lambda: number,
   launchClock: LaunchClock,
   tables: FarmTables,
-): { model: ValueModel; board: RadarRow[] } {
-  const { model, board } = rankRadar(snapshot, radarInputs(snapshot), lambda, launchClock, tables);
-  return { model, board };
+) {
+  const inputs = radarInputs(snapshot);
+  const { model, board } = rankRadar(snapshot, inputs, lambda, launchClock, tables);
+  return { model, board, families: inputs.families };
 }

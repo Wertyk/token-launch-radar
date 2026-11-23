@@ -14,7 +14,6 @@ import { pathToFileURL } from "node:url";
 import type { Page } from "playwright";
 import { chromium } from "playwright";
 import type { BoardRows } from "../src/application/board-rows.ts";
-import { compareText } from "../src/domain/shared/order.ts";
 import { boardHash, defaultState, protocolHash } from "../src/presentation/web/state.ts";
 import { imageDimensions, screenshotTarget } from "./gate/image.ts";
 
@@ -50,22 +49,11 @@ function renderRadar(out: string): BoardRows {
 function shotStates({ rows }: BoardRows) {
   const first = rows.find(({ rank }) => rank === 1);
   if (!first) throw new Error("board.json needs a rank-1 row");
-  const categories = new Map<string, number>();
-  for (const { category } of rows) {
-    if (category) categories.set(category, (categories.get(category) ?? 0) + 1);
-  }
-  const [mostRows] = [...categories].sort(
-    ([a, aCount], [b, bCount]) => bCount - aCount || compareText(a, b),
-  );
-  if (!mostRows) throw new Error("board.json has no category to filter");
-
   return [
     { name: "1-board", hash: boardHash(defaultState) },
     { name: "2-detail", hash: protocolHash(first.slug, defaultState) },
-    {
-      name: "3-filtered",
-      hash: boardHash({ ...defaultState, cat: mostRows[0], sort: "tvl", dir: "desc" }),
-    },
+    { name: "3-method", hash: "#/method" },
+    { name: "4-census", hash: "#/census" },
   ];
 }
 
