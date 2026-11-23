@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { toBoardRows } from "../../src/application/board-rows.ts";
+import * as radarApi from "../../src/application/browser-api.ts";
 import { buildRadar } from "../../src/application/build-radar.ts";
 import type { DossierBuilder, OutputSink, SnapshotSource } from "../../src/application/ports.ts";
 import { runRadar } from "../../src/application/run-radar.ts";
@@ -117,6 +118,21 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   expect(radar.census.every(({ reason }) => reason.length > 0)).toBe(true);
   expect(radar.model.n).toBe(128);
   expect(board).toEqual(toBoardRows(radar));
+  for (const fn of [
+    radarApi.buildRadar,
+    radarApi.toBoard,
+    radarApi.parseSnapshot,
+    radarApi.daysBetween,
+    radarApi.formatUsd,
+  ]) {
+    expect(typeof fn).toBe("function");
+  }
+  const browserSnapshot = radarApi.parseSnapshot({
+    ...data.meta,
+    protocols: data.protocols,
+    watchlist: data.watchlist,
+  });
+  expect(radarApi.toBoard(radarApi.buildRadar(browserSnapshot))).toEqual(board);
 
   const row = radar.board[0];
   if (!row) throw new Error("Expected a ranked board row.");
