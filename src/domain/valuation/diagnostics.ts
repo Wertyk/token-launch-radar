@@ -46,8 +46,9 @@ export function describeBoardValues(
       const magnitude = Math.abs(rank_delta);
       const previousMagnitude = Math.abs(current?.rank_delta ?? 0);
       if (
+        !current ||
         magnitude > previousMagnitude ||
-        (current && magnitude === previousMagnitude && compareText(slug, current.slug) < 0)
+        (magnitude === previousMagnitude && compareText(slug, current.slug) < 0)
       ) {
         original.influence = { slug, family_key: familyKey, rank_delta };
       }
@@ -60,7 +61,7 @@ export function describeBoardValues(
     metadata: { medianLnAge },
   } = prepareFit(comparables);
   return [...board.values()].map(({ row, samples, influence }) => {
-    const { p10, p90 } = jackknifePlusBand(samples, Math.log(row.valueUsd));
+    const { p10, p90 } = jackknifePlusBand(samples);
     const { lnTvl, lnAge } = row.features;
     const twins = comparables
       .map((comparable) => {

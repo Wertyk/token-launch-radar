@@ -53,25 +53,22 @@ test("assigns families to five balanced, deterministic folds independent of inpu
   ).toHaveLength(1);
 });
 
-test("does not use outer test targets, dates or features to select lambda", () => {
+test("outer test targets do not affect lambda or predictions", () => {
   const [testRows, ...otherFolds] = seededFolds(rows);
   if (!testRows) throw new Error("Expected a test fold.");
   const train = otherFolds.flat();
   const original = fitOuterFold({ train, test: testRows });
   const changed = fitOuterFold({
     train,
-    test: testRows.map((row) => ({
-      ...row,
-      target: row.target + 30,
-      lnTvl: row.lnTvl + 20,
-      lnAge: 25,
-      listedAt: "1900-01-01",
-      category: "rwa",
-    })),
+    test: testRows.map((row) => ({ ...row, target: row.target + 30 })),
   });
   expect(original.lambda).toEqual(selectLambda(train));
   expect(changed.lambda).toEqual(original.lambda);
-  expect(changed.predictions.model).not.toEqual(original.predictions.model);
+  for (const predictor of ["model", "flatMultiple", "categoryMultiple"] as const) {
+    const predicted = original.predictions[predictor].map((row) => row.predicted);
+    expect(new Set(predicted).size).toBeGreaterThan(1);
+    expect(changed.predictions[predictor].map((row) => row.predicted)).toEqual(predicted);
+  }
 });
 
 function categoryFixture(logEffect: number) {
@@ -128,7 +125,21 @@ test("walk-forward trains on the earliest dated 60% plus all undated families", 
   expect(future.map(({ slug }) => slug)).toEqual(["sample-6", "sample-7", "sample-8", "sample-9"]);
 });
 
-test("multiple baselines use arithmetic medians of raw ratios and fall back to flat", () => {
+test("walk-forward keeps every family on the boundary date in training", () => {
+  const boundary = "2024-01-06";
+  const tied = rows.map((row) =>
+    row.slug === "sample-6" || row.slug === "sample-7" ? { ...row, listedAt: boundary } : row,
+  );
+  const { train, test: future } = walkForwardSplit(tied.toReversed());
+  expect(train.filter(({ listedAt }) => listedAt === boundary).map(({ slug }) => slug)).toEqual([
+    "sample-5",
+    "sample-6",
+    "sample-7",
+  ]);
+  expect(future.map(({ slug }) => slug)).toEqual(["sample-8", "sample-9"]);
+});
+
+test("multiple baselines use arithmetic medians of raw ratios", () => {
   const comparables = [
     protocol({ slug: "a", category: "Dexs", tvl_usd: 10, mcap_usd: 10 }),
     protocol({ slug: "b", category: "Dexs", tvl_usd: 20, mcap_usd: 180 }),
@@ -138,7 +149,20 @@ test("multiple baselines use arithmetic medians of raw ratios and fall back to f
   expect(Math.exp(baselines.flat)).toBeCloseTo(4, 12);
   expect(Math.exp(baselines.category.dex ?? 0)).toBeCloseTo(5, 12);
   expect(Math.exp(baselines.category.rwa ?? 0)).toBeCloseTo(4, 12);
-  expect(Math.exp(baselines.category.lending ?? baselines.flat)).toBeCloseTo(4, 12);
+});
+
+test("the outer category baseline predicts with the flat multiple for an unseen category", () => {
+  const comparables = validationRows([
+    protocol({ slug: "a", category: "Dexs", tvl_usd: 10, mcap_usd: 10 }),
+    protocol({ slug: "b", category: "Dexs", tvl_usd: 20, mcap_usd: 180 }),
+    protocol({ slug: "c", category: "RWA", tvl_usd: 10, mcap_usd: 40 }),
+    protocol({ slug: "later", category: "Lending", tvl_usd: 25, mcap_usd: 250 }),
+  ]);
+  const { predictions } = fitOuterFold({
+    train: comparables.slice(0, 3),
+    test: comparables.slice(3),
+  });
+  expect(predictions.categoryMultiple[0]?.predicted).toBeCloseTo(Math.log(4 * 25), 12);
 });
 
 test("scores log errors and Spearman with averaged ranks for ties", () => {

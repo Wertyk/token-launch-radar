@@ -45,7 +45,10 @@ export function walkForwardSplit<Row extends Comparable>(rows: readonly Row[]): 
   const dated = rows.flatMap((row) => (row.listedAt === null ? [] : [{ row, date: row.listedAt }]));
   dated.sort((a, b) => compareText(a.date, b.date) || bySlug(a.row, b.row));
   const cutoff = Math.floor(dated.length * 0.6);
-  const test = dated.slice(cutoff).map(({ row }) => row);
+  const lastTrainingDate = dated[cutoff - 1]?.date;
+  const test = dated
+    .slice(cutoff)
+    .flatMap(({ row, date }) => (date === lastTrainingDate ? [] : [row]));
   const heldOut = new Set(test.map(({ familyKey }) => familyKey));
   return { train: rows.filter((row) => !heldOut.has(row.familyKey)).sort(bySlug), test };
 }

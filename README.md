@@ -8,8 +8,8 @@ This offline radar scans a sealed DefiLlama snapshot of 758 protocols. It identi
 
 ## Value model
 
-- The prediction is `ln V = b0 + b1·ln(TVL·(1+g7)) + b3·ln(days with no token)`. The coefficients are fitted to traded market caps using TVL and days since listing, with one comparable per `gecko_id` family.
-- Traded comparables’ TVL changes can reflect their own token prices, so the prediction applies seven-day TVL momentum (`g7`, as a fraction) through the fitted TVL slope.
+- The prediction is `ln V = b0 + b1·ln(TVL·(1+g7)) + b3·ln(days with no token)`. Seven-day growth is `g7 = clamp(change_7d, −50, 100) / 100`, and `g7` is 0 when `change_7d` is missing. The coefficients are fitted to traded market caps using TVL and days since listing, with one comparable per `gecko_id` family.
+- Traded comparables’ TVL changes can reflect their own token prices, so the prediction applies seven-day TVL momentum through the fitted TVL slope.
 - `V` estimates total token market cap conditional on launch with the protocol’s record held fixed, independently of launch odds.
 - Each unrounded value decomposes into base × TVL × growth × age, with the last three terms shown as multipliers.
 

@@ -75,6 +75,7 @@ export function buildRadar(snapshot: Snapshot): RadarResult {
   const launchClock = fitLaunchClock(protocols, as_of);
   const refits = leaveOneFamilyOut(inputs.comparables, radar.model.lambda);
   const boardValues = describeBoardValues(radar.board, inputs.comparables, refits, as_of);
+  const coverage = jackknifePlusCoverage(inputs.comparables);
   const rowDiagnostics = new Map(
     boardValues.map(({ protocol: { slug, listed_at }, diagnostics }) => {
       const age =
@@ -91,7 +92,7 @@ export function buildRadar(snapshot: Snapshot): RadarResult {
     ...radar,
     model: { ...radar.model, ...validateModel(validationRows) },
     rowDiagnostics,
-    intervalCoverage: jackknifePlusCoverage(refits),
+    intervalCoverage: coverage ? coverage.covered / inputs.comparables.length : null,
     launchClock,
   };
 }

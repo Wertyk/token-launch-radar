@@ -2,7 +2,9 @@ import { compareText } from "../shared/order.ts";
 import type { Comparable } from "./comparables.ts";
 import type { ValueModel } from "./model.ts";
 import { fitValueModel, logValue } from "./model.ts";
-import { modelFeatures } from "./selection.ts";
+import { modelFeatures, selectLambda } from "./selection.ts";
+
+const TAIL_ALPHA = 0.1;
 
 export interface JackknifeSample {
   slug: string;
@@ -13,7 +15,6 @@ export interface JackknifeSample {
 export interface FamilyRefit {
   comparable: Comparable;
   model: ValueModel;
-  prediction: number;
   residual: number;
 }
 
@@ -30,68 +31,44 @@ export function leaveOneFamilyOut(rows: readonly Comparable[], lambda: number): 
       ordered.filter((row) => row !== comparable),
       lambda,
     );
-    const prediction = predictComparable(comparable, model);
-    return { comparable, model, prediction, residual: Math.abs(comparable.target - prediction) };
+    return {
+      comparable,
+      model,
+      residual: comparable.target - predictComparable(comparable, model),
+    };
   });
 }
 
-export function jackknifePlusBand(samples: readonly JackknifeSample[], point: number) {
-  const lower = [...samples].sort(
-    (a, b) =>
-      a.prediction - a.residual - (b.prediction - b.residual) || compareText(a.slug, b.slug),
-  );
-  const upper = [...samples].sort(
-    (a, b) =>
-      a.prediction + a.residual - (b.prediction + b.residual) || compareText(a.slug, b.slug),
-  );
-  // Absolute residuals allocate the nominal 20% miss rate across both tails.
-  // Finite-sample, one-based ranks are floor((n + 1) * .20) and ceil((n + 1) * .80).
-  const tailRank = Math.floor((samples.length + 1) / 5);
-  const lo = lower[tailRank - 1];
-  const hi = upper[samples.length - tailRank];
-  // Keep the published full-fit estimate inside the band even at extreme covariates.
+export function jackknifePlusBand(samples: readonly JackknifeSample[]) {
+  const candidates = samples
+    .map(({ slug, prediction, residual }) => ({ slug, value: prediction + residual }))
+    .sort((a, b) => a.value - b.value || compareText(a.slug, b.slug));
+  // Barber et al., Appendix A. The one-based ranks are floor((n + 1) * alpha)
+  // and its mirror, ceil((n + 1) * (1 - alpha)).
+  const tailRank = Math.floor((candidates.length + 1) * TAIL_ALPHA);
   return {
-    p10: Math.min(point, lo ? lo.prediction - lo.residual : Number.NEGATIVE_INFINITY),
-    p90: Math.max(point, hi ? hi.prediction + hi.residual : Number.POSITIVE_INFINITY),
+    p10: candidates[tailRank - 1]?.value ?? Number.NEGATIVE_INFINITY,
+    p90: candidates[candidates.length - tailRank]?.value ?? Number.POSITIVE_INFINITY,
   };
 }
 
-export function jackknifePlusCoverage(refits: readonly FamilyRefit[]): number | null {
-  if (refits.length < 3) return null;
+export function jackknifePlusCoverage(rows: readonly Comparable[]) {
+  if (rows.length < 3) return null;
 
-  const rows = refits.map(({ comparable }) => comparable);
-  const heldOut = refits.map((refit) => ({ ...refit, samples: [] as JackknifeSample[] }));
-  // Each coverage band must omit the comparable being scored from all its training fits.
-  // One fit per unordered pair supplies one candidate for each comparable's band.
-  for (const [i, left] of heldOut.entries()) {
-    for (const right of heldOut.slice(i + 1)) {
-      const model = fitValueModel(
-        rows.filter((row) => row !== left.comparable && row !== right.comparable),
-        left.model.lambda,
-      );
-      const leftPrediction = predictComparable(left.comparable, model);
-      const rightPrediction = predictComparable(right.comparable, model);
-      left.samples.push({
-        slug: right.comparable.slug,
-        prediction: leftPrediction,
-        residual: Math.abs(right.comparable.target - rightPrediction),
-      });
-      right.samples.push({
-        slug: left.comparable.slug,
-        prediction: rightPrediction,
-        residual: Math.abs(left.comparable.target - leftPrediction),
-      });
-    }
+  const counts = { missLow: 0, covered: 0, missHigh: 0 };
+  for (const heldOut of rows) {
+    const train = rows.filter((row) => row !== heldOut);
+    // Select the penalty without the scored family and reuse it in every band refit.
+    const refits = leaveOneFamilyOut(train, selectLambda(train));
+    const samples = refits.map(({ comparable, model, residual }) => ({
+      slug: comparable.slug,
+      prediction: predictComparable(heldOut, model),
+      residual,
+    }));
+    const { p10, p90 } = jackknifePlusBand(samples);
+    if (heldOut.target < p10) counts.missLow++;
+    else if (heldOut.target > p90) counts.missHigh++;
+    else counts.covered++;
   }
-
-  let covered = 0;
-  for (const {
-    comparable: { target },
-    prediction,
-    samples,
-  } of heldOut) {
-    const { p10, p90 } = jackknifePlusBand(samples, prediction);
-    if (p10 <= target && target <= p90) covered++;
-  }
-  return covered / heldOut.length;
+  return counts;
 }

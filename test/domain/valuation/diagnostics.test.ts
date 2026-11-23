@@ -9,48 +9,71 @@ import {
   leaveOneFamilyOut,
 } from "../../../src/domain/valuation/jackknife.ts";
 import { fitValueModel, rankBoard } from "../../../src/domain/valuation/model.ts";
+import { selectLambda } from "../../../src/domain/valuation/selection.ts";
 import { protocol } from "../protocol-fixture.ts";
 
 function comparable(slug: string, lnTvl: number, target: number, lnAge = 0): Comparable {
   return { slug, familyKey: `gecko:${slug}`, listedAt: null, lnTvl, lnAge, target, growth: 0 };
 }
 
-test("jackknife+ takes separate order statistics of each refit's prediction plus or minus its error", () => {
-  const samples = [
-    [11, 2],
+test("jackknife+ takes both quantiles of predictions shifted by skewed signed residuals", () => {
+  const predictionsAndResiduals = [
+    [11, -1],
     [13, 8],
-    [15, 3],
-    [17, 1],
-    [19, 2],
+    [15, -3],
+    [17, -8],
+    [19, -2],
     [21, 8],
     [23, 9],
     [25, 1],
     [27, 2],
     [29, 1],
-    [31, 1],
-    [33, 1],
+    [31, -10],
+    [33, 6],
     [24, 2],
     [26, 1],
-  ].map(([prediction = 0, residual = 0], index) => ({
+  ] as const;
+  const samples = predictionsAndResiduals.map(([prediction, residual], index) => ({
     slug: String(index),
     prediction,
     residual,
   }));
-  // With 14 residuals the n + 1 correction takes the third endpoint from each tail.
-  expect(jackknifePlusBand(samples, 21)).toEqual({ p10: 12, p90: 32 });
-  expect(jackknifePlusBand(samples, 40)).toEqual({ p10: 12, p90: 40 });
+  // The finite-sample ranks are 1 and 14. Absolute-residual tails would give 5 and 41.
+  expect(jackknifePlusBand(samples)).toEqual({ p10: 9, p90: 39 });
 });
 
-test("left-out refits use the published penalty and their own absolute residuals", () => {
+test("jackknife+ uses finite-sample ranks 12 and 117 for 128 candidates", () => {
+  const samples = Array.from({ length: 128 }, (_, i) => ({
+    slug: String(i),
+    prediction: 128 - i,
+    residual: 0,
+  }));
+  expect(jackknifePlusBand(samples)).toEqual({ p10: 12, p90: 117 });
+});
+
+test("left-out board refits use the published penalty and their own signed residuals", () => {
   const rows = [comparable("a", 0, 3), comparable("b", 0, 4), comparable("c", 0, 6)];
   const fits = leaveOneFamilyOut(rows, 4);
   expect(
     fits.map(({ comparable: { slug }, model: { lambda }, residual }) => [slug, lambda, residual]),
   ).toEqual([
-    ["a", 4, 2],
-    ["b", 4, 0.5],
+    ["a", 4, -2],
+    ["b", 4, -0.5],
     ["c", 4, 2.5],
   ]);
+});
+
+test("coverage selects a penalty inside each outer training fold", () => {
+  const random = mulberry32(3);
+  const rows = Array.from({ length: 20 }, (_, i) => {
+    const tvl = i / 4;
+    const age = Math.round(10 * random());
+    const noise = Math.round(20 * random() ** 2) / 4;
+    return comparable(String(i).padStart(2, "0"), tvl, 3 + tvl + noise, age);
+  });
+  expect(selectLambda(rows)).toBe(0.01);
+  expect(selectLambda(rows.filter(({ slug }) => slug !== "09"))).toBe(0.1);
+  expect(jackknifePlusCoverage(rows)).toEqual({ missLow: 2, covered: 15, missHigh: 3 });
 });
 
 test("out-of-sample coverage is near 80% for seeded Gaussian log errors", () => {
@@ -61,10 +84,10 @@ test("out-of-sample coverage is near 80% for seeded Gaussian log errors", () => 
     const noise = Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random());
     return comparable(String(i), tvl, 3 + 0.8 * tvl + 0.2 * age + noise, age);
   });
-  const coverage = jackknifePlusCoverage(leaveOneFamilyOut(rows, 1));
-  expect(coverage).toBeGreaterThanOrEqual(0.75);
-  expect(coverage).toBeLessThanOrEqual(0.85);
-  expect(jackknifePlusCoverage(leaveOneFamilyOut(rows.slice(0, 2), 1))).toBeNull();
+  const coverage = jackknifePlusCoverage(rows);
+  expect(coverage?.covered).toBeGreaterThanOrEqual(75);
+  expect(coverage?.covered).toBeLessThanOrEqual(85);
+  expect(jackknifePlusCoverage(rows.slice(0, 2))).toBeNull();
 });
 
 test("rank influence reports the signed rank change and is stable under input reordering", () => {
@@ -135,5 +158,16 @@ test("twins use standardized distances, then slug for ties, and stop at five", (
     "2024-01-04",
   );
   expect(row?.diagnostics.twins).toEqual(["c", "d", "e", "a", "b"]);
-  expect(row?.diagnostics.influence).toBeNull();
+});
+
+test("rank influence names a family when every deletion leaves the rank unchanged", () => {
+  const rows = [comparable("a", 0, 3), comparable("b", 1, 4)];
+  const entries = boardEntries(buildCensus([protocol()]), []);
+  const asOf = "2024-01-04";
+  const model = fitValueModel(rows, 1);
+  const ranked = rankBoard(entries, asOf, model);
+  const refits = leaveOneFamilyOut(rows, model.lambda).toReversed();
+  const [row] = describeBoardValues(ranked, rows, refits, asOf);
+  expect(row?.diagnostics.influence).toEqual({ family_key: "gecko:a", slug: "a", rank_delta: 0 });
+  expect(describeBoardValues(ranked, rows, [], asOf)[0]?.diagnostics.influence).toBeNull();
 });
