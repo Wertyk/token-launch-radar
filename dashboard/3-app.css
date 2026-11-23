@@ -75,6 +75,10 @@ a {
   outline-offset: 3px;
 }
 
+h2[tabindex="-1"]:focus {
+  outline: none;
+}
+
 .shell {
   width: min(100% - 64px, 1376px);
   margin-inline: auto;
@@ -398,6 +402,10 @@ table {
   align-items: start;
   gap: var(--s3);
   margin-bottom: var(--s4);
+}
+
+.protocol-heading .chips {
+  margin-top: var(--s2);
 }
 
 .protocol-heading .badge {
