@@ -5,7 +5,7 @@ export const columns = {
   tvl: "TVL",
   growth: "7d %",
   age: "Days with no token",
-  cost: "Plan cost",
+  cost: "12-mo fees",
   time: "Plan time",
   watchlist: "Watchlist",
 } as const;
@@ -89,7 +89,7 @@ export function parseRoute(hash: string): Route {
 
 export function planHash({ budgetUsd, hoursPerWeek, chains }: PlanState): string {
   const list = chains.map(encodeURIComponent).join(",");
-  return `#/plan?budget=${budgetUsd}&hours=${hoursPerWeek}${list ? `&chains=${list}` : ""}`;
+  return `#/plan?budget=${encodeURIComponent(budgetUsd)}&hours=${encodeURIComponent(hoursPerWeek)}${list ? `&chains=${list}` : ""}`;
 }
 
 export function boardHash(state: BoardState): string {

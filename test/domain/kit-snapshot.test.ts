@@ -2,10 +2,12 @@ import { readFileSync } from "node:fs";
 import { beforeAll, expect, test } from "vitest";
 import { toBoardRows } from "../../src/application/board-rows.ts";
 import { buildRadar, recomputeRadar } from "../../src/application/build-radar.ts";
-import { ASSUMPTIONS_AS_OF } from "../../src/domain/farming/assumptions.ts";
+import { ASSUMPTIONS_AS_OF, FARM_ASSUMPTIONS } from "../../src/domain/farming/assumptions.ts";
 import { farmTables } from "../../src/domain/farming/playbook-data.ts";
+import { planPortfolio } from "../../src/domain/farming/portfolio.ts";
 import type { Snapshot } from "../../src/domain/snapshot.ts";
 import { parseSnapshot } from "../../src/domain/snapshot.ts";
+import { parseRoute } from "../../src/presentation/web/state.ts";
 
 const snapshotPath =
   process.env.RADAR_SNAPSHOT ?? "../token-radar-kit/token-radar-01-kit/input/snapshot.json";
@@ -172,4 +174,17 @@ test("kit farm plans vary in costs and time and publish two verdicts per protoco
       result.board[row.rank - 1]?.plan.flags.includes("fee-assumed"),
     );
   }
+});
+
+test("the kit planner rejects BTCFi CDP when the route allows 2.4 minutes per week", () => {
+  const route = parseRoute("#/plan?budget=10001&hours=0.04");
+  if (route.page !== "plan") throw new Error("Expected a planner route.");
+  const { budgetUsd, hoursPerWeek } = route.state;
+  const { positions, closest } = planPortfolio(result.board, {
+    budgetUsd,
+    hoursPerWeek,
+    assumptions: { ...FARM_ASSUMPTIONS, tables: farmTables() },
+  });
+  expect(positions.map(({ slug }) => slug)).not.toContain("btcfi-cdp");
+  expect(closest).toEqual([]);
 });

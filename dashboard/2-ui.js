@@ -9,25 +9,26 @@ query))).sort((a,b)=>compareRows(a,b,sort,direction)||compareText(a.slug,b.slug)
 1);const sign=magnitude==="0.0"?"":value<0?"−":"+";return`${sign}${magnitude}%`}function escapeHtml(value){
 return value.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&\
 quot;").replaceAll("'","&#39;")}var columns={rank:"Rank",name:"Protocol",value:"Implied value",tvl:"TVL",growth:"7d %",age:"Days wit\
-h no token",cost:"Plan cost",time:"Plan time",watchlist:"Watchlist"};var defaultState={sort:"rank",dir:"\
-asc",cat:"",chain:"",wl:false,q:""};function isSortKey(value){return value!==void 0&&Object.hasOwn(columns,
-value)}function limit(value,fallback){const number=Number(value);return value?.trim()&&Number.isFinite(
-number)&&number>=0?number:fallback}function parseRoute(hash){const[path,query]=hash.slice(1).split(/\?(.*)/s,
-2);const params=new URLSearchParams(query);if(path==="/plan"){const list=/(?:^|&)chains=([^&]*)/.exec(
-query??"")?.[1]??"";const chains=list.split(",").map(part=>new URLSearchParams(`c=${part}`).get("c")??
-"");return{page:"plan",state:{budgetUsd:limit(params.get("budget"),5e3),hoursPerWeek:limit(params.get(
-"hours"),3),chains:[...new Set(chains.filter(Boolean))]}}}const sort=params.get("sort")??void 0;const state={
-sort:isSortKey(sort)?sort:defaultState.sort,dir:params.get("dir")==="desc"?"desc":"asc",cat:params.get(
-"cat")??"",chain:params.get("chain")??"",wl:params.get("wl")==="1",q:params.get("q")??""};if(!path||
-path==="/")return{page:"board",state};const segment=/^\/p\/([^/]+)$/.exec(path)?.[1];if(segment){try{
-return{page:"protocol",slug:decodeURIComponent(segment),state}}catch{return{page:"unknown",state}}}return{
-page:"unknown",state}}function planHash({budgetUsd,hoursPerWeek,chains}){const list=chains.map(encodeURIComponent).
-join(",");return`#/plan?budget=${budgetUsd}&hours=${hoursPerWeek}${list?`&chains=${list}`:""}`}function boardHash(state){
-const params=new URLSearchParams;if(state.sort!==defaultState.sort||state.dir!==defaultState.dir){params.
-set("sort",state.sort);params.set("dir",state.dir)}if(state.cat)params.set("cat",state.cat);if(state.
-chain)params.set("chain",state.chain);if(state.wl)params.set("wl","1");if(state.q)params.set("q",state.
-q);const query=params.toString();return query?`#/?${query}`:"#/"}function protocolHash(slug,state){return`\
-#/p/${encodeURIComponent(slug)}${boardHash(state).slice(2)}`}function options(values){return[...new Set(values)].sort().map(value=>{const label=escapeHtml(value);
+h no token",cost:"12-mo fees",time:"Plan time",watchlist:"Watchlist"};var defaultState={sort:"rank",
+dir:"asc",cat:"",chain:"",wl:false,q:""};function isSortKey(value){return value!==void 0&&Object.hasOwn(
+columns,value)}function limit(value,fallback){const number=Number(value);return value?.trim()&&Number.
+isFinite(number)&&number>=0?number:fallback}function parseRoute(hash){const[path,query]=hash.slice(1).
+split(/\?(.*)/s,2);const params=new URLSearchParams(query);if(path==="/plan"){const list=/(?:^|&)chains=([^&]*)/.
+exec(query??"")?.[1]??"";const chains=list.split(",").map(part=>new URLSearchParams(`c=${part}`).get(
+"c")??"");return{page:"plan",state:{budgetUsd:limit(params.get("budget"),5e3),hoursPerWeek:limit(params.
+get("hours"),3),chains:[...new Set(chains.filter(Boolean))]}}}const sort=params.get("sort")??void 0;
+const state={sort:isSortKey(sort)?sort:defaultState.sort,dir:params.get("dir")==="desc"?"desc":"asc",
+cat:params.get("cat")??"",chain:params.get("chain")??"",wl:params.get("wl")==="1",q:params.get("q")??
+""};if(!path||path==="/")return{page:"board",state};const segment=/^\/p\/([^/]+)$/.exec(path)?.[1];if(segment){
+try{return{page:"protocol",slug:decodeURIComponent(segment),state}}catch{return{page:"unknown",state}}}
+return{page:"unknown",state}}function planHash({budgetUsd,hoursPerWeek,chains}){const list=chains.map(
+encodeURIComponent).join(",");return`#/plan?budget=${encodeURIComponent(budgetUsd)}&hours=${encodeURIComponent(
+hoursPerWeek)}${list?`&chains=${list}`:""}`}function boardHash(state){const params=new URLSearchParams;
+if(state.sort!==defaultState.sort||state.dir!==defaultState.dir){params.set("sort",state.sort);params.
+set("dir",state.dir)}if(state.cat)params.set("cat",state.cat);if(state.chain)params.set("chain",state.
+chain);if(state.wl)params.set("wl","1");if(state.q)params.set("q",state.q);const query=params.toString();
+return query?`#/?${query}`:"#/"}function protocolHash(slug,state){return`#/p/${encodeURIComponent(slug)}${boardHash(
+state).slice(2)}`}function options(values){return[...new Set(values)].sort().map(value=>{const label=escapeHtml(value);
 return`<option value="${label}">${label}</option>`}).join("")}function boardView(rows){const categories=rows.
 flatMap(({category})=>category===null?[]:[category]);return`
     <form class="filters" aria-label="Board filters">
@@ -89,8 +90,8 @@ d committed capital.</p>
     <form class="filters">
       <label class="field">Cash budget (USD)<input name="budget" type="number" min="0" step="any" re\
 quired></label>
-      <label class="field">Hours per week<input name="hours" type="number" min="0" step="any" requir\
-ed></label>
+      <label class="field">Weekly hours cap<input name="hours" type="number" min="0" step="any" requ\
+ired></label>
       <label class="field">Chains · no selection includes all
         <select name="chains" multiple size="4">${chains.map(chain=>{const label=escapeHtml(chain);return`\
 <option value="${label}">${label}</option>`}).join("")}</select>
@@ -133,9 +134,9 @@ const largest=Math.max(1,...stages.map(({value})=>Number.isFinite(value)?value:0
           <rect width="${width}" height="6"></rect>
         </svg>
         <strong>${finite?usd(Math.round(value)):"—"}</strong>
-      </li>`}).join("")}</ol>`}function protocolView(row,age,back,usd){const{protocol,plan,economics,
-status}=row;const{airdropYieldApr,breakEvenDepositUsd}=economics;const isTokenRecorded=status==="tra\
-ded"||status==="token-unpriced";const facts=[["TVL",usd(protocol.tvl_usd)],["7d TVL change",growthText(
+      </li>`}).join("")}</ol>`}function protocolView(row,age,back,usd,{hourlyRateUsd,farmerHaircut}){
+const{protocol,plan,economics,status}=row;const{airdropYieldApr,breakEvenDepositUsd}=economics;const isTokenRecorded=status===
+"traded"||status==="token-unpriced";const facts=[["TVL",usd(protocol.tvl_usd)],["7d TVL change",growthText(
 protocol.change_7d)],["Listed",escapeHtml(protocol.listed_at??"Unlisted")],[isTokenRecorded?"Days si\
 nce listing":"Days with no token",formatInteger(age)]];return`
     <a class="back" href="${escapeHtml(back)}">← Back to board</a>
@@ -177,6 +178,8 @@ nd bounds values from $1 to $100T.</p>
 depositUsd)} plan · ${plan.horizonMonths} months</p>
         <div class="chips">${economics.deposits.map(({depositUsd,verdict})=>`<span class="badge">${usd(
 depositUsd)} ${verdict}</span>`).join("")}</div>
+        <p class="caption">${usd(hourlyRateUsd)}/h for labor · ${farmerHaircut*100}% farmer haircut\
+</p>
         <p>Expected airdrop yield ${(airdropYieldApr*100).toFixed(2)}% APR · Net capital cost ${(plan.
 capitalApr*100).toFixed(2)}% APR</p>
         <p>Break-even deposit · ${breakEvenDepositUsd==="never"?"never":usd(breakEvenDepositUsd)}</\
@@ -253,8 +256,8 @@ void 0&&lastPage!==page;lastPage=page;if(route.page!=="board")updateBoard=void 0
 an")updatePlan=void 0;if(route.page==="board"){updateBoard??=mountBoard(main2,rows,maxLogValue,formatUsd);
 updateBoard(route.state)}else if(route.page==="plan"){updatePlan??=mountPlanner();updatePlan(route.state)}else{
 const back=boardHash(route.state);const detail=route.page==="protocol"?protocols.get(route.slug):void 0;
-main2.innerHTML=detail?protocolView(detail,ages.get(detail.protocol.slug)??null,back,formatUsd):`<se\
-ction class="panel message"><h2 tabindex="-1">Page unavailable</h2>
+main2.innerHTML=detail?protocolView(detail,ages.get(detail.protocol.slug)??null,back,formatUsd,api2.
+farmAssumptions):`<section class="panel message"><h2 tabindex="-1">Page unavailable</h2>
           <p>${route.page==="protocol"?"This protocol is outside the ranked board.":"This address do\
 esn’t match a dashboard page."}</p>
           <a href="${escapeHtml(back)}">Back to board</a></section>`}if(changedPage){window.scrollTo(

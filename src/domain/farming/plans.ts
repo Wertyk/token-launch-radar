@@ -22,11 +22,11 @@ export interface FarmPlan {
   chain: string | null;
   depositUsd: number;
   steps: FarmStep[];
+  fundingStep: FarmStep | null;
   flags: "fee-assumed"[];
   assumptionsAsOf: string;
   horizonMonths: number;
   capitalApr: number;
-  bridgeCostUsd: number;
   oneTimeCostUsd: number;
   recurringCostUsd: number;
   totalCostUsd: number;
@@ -42,25 +42,25 @@ const occurrences = {
 
 function estimate(
   chain: string | null,
-  bridge: boolean,
-  reviewTransactions: number,
+  gasTransactions: number,
+  bridgeTransfers: number,
   { chains, fallback }: FarmTables["gas"],
 ) {
   const fees = chain !== null && Object.hasOwn(chains, chain) ? chains[chain] : undefined;
   const [transactionUsd, bridgeUsd] = fees ?? fallback;
-  const cost = roundUsd(bridgeUsd + (bridge ? 0 : 2 + reviewTransactions) * transactionUsd);
+  const cost = roundUsd(bridgeTransfers * bridgeUsd + gasTransactions * transactionUsd);
   return { chain, transactionUsd, bridgeUsd, cost, feeAssumed: fees === undefined };
 }
 
 function chooseChain(
   chains: readonly string[],
-  bridge: boolean,
-  reviewTransactions: number,
+  gasTransactions: number,
+  bridgeTransfers: number,
   gas: FarmTables["gas"],
 ) {
   let cheapest: ReturnType<typeof estimate> | undefined;
   for (const chain of chains) {
-    const candidate = estimate(chain, bridge, reviewTransactions, gas);
+    const candidate = estimate(chain, gasTransactions, bridgeTransfers, gas);
     if (
       !cheapest ||
       candidate.cost < cheapest.cost ||
@@ -69,7 +69,7 @@ function chooseChain(
       cheapest = candidate;
     }
   }
-  return cheapest ?? estimate(null, bridge, reviewTransactions, gas);
+  return cheapest ?? estimate(null, gasTransactions, bridgeTransfers, gas);
 }
 
 function shorten(text: string, max: number): string {
@@ -96,16 +96,26 @@ export function makeFarmPlan(
   ) ?? ["generic", playbooks.generic];
   const bridge = group === "bridge";
   const repeats = occurrences[playbook.cadence];
+  const [entryTransactions, reviewTransactions, exitTransactions] = playbook.transactions;
   const { chain, transactionUsd, bridgeUsd, feeAssumed } = chooseChain(
     protocol.chains,
-    bridge,
-    playbook.reviewGas ? repeats : 0,
+    (bridge ? 0 : entryTransactions) + reviewTransactions * repeats + exitTransactions,
+    bridge ? entryTransactions : 1,
     gas,
   );
   const [entryMinutes, reviewMinutes, exitMinutes] = playbook.minutes;
   const tradingFees =
     group === "derivatives" ? assumptions.tradeVolumeUsd * assumptions.tradingFeeRate : 0;
   const deposit = formatUsd(depositUsd);
+  const fundingStep: FarmStep | null = bridge
+    ? null
+    : {
+        action: "If funding from another chain, verify the receiving asset and bridge funds.",
+        chain,
+        costUsd: bridgeUsd,
+        minutes: assumptions.bridgeMinutes,
+        cadence: "once",
+      };
   const steps: FarmStep[] = [
     {
       action:
@@ -118,34 +128,26 @@ export function makeFarmPlan(
       cadence: "once",
     },
   ];
-  if (!bridge) {
-    steps.push({
-      action: "If funding from another chain, verify the receiving asset and bridge funds.",
-      chain,
-      costUsd: bridgeUsd,
-      minutes: assumptions.bridgeMinutes,
-      cadence: "once",
-    });
-  }
+  if (fundingStep) steps.push(fundingStep);
   steps.push(
     {
       action: `${shorten(protocol.name, 140)} — ${playbook.enter}`,
       chain,
-      costUsd: bridge ? bridgeUsd : transactionUsd,
+      costUsd: roundUsd(entryTransactions * (bridge ? bridgeUsd : transactionUsd)),
       minutes: entryMinutes,
       cadence: "once",
     },
     {
       action: playbook.review,
       chain,
-      costUsd: roundUsd(tradingFees + (playbook.reviewGas ? transactionUsd : 0)),
+      costUsd: roundUsd(tradingFees + reviewTransactions * transactionUsd),
       minutes: reviewMinutes,
       cadence: playbook.cadence,
     },
     {
       action: playbook.exit,
       chain,
-      costUsd: bridge ? 0 : transactionUsd,
+      costUsd: roundUsd(exitTransactions * transactionUsd),
       minutes: exitMinutes,
       cadence: "once",
       exitCondition: playbook.exitCondition,
@@ -165,16 +167,36 @@ export function makeFarmPlan(
     chain,
     depositUsd,
     steps,
+    fundingStep,
     flags: feeAssumed ? ["fee-assumed"] : [],
     assumptionsAsOf: assumptions.asOf,
     horizonMonths: assumptions.horizonMonths,
     capitalApr: playbook.capitalApr,
-    bridgeCostUsd: bridgeUsd,
     oneTimeCostUsd: roundUsd(oneTimeCostUsd),
     recurringCostUsd: roundUsd(recurringCostUsd),
     totalCostUsd: roundUsd(oneTimeCostUsd + recurringCostUsd),
     totalMinutes,
   };
+}
+
+export function scheduleFarmMinutes({ steps }: FarmPlan): number[] {
+  const weeks = Array<number>(occurrences.weekly).fill(0);
+  const addMinutes = (week: number, minutes: number) => {
+    weeks[week] = (weeks[week] ?? 0) + minutes;
+  };
+  for (const { cadence, minutes, exitCondition } of steps) {
+    if (cadence === "weekly") {
+      for (let week = 0; week < weeks.length; week++) addMinutes(week, minutes);
+    } else if (cadence === "monthly") {
+      for (let month = 1; month <= occurrences.monthly; month++) {
+        const monthEnd = Math.ceil((month * weeks.length) / occurrences.monthly) - 1;
+        addMinutes(monthEnd, minutes);
+      }
+    } else {
+      addMinutes(exitCondition === undefined ? 0 : weeks.length - 1, minutes);
+    }
+  }
+  return weeks;
 }
 
 export function renderFarmStep(step: FarmStep): string {

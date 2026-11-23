@@ -213,7 +213,13 @@ function start(
       const back = boardHash(route.state);
       const detail = route.page === "protocol" ? protocols.get(route.slug) : undefined;
       main.innerHTML = detail
-        ? protocolView(detail, ages.get(detail.protocol.slug) ?? null, back, formatUsd)
+        ? protocolView(
+            detail,
+            ages.get(detail.protocol.slug) ?? null,
+            back,
+            formatUsd,
+            api.farmAssumptions,
+          )
         : `<section class="panel message"><h2 tabindex="-1">Page unavailable</h2>
           <p>${route.page === "protocol" ? "This protocol is outside the ranked board." : "This address doesn’t match a dashboard page."}</p>
           <a href="${esc(back)}">Back to board</a></section>`;

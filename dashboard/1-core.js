@@ -26,74 +26,89 @@ over ${FARM_ASSUMPTIONS.horizonMonths} months · expected airdrop ≈ ${formatUs
 airdropShareOfLaunchCap*100}% of circulating launch cap because a mostly unlocked airdrop can accoun\
 t for much of a small launch float.`}var DEFAULT_DEPOSIT_USD=FARM_ASSUMPTIONS.depositsUsd[0];var horizonYears=FARM_ASSUMPTIONS.horizonMonths/
 FARM_ASSUMPTIONS.monthsPerYear;var occurrences={once:1,weekly:Math.floor(FARM_ASSUMPTIONS.weeksPerYear*
-horizonYears),monthly:FARM_ASSUMPTIONS.horizonMonths};function estimate(chain,bridge,reviewTransactions,{
+horizonYears),monthly:FARM_ASSUMPTIONS.horizonMonths};function estimate(chain,gasTransactions,bridgeTransfers,{
 chains,fallback}){const fees=chain!==null&&Object.hasOwn(chains,chain)?chains[chain]:void 0;const[transactionUsd,
-bridgeUsd]=fees??fallback;const cost=roundUsd(bridgeUsd+(bridge?0:2+reviewTransactions)*transactionUsd);
-return{chain,transactionUsd,bridgeUsd,cost,feeAssumed:fees===void 0}}function chooseChain(chains,bridge,reviewTransactions,gas){
-let cheapest;for(const chain of chains){const candidate=estimate(chain,bridge,reviewTransactions,gas);
-if(!cheapest||candidate.cost<cheapest.cost||candidate.cost===cheapest.cost&&compareText(chain,cheapest.
-chain??"")<0){cheapest=candidate}}return cheapest??estimate(null,bridge,reviewTransactions,gas)}function shorten(text,max){
-const normalized=text.trim().replace(/\s+/g," ");if(normalized.length<=max)return normalized;return`${normalized.
-slice(0,max-1).trimEnd()}…`}function roundUsd(value){return Math.round(value*100)/100}function makeFarmPlan(protocol,{
-playbooks,gas},depositUsd=DEFAULT_DEPOSIT_USD){if(!Number.isFinite(depositUsd)||depositUsd<=0){throw new Error(
-"The farm plan needs a positive, finite deposit size.")}const category=protocol.category?.trim().toLowerCase()??
-"";const[group,playbook]=Object.entries(playbooks).find(([,book])=>book.categories.includes(category))??
-["generic",playbooks.generic];const bridge=group==="bridge";const repeats=occurrences[playbook.cadence];
-const{chain,transactionUsd,bridgeUsd,feeAssumed}=chooseChain(protocol.chains,bridge,playbook.reviewGas?
-repeats:0,gas);const[entryMinutes,reviewMinutes,exitMinutes]=playbook.minutes;const tradingFees=group===
-"derivatives"?FARM_ASSUMPTIONS.tradeVolumeUsd*FARM_ASSUMPTIONS.tradingFeeRate:0;const deposit=formatUsd(
-depositUsd);const steps=[{action:chain===null?`Verify a supported chain before setting aside ${deposit}\
- and gas.`:`Set aside ${deposit} in a compatible wallet or account and check its gas balance.`,chain,
-costUsd:0,minutes:FARM_ASSUMPTIONS.setupMinutes,cadence:"once"}];if(!bridge){steps.push({action:"If \
-funding from another chain, verify the receiving asset and bridge funds.",chain,costUsd:bridgeUsd,minutes:FARM_ASSUMPTIONS.
-bridgeMinutes,cadence:"once"})}steps.push({action:`${shorten(protocol.name,140)} — ${playbook.enter}`,
-chain,costUsd:bridge?bridgeUsd:transactionUsd,minutes:entryMinutes,cadence:"once"},{action:playbook.
-review,chain,costUsd:roundUsd(tradingFees+(playbook.reviewGas?transactionUsd:0)),minutes:reviewMinutes,
-cadence:playbook.cadence},{action:playbook.exit,chain,costUsd:bridge?0:transactionUsd,minutes:exitMinutes,
+bridgeUsd]=fees??fallback;const cost=roundUsd(bridgeTransfers*bridgeUsd+gasTransactions*transactionUsd);
+return{chain,transactionUsd,bridgeUsd,cost,feeAssumed:fees===void 0}}function chooseChain(chains,gasTransactions,bridgeTransfers,gas){
+let cheapest;for(const chain of chains){const candidate=estimate(chain,gasTransactions,bridgeTransfers,
+gas);if(!cheapest||candidate.cost<cheapest.cost||candidate.cost===cheapest.cost&&compareText(chain,cheapest.
+chain??"")<0){cheapest=candidate}}return cheapest??estimate(null,gasTransactions,bridgeTransfers,gas)}
+function shorten(text,max){const normalized=text.trim().replace(/\s+/g," ");if(normalized.length<=max)
+return normalized;return`${normalized.slice(0,max-1).trimEnd()}…`}function roundUsd(value){return Math.
+round(value*100)/100}function makeFarmPlan(protocol,{playbooks,gas},depositUsd=DEFAULT_DEPOSIT_USD){
+if(!Number.isFinite(depositUsd)||depositUsd<=0){throw new Error("The farm plan needs a positive, fin\
+ite deposit size.")}const category=protocol.category?.trim().toLowerCase()??"";const[group,playbook]=Object.
+entries(playbooks).find(([,book])=>book.categories.includes(category))??["generic",playbooks.generic];
+const bridge=group==="bridge";const repeats=occurrences[playbook.cadence];const[entryTransactions,reviewTransactions,
+exitTransactions]=playbook.transactions;const{chain,transactionUsd,bridgeUsd,feeAssumed}=chooseChain(
+protocol.chains,(bridge?0:entryTransactions)+reviewTransactions*repeats+exitTransactions,bridge?entryTransactions:
+1,gas);const[entryMinutes,reviewMinutes,exitMinutes]=playbook.minutes;const tradingFees=group==="der\
+ivatives"?FARM_ASSUMPTIONS.tradeVolumeUsd*FARM_ASSUMPTIONS.tradingFeeRate:0;const deposit=formatUsd(
+depositUsd);const fundingStep=bridge?null:{action:"If funding from another chain, verify the receivi\
+ng asset and bridge funds.",chain,costUsd:bridgeUsd,minutes:FARM_ASSUMPTIONS.bridgeMinutes,cadence:"\
+once"};const steps=[{action:chain===null?`Verify a supported chain before setting aside ${deposit} a\
+nd gas.`:`Set aside ${deposit} in a compatible wallet or account and check its gas balance.`,chain,costUsd:0,
+minutes:FARM_ASSUMPTIONS.setupMinutes,cadence:"once"}];if(fundingStep)steps.push(fundingStep);steps.
+push({action:`${shorten(protocol.name,140)} — ${playbook.enter}`,chain,costUsd:roundUsd(entryTransactions*
+(bridge?bridgeUsd:transactionUsd)),minutes:entryMinutes,cadence:"once"},{action:playbook.review,chain,
+costUsd:roundUsd(tradingFees+reviewTransactions*transactionUsd),minutes:reviewMinutes,cadence:playbook.
+cadence},{action:playbook.exit,chain,costUsd:roundUsd(exitTransactions*transactionUsd),minutes:exitMinutes,
 cadence:"once",exitCondition:playbook.exitCondition});let oneTimeCostUsd=0;let recurringCostUsd=0;let totalMinutes=0;
 for(const{costUsd,minutes,cadence}of steps){const count=occurrences[cadence];if(cadence==="once")oneTimeCostUsd+=
 costUsd;else recurringCostUsd+=costUsd*count;totalMinutes+=minutes*count}return{chain,depositUsd,steps,
-flags:feeAssumed?["fee-assumed"]:[],assumptionsAsOf:FARM_ASSUMPTIONS.asOf,horizonMonths:FARM_ASSUMPTIONS.
-horizonMonths,capitalApr:playbook.capitalApr,bridgeCostUsd:bridgeUsd,oneTimeCostUsd:roundUsd(oneTimeCostUsd),
-recurringCostUsd:roundUsd(recurringCostUsd),totalCostUsd:roundUsd(oneTimeCostUsd+recurringCostUsd),totalMinutes}}
-function renderFarmStep(step){const action=shorten(step.action,280);const chain=shorten(step.chain??
-"Chain unlisted",110);const exit=step.exitCondition?` | Exit · ${shorten(step.exitCondition,100)}`:
-"";return`${action} | ${chain} | Est. fee ${formatUsd(step.costUsd)} | ${step.minutes} minutes | ${step.
-cadence}${exit}`}var deposits=[1e3,2500,5e3,1e4];function planPortfolio(rows,{budgetUsd,hoursPerWeek,chains,assumptions}){
-const permitted=chains&&new Set(chains);const minutesPerWeeklyHour=assumptions.weeksPerYear*assumptions.
-horizonMonths*assumptions.minutesPerHour/assumptions.monthsPerYear;const candidates=rows.map(({protocol,
-rank,plan,economics,implied_value_usd})=>{const supported=[...new Set(protocol.chains)].sort(compareText);
-const choices=supported.length?supported:[null];const plans=choices.flatMap(chain=>{if(permitted&&(chain===
-null||!permitted.has(chain)))return[];const option=chain===plan.chain||chain===null?plan:makeFarmPlan(
-{...protocol,chains:[chain]},assumptions.tables);const terms=farmEconomicsTerms(option,implied_value_usd,
-protocol.tvl_usd,economics.launchProbability12,assumptions);return[{option,...terms}]});return{slug:protocol.
-slug,rank,plans}});const funded=new Set;const selected=new Set;const positions=[];let feesCents=0;let usedMinutes=0;
-const totals={depositUsd:0,feesUsd:0,cashUsd:0,hoursPerWeek:0,expectedValueUsd:0,costUsd:0,netUsd:0};
-function offers({slug,plans}){return plans.flatMap(({option,fixedCosts,capitalCarry,k})=>{const{chain,
-bridgeCostUsd,totalCostUsd,totalMinutes}=option;const waived=chain!==null&&funded.has(chain)?bridgeCostUsd:
-0;const feeCents=Math.round((totalCostUsd-waived)*100);return deposits.map(depositUsd=>{const expectedValueUsd=k*
-depositUsd;const costUsd=fixedCosts-waived+capitalCarry*depositUsd;const netUsd=expectedValueUsd-costUsd;
-const position={slug,chain,depositUsd,feesUsd:feeCents/100,hoursPerWeek:totalMinutes/minutesPerWeeklyHour,
-expectedValueUsd,costUsd,netUsd};return{position,feeCents,totalMinutes,score:netUsd/(depositUsd+position.
-feesUsd),affordable:totals.depositUsd+depositUsd+(feesCents+feeCents)/100<=budgetUsd,withinHours:(usedMinutes+
-totalMinutes)/minutesPerWeeklyHour<=hoursPerWeek}})})}for(;;){let best;for(const candidate of candidates){
+fundingStep,flags:feeAssumed?["fee-assumed"]:[],assumptionsAsOf:FARM_ASSUMPTIONS.asOf,horizonMonths:FARM_ASSUMPTIONS.
+horizonMonths,capitalApr:playbook.capitalApr,oneTimeCostUsd:roundUsd(oneTimeCostUsd),recurringCostUsd:roundUsd(
+recurringCostUsd),totalCostUsd:roundUsd(oneTimeCostUsd+recurringCostUsd),totalMinutes}}function scheduleFarmMinutes({
+steps}){const weeks=Array(occurrences.weekly).fill(0);const addMinutes=(week,minutes)=>{weeks[week]=
+(weeks[week]??0)+minutes};for(const{cadence,minutes,exitCondition}of steps){if(cadence==="weekly"){for(let week=0;week<
+weeks.length;week++)addMinutes(week,minutes)}else if(cadence==="monthly"){for(let month=1;month<=occurrences.
+monthly;month++){const monthEnd=Math.ceil(month*weeks.length/occurrences.monthly)-1;addMinutes(monthEnd,
+minutes)}}else{addMinutes(exitCondition===void 0?0:weeks.length-1,minutes)}}return weeks}function renderFarmStep(step){
+const action=shorten(step.action,280);const chain=shorten(step.chain??"Chain unlisted",110);const exit=step.
+exitCondition?` | Exit · ${shorten(step.exitCondition,100)}`:"";return`${action} | ${chain} | Est. \
+fee ${formatUsd(step.costUsd)} | ${step.minutes} minutes | ${step.cadence}${exit}`}var deposits=[1e3,2500,5e3,1e4];function planPortfolio(rows,{budgetUsd,hoursPerWeek,chains,assumptions}){
+if(assumptions.horizonMonths!==FARM_ASSUMPTIONS.horizonMonths){throw new Error("The farm planner onl\
+y supports a 12-month horizon.")}const permitted=chains&&new Set(chains);const usedMinutesByWeek=Array(
+FARM_ASSUMPTIONS.weeksPerYear).fill(0);const weeklyCapMinutes=hoursPerWeek*assumptions.minutesPerHour;
+const minutesPerAverageWeeklyHour=usedMinutesByWeek.length*assumptions.minutesPerHour;const candidates=rows.
+map(({protocol,rank,plan,economics,implied_value_usd})=>{const supported=[...new Set(protocol.chains)].
+sort(compareText);const choices=supported.length?supported:[null];const plans=choices.flatMap(chain=>{
+if(permitted&&(chain===null||!permitted.has(chain)))return[];const option=chain===plan.chain||chain===
+null?plan:makeFarmPlan({...protocol,chains:[chain]},assumptions.tables);return[{option,schedule:scheduleFarmMinutes(
+option)}]});return{slug:protocol.slug,rank,plans,valueUsd:implied_value_usd,tvlUsd:protocol.tvl_usd,
+probability:economics.launchProbability12}});const funded=new Set;const selected=new Set;const positions=[];
+let feesCents=0;const totals={depositUsd:0,feesUsd:0,cashUsd:0,hoursPerWeek:0,expectedValueUsd:0,costUsd:0,
+netUsd:0};function offers({slug,plans,valueUsd,tvlUsd,probability}){return plans.flatMap(({option,schedule})=>{
+const{chain,fundingStep}=option;const waived=chain!==null&&funded.has(chain)?fundingStep:null;const feeCents=Math.
+round((option.totalCostUsd-(waived?.costUsd??0))*100);const totalMinutes=option.totalMinutes-(waived?.
+minutes??0);const weeklyMinutes=waived?schedule.map((minutes,week)=>week===0?minutes-waived.minutes:
+minutes):schedule;const withinHours=weeklyMinutes.every((minutes,week)=>(usedMinutesByWeek[week]??0)+
+minutes<=weeklyCapMinutes);const{fixedCosts,capitalCarry,k}=farmEconomicsTerms({totalCostUsd:feeCents/
+100,totalMinutes,capitalApr:option.capitalApr},valueUsd,tvlUsd,probability,assumptions);return deposits.
+map(depositUsd=>{const expectedValueUsd=k*depositUsd;const costUsd=fixedCosts+capitalCarry*depositUsd;
+const netUsd=expectedValueUsd-costUsd;const position={slug,chain,depositUsd,feesUsd:feeCents/100,hoursPerWeek:totalMinutes/
+minutesPerAverageWeeklyHour,expectedValueUsd,costUsd,netUsd};return{position,feeCents,weeklyMinutes,
+fundsChain:fundingStep!==null,score:netUsd/(depositUsd+position.feesUsd),affordable:totals.depositUsd+
+depositUsd+(feesCents+feeCents)/100<=budgetUsd,withinHours}})})}for(;;){let best;for(const candidate of candidates){
 if(selected.has(candidate.slug))continue;for(const offer of offers(candidate)){if(!(offer.position.netUsd>
 0&&offer.affordable&&offer.withinHours))continue;if(!best||offer.score>best.score||offer.score===best.
 score&&compareText(candidate.slug,best.position.slug)<0){best=offer}}}if(!best)break;const{position}=best;
-positions.push(position);selected.add(position.slug);if(position.chain!==null)funded.add(position.chain);
-feesCents+=best.feeCents;usedMinutes+=best.totalMinutes;totals.depositUsd+=position.depositUsd;totals.
-expectedValueUsd+=position.expectedValueUsd;totals.costUsd+=position.costUsd;totals.netUsd+=position.
+positions.push(position);selected.add(position.slug);if(position.chain!==null&&best.fundsChain)funded.
+add(position.chain);feesCents+=best.feeCents;for(const[week,minutes]of best.weeklyMinutes.entries()){
+usedMinutesByWeek[week]=(usedMinutesByWeek[week]??0)+minutes}totals.depositUsd+=position.depositUsd;
+totals.expectedValueUsd+=position.expectedValueUsd;totals.costUsd+=position.costUsd;totals.netUsd+=position.
 netUsd}totals.feesUsd=feesCents/100;totals.cashUsd=totals.depositUsd+totals.feesUsd;totals.hoursPerWeek=
-usedMinutes/minutesPerWeeklyHour;const remaining=candidates.filter(({slug})=>!selected.has(slug));const rejected=remaining.
-sort((a,b)=>a.rank-b.rank||compareText(a.slug,b.slug)).slice(0,15).map(candidate=>{const options=offers(
-candidate);const positive=options.filter(({position})=>position.netUsd>0);const feasible=positive.length?
-positive:options;const affordable=feasible.filter(offer=>offer.affordable);let reason="non-positive";
-if(!options.length)reason="chain-excluded";else if(!affordable.length)reason="over-budget";else if(!affordable.
-some(offer=>offer.withinHours))reason="over-hours";return{slug:candidate.slug,reason}});const closest=positions.
-length?[]:remaining.flatMap(candidate=>{let best;for(const{position,affordable,withinHours}of offers(
-candidate)){if(affordable&&withinHours&&(!best||position.netUsd>best.netUsd)){best=position}}return best?
-[{...best,shortfallUsd:Math.max(0,-best.netUsd)}]:[]}).sort((a,b)=>a.shortfallUsd-b.shortfallUsd||compareText(
-a.slug,b.slug)).slice(0,5);return{positions,totals,rejected,closest}}var DAY_MS=864e5;function daysBetween(fromIso,toIso){return(Date.parse(toIso)-Date.parse(fromIso))/DAY_MS}function familyKey({slug,gecko_id}){return gecko_id===null?`slug:${slug}`:`gecko:${gecko_id}`}function groupFamilies(protocols){
+usedMinutesByWeek.reduce((sum,minutes)=>sum+minutes,0)/minutesPerAverageWeeklyHour;const remaining=candidates.
+filter(({slug})=>!selected.has(slug));const rejected=remaining.sort((a,b)=>a.rank-b.rank||compareText(
+a.slug,b.slug)).slice(0,15).map(candidate=>{const options=offers(candidate);const positive=options.filter(
+({position})=>position.netUsd>0);const feasible=positive.length?positive:options;const affordable=feasible.
+filter(offer=>offer.affordable);let reason="non-positive";if(!options.length)reason="chain-excluded";else if(!affordable.
+length)reason="over-budget";else if(!affordable.some(offer=>offer.withinHours))reason="over-hours";return{
+slug:candidate.slug,reason}});const closest=positions.length?[]:remaining.flatMap(candidate=>{let best;
+for(const{position,affordable,withinHours}of offers(candidate)){if(affordable&&withinHours&&(!best||
+position.netUsd>best.netUsd)){best=position}}return best?[{...best,shortfallUsd:Math.max(0,-best.netUsd)}]:
+[]}).sort((a,b)=>a.shortfallUsd-b.shortfallUsd||compareText(a.slug,b.slug)).slice(0,5);return{positions,
+totals,rejected,closest}}var DAY_MS=864e5;function daysBetween(fromIso,toIso){return(Date.parse(toIso)-Date.parse(fromIso))/DAY_MS}function familyKey({slug,gecko_id}){return gecko_id===null?`slug:${slug}`:`gecko:${gecko_id}`}function groupFamilies(protocols){
 const families=new Map;for(const protocol of[...protocols].sort((a,b)=>compareText(a.slug,b.slug))){
 const{tvl_usd,mcap_usd}=protocol;const key=familyKey(protocol);const marketCap=mcap_usd!==null&&mcap_usd>
 0?mcap_usd:null;const family=families.get(key);if(family){family.members.push(protocol);family.tvl_usd+=

@@ -1,9 +1,10 @@
 import { compareText } from "../shared/order.ts";
 import type { Protocol } from "../snapshot.ts";
+import { FARM_ASSUMPTIONS } from "./assumptions.ts";
 import type { EconomicsAssumptions } from "./economics.ts";
 import { farmEconomicsTerms } from "./economics.ts";
 import type { FarmPlan } from "./plans.ts";
-import { makeFarmPlan } from "./plans.ts";
+import { makeFarmPlan, scheduleFarmMinutes } from "./plans.ts";
 import type { FarmTables } from "./playbook-data.ts";
 
 const deposits = [1_000, 2_500, 5_000, 10_000];
@@ -20,7 +21,7 @@ interface PortfolioOptions {
   budgetUsd: number;
   hoursPerWeek: number;
   chains?: readonly string[];
-  assumptions: EconomicsAssumptions & { weeksPerYear: number; tables: FarmTables };
+  assumptions: EconomicsAssumptions & { tables: FarmTables };
 }
 
 type Rejection = "over-budget" | "over-hours" | "chain-excluded" | "non-positive";
@@ -40,10 +41,13 @@ export function planPortfolio(
   rows: readonly PortfolioRow[],
   { budgetUsd, hoursPerWeek, chains, assumptions }: PortfolioOptions,
 ) {
+  if (assumptions.horizonMonths !== FARM_ASSUMPTIONS.horizonMonths) {
+    throw new Error("The farm planner only supports a 12-month horizon.");
+  }
   const permitted = chains && new Set(chains);
-  const minutesPerWeeklyHour =
-    (assumptions.weeksPerYear * assumptions.horizonMonths * assumptions.minutesPerHour) /
-    assumptions.monthsPerYear;
+  const usedMinutesByWeek = Array<number>(FARM_ASSUMPTIONS.weeksPerYear).fill(0);
+  const weeklyCapMinutes = hoursPerWeek * assumptions.minutesPerHour;
+  const minutesPerAverageWeeklyHour = usedMinutesByWeek.length * assumptions.minutesPerHour;
   const candidates = rows.map(({ protocol, rank, plan, economics, implied_value_usd }) => {
     const supported = [...new Set(protocol.chains)].sort(compareText);
     const choices = supported.length ? supported : [null];
@@ -53,23 +57,22 @@ export function planPortfolio(
         chain === plan.chain || chain === null
           ? plan
           : makeFarmPlan({ ...protocol, chains: [chain] }, assumptions.tables);
-      const terms = farmEconomicsTerms(
-        option,
-        implied_value_usd,
-        protocol.tvl_usd,
-        economics.launchProbability12,
-        assumptions,
-      );
-      return [{ option, ...terms }];
+      return [{ option, schedule: scheduleFarmMinutes(option) }];
     });
-    return { slug: protocol.slug, rank, plans };
+    return {
+      slug: protocol.slug,
+      rank,
+      plans,
+      valueUsd: implied_value_usd,
+      tvlUsd: protocol.tvl_usd,
+      probability: economics.launchProbability12,
+    };
   });
 
   const funded = new Set<string>();
   const selected = new Set<string>();
   const positions: Position[] = [];
   let feesCents = 0;
-  let usedMinutes = 0;
   const totals = {
     depositUsd: 0,
     feesUsd: 0,
@@ -80,21 +83,35 @@ export function planPortfolio(
     netUsd: 0,
   };
 
-  function offers({ slug, plans }: (typeof candidates)[number]) {
-    return plans.flatMap(({ option, fixedCosts, capitalCarry, k }) => {
-      const { chain, bridgeCostUsd, totalCostUsd, totalMinutes } = option;
-      const waived = chain !== null && funded.has(chain) ? bridgeCostUsd : 0;
-      const feeCents = Math.round((totalCostUsd - waived) * 100);
+  function offers({ slug, plans, valueUsd, tvlUsd, probability }: (typeof candidates)[number]) {
+    return plans.flatMap(({ option, schedule }) => {
+      const { chain, fundingStep } = option;
+      const waived = chain !== null && funded.has(chain) ? fundingStep : null;
+      const feeCents = Math.round((option.totalCostUsd - (waived?.costUsd ?? 0)) * 100);
+      const totalMinutes = option.totalMinutes - (waived?.minutes ?? 0);
+      const weeklyMinutes = waived
+        ? schedule.map((minutes, week) => (week === 0 ? minutes - waived.minutes : minutes))
+        : schedule;
+      const withinHours = weeklyMinutes.every(
+        (minutes, week) => (usedMinutesByWeek[week] ?? 0) + minutes <= weeklyCapMinutes,
+      );
+      const { fixedCosts, capitalCarry, k } = farmEconomicsTerms(
+        { totalCostUsd: feeCents / 100, totalMinutes, capitalApr: option.capitalApr },
+        valueUsd,
+        tvlUsd,
+        probability,
+        assumptions,
+      );
       return deposits.map((depositUsd) => {
         const expectedValueUsd = k * depositUsd;
-        const costUsd = fixedCosts - waived + capitalCarry * depositUsd;
+        const costUsd = fixedCosts + capitalCarry * depositUsd;
         const netUsd = expectedValueUsd - costUsd;
         const position: Position = {
           slug,
           chain,
           depositUsd,
           feesUsd: feeCents / 100,
-          hoursPerWeek: totalMinutes / minutesPerWeeklyHour,
+          hoursPerWeek: totalMinutes / minutesPerAverageWeeklyHour,
           expectedValueUsd,
           costUsd,
           netUsd,
@@ -102,10 +119,11 @@ export function planPortfolio(
         return {
           position,
           feeCents,
-          totalMinutes,
+          weeklyMinutes,
+          fundsChain: fundingStep !== null,
           score: netUsd / (depositUsd + position.feesUsd),
           affordable: totals.depositUsd + depositUsd + (feesCents + feeCents) / 100 <= budgetUsd,
-          withinHours: (usedMinutes + totalMinutes) / minutesPerWeeklyHour <= hoursPerWeek,
+          withinHours,
         };
       });
     });
@@ -130,9 +148,11 @@ export function planPortfolio(
     const { position } = best;
     positions.push(position);
     selected.add(position.slug);
-    if (position.chain !== null) funded.add(position.chain);
+    if (position.chain !== null && best.fundsChain) funded.add(position.chain);
     feesCents += best.feeCents;
-    usedMinutes += best.totalMinutes;
+    for (const [week, minutes] of best.weeklyMinutes.entries()) {
+      usedMinutesByWeek[week] = (usedMinutesByWeek[week] ?? 0) + minutes;
+    }
     totals.depositUsd += position.depositUsd;
     totals.expectedValueUsd += position.expectedValueUsd;
     totals.costUsd += position.costUsd;
@@ -141,7 +161,8 @@ export function planPortfolio(
 
   totals.feesUsd = feesCents / 100;
   totals.cashUsd = totals.depositUsd + totals.feesUsd;
-  totals.hoursPerWeek = usedMinutes / minutesPerWeeklyHour;
+  totals.hoursPerWeek =
+    usedMinutesByWeek.reduce((sum, minutes) => sum + minutes, 0) / minutesPerAverageWeeklyHour;
 
   const remaining = candidates.filter(({ slug }) => !selected.has(slug));
   const rejected = remaining

@@ -7,7 +7,7 @@ export function plannerForm(chains: readonly string[]): string {
     <p class="plan-meta">12-month estimates. Cash covers deposits and fees. Cost also values time and committed capital.</p>
     <form class="filters">
       <label class="field">Cash budget (USD)<input name="budget" type="number" min="0" step="any" required></label>
-      <label class="field">Hours per week<input name="hours" type="number" min="0" step="any" required></label>
+      <label class="field">Weekly hours cap<input name="hours" type="number" min="0" step="any" required></label>
       <label class="field">Chains · no selection includes all
         <select name="chains" multiple size="4">${chains
           .map((chain) => {

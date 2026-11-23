@@ -1,4 +1,5 @@
 import type { RadarRow } from "../../application/browser-api.ts";
+import type { EconomicsAssumptions } from "../../domain/farming/economics.ts";
 import { chip, growthText } from "./board-view.ts";
 import { escapeHtml as esc, formatInteger } from "./format.ts";
 
@@ -55,6 +56,7 @@ export function protocolView(
   age: number | null,
   back: string,
   usd: FormatUsd,
+  { hourlyRateUsd, farmerHaircut }: Pick<EconomicsAssumptions, "hourlyRateUsd" | "farmerHaircut">,
 ): string {
   const { protocol, plan, economics, status } = row;
   const { airdropYieldApr, breakEvenDepositUsd } = economics;
@@ -98,6 +100,7 @@ export function protocolView(
         <h3>Farm plan</h3>
         <p class="plan-meta"><strong>${esc(plan.chain ?? "Chain unlisted")}</strong> · ${usd(plan.depositUsd)} plan · ${plan.horizonMonths} months</p>
         <div class="chips">${economics.deposits.map(({ depositUsd, verdict }) => `<span class="badge">${usd(depositUsd)} ${verdict}</span>`).join("")}</div>
+        <p class="caption">${usd(hourlyRateUsd)}/h for labor · ${farmerHaircut * 100}% farmer haircut</p>
         <p>Expected airdrop yield ${(airdropYieldApr * 100).toFixed(2)}% APR · Net capital cost ${(plan.capitalApr * 100).toFixed(2)}% APR</p>
         <p>Break-even deposit · ${breakEvenDepositUsd === "never" ? "never" : usd(breakEvenDepositUsd)}</p>
         <table>

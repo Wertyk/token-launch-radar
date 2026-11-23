@@ -120,17 +120,28 @@ test("uses the default gas and bridge allowance for an unknown chain", () => {
   expect(plan.recurringCostUsd).toBe(0);
 });
 
-test("includes recurring perps trading fees on fixed planned turnover", () => {
-  const plan = makeFarmPlan(protocol({ chains: ["Base"], category: "Derivatives" }));
+test("prices both transactions in each derivatives round trip at fixed planned turnover", () => {
+  const plan = makeFarmPlan(protocol({ chains: ["Ethereum"], category: "Derivatives" }));
   const trade = plan.steps.find(({ action }) => /volume/i.test(action));
   expect(trade?.cadence).toBe("weekly");
   expect(trade?.action).toContain("$200");
   expect(trade?.action).toContain("0.06%");
-  expect(trade?.costUsd).toBe(0.17); // $0.12 trading fee plus $0.05 gas
-  expect(plan.recurringCostUsd).toBe(8.84);
+  expect(trade?.costUsd).toBe(6.12); // $0.12 trading fee plus two $3 transactions
+  expect(plan.recurringCostUsd).toBe(318.24);
   expect(
-    makeFarmPlan(protocol({ chains: ["Base"], category: "Derivatives" }), 10_000).totalCostUsd,
+    makeFarmPlan(protocol({ chains: ["Ethereum"], category: "Derivatives" }), 10_000).totalCostUsd,
   ).toBe(plan.totalCostUsd);
+});
+
+test("counts both derivatives transactions when comparing chains", () => {
+  const chains = ["Lower gas", "Lower bridge"];
+  const plan = buildPlan(protocol({ chains, category: "Derivatives" }), {
+    ...tables,
+    gas: { ...tables.gas, chains: { "Lower gas": [0.01, 1], "Lower bridge": [0.02, 0.2] } },
+  });
+  // With 106 transactions, $2.06 in gas and bridge costs beats $2.32.
+  expect(plan.chain).toBe("Lower gas");
+  expect(plan.steps.find(({ cadence }) => cadence === "weekly")?.costUsd).toBe(0.14);
 });
 
 test("bounds text while preserving fee, duration and cadence", () => {

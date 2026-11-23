@@ -9,8 +9,14 @@ import { protocol } from "../protocol-fixture.ts";
 const tables = farmTables();
 const assumptions = { ...FARM_ASSUMPTIONS, tables };
 
-function row(slug: string, rank: number, value = 8_000_000, chains = ["Base"]) {
-  const record = protocol({ slug, category: "Lending", tvl_usd: 10_000_000, chains });
+function row(
+  slug: string,
+  rank: number,
+  value = 8_000_000,
+  chains = ["Base"],
+  category = "Lending",
+) {
+  const record = protocol({ slug, category, tvl_usd: 10_000_000, chains });
   return {
     protocol: record,
     rank,
@@ -41,6 +47,48 @@ test("requires enough weekly time for a whole plan", () => {
   expect(result.rejected).toEqual([{ slug: "a", reason: "over-hours" }]);
 });
 
+test("counts weekly actions in the same week as entry", () => {
+  const rows = [row("a", 1, 80_000_000, ["Base"], "Dexs")];
+  const options = { budgetUsd: 5_000, assumptions };
+  expect(planPortfolio(rows, { ...options, hoursPerWeek: 0.6 }).positions).toEqual([]);
+  // Setup, funding, deposit and the first review take 5 + 10 + 15 + 8 minutes.
+  expect(planPortfolio(rows, { ...options, hoursPerWeek: 38 / 60 }).positions).toHaveLength(1);
+});
+
+test("counts the last monthly review in the same week as exit", () => {
+  const candidate = row("a", 1);
+  const { lending } = tables.playbooks;
+  if (!lending) throw new Error("Expected a lending playbook.");
+  const customPlan = makeFarmPlan(candidate.protocol, {
+    ...tables,
+    playbooks: { ...tables.playbooks, lending: { ...lending, minutes: [12, 20, 35] } },
+  });
+  const rows = [{ ...candidate, plan: customPlan }];
+  const options = { budgetUsd: 5_000, assumptions };
+  expect(planPortfolio(rows, { ...options, hoursPerWeek: 0.9 }).rejected).toEqual([
+    { slug: "a", reason: "over-hours" },
+  ]);
+  expect(planPortfolio(rows, { ...options, hoursPerWeek: 55 / 60 }).positions).toHaveLength(1);
+});
+
+test("caps the combined weekly schedule and counts shared funding once", () => {
+  const rows = [row("a", 1), row("b", 2)];
+  const options = { budgetUsd: 20_001, assumptions };
+  // Both entries take 44 minutes in the first week, including one funding transfer.
+  expect(planPortfolio(rows, { ...options, hoursPerWeek: 0.7 }).positions).toHaveLength(1);
+  expect(planPortfolio(rows, { ...options, hoursPerWeek: 0.75 }).positions).toHaveLength(2);
+});
+
+test("rejects horizons other than 12 months", () => {
+  expect(() =>
+    planPortfolio([row("a", 1)], {
+      budgetUsd: 5_000,
+      hoursPerWeek: 3,
+      assumptions: { ...assumptions, horizonMonths: 6 },
+    }),
+  ).toThrow(/only supports a 12-month horizon/i);
+});
+
 test("uses a supported chain from the filter, including when the published plan uses another", () => {
   const result = planPortfolio([row("a", 1), row("b", 2, 8_000_000, ["Base", "Solana"])], {
     budgetUsd: 5_000,
@@ -52,7 +100,7 @@ test("uses a supported chain from the filter, including when the published plan 
   expect(result.rejected).toEqual([{ slug: "a", reason: "chain-excluded" }]);
 });
 
-test("rescores after paying a bridge and charges it once per chain", () => {
+test("rescores after paying for funding and charges its fee and time once per chain", () => {
   const result = planPortfolio(
     [row("a", 3, 8_800_000), row("b", 2), row("c", 1, 8_010_000, ["Optimism"])],
     { budgetUsd: 4_501, hoursPerWeek: 3, assumptions },
@@ -69,8 +117,40 @@ test("rescores after paying a bridge and charges it once per chain", () => {
   expect(first?.expectedValueUsd).toBe(275);
   expect(first?.costUsd).toBeCloseTo(0.4 + (109 / 60) * 25 + 50, 10);
   expect(first?.netUsd).toBeCloseTo(275 - (0.4 + (109 / 60) * 25 + 50), 10);
+  expect(result.positions[1]?.hoursPerWeek).toBeCloseTo(99 / (52 * 60), 12);
+  expect(result.positions[1]?.costUsd).toBeCloseTo(0.1 + (99 / 60) * 25 + 20, 10);
   expect(result.totals.cashUsd).toBe(4_500.99);
-  expect(result.totals.hoursPerWeek).toBeCloseTo((3 * 109) / (52 * 60), 12);
+  expect(result.totals.hoursPerWeek).toBeCloseTo((109 + 99 + 109) / (52 * 60), 12);
+});
+
+test("requires $20,016 for two Ethereum protocols with their own $8 transfers", () => {
+  // At a 5.5% expected yield, $10,000 is the only deposit above break-even.
+  const rows = [
+    row("a", 1, 4_400_000, ["Ethereum"], "Bridge"),
+    row("b", 2, 4_400_000, ["Ethereum"], "Canonical Bridge"),
+  ];
+  const options = { hoursPerWeek: 3, assumptions };
+  for (const budgetUsd of [20_008, 20_015.99]) {
+    expect(planPortfolio(rows, { ...options, budgetUsd }).positions).toHaveLength(1);
+  }
+  const result = planPortfolio(rows, { ...options, budgetUsd: 20_016 });
+  expect(result.positions).toMatchObject([
+    { slug: "a", depositUsd: 10_000, feesUsd: 8 },
+    { slug: "b", depositUsd: 10_000, feesUsd: 8 },
+  ]);
+  expect(result.totals.cashUsd).toBe(20_016);
+});
+
+test("a protocol transfer does not pay for funding a separate position", () => {
+  const rows = [
+    row("a", 1, 80_000_000, ["Ethereum"], "Bridge"),
+    row("b", 2, 16_000_000, ["Ethereum"]),
+  ];
+  const result = planPortfolio(rows, { budgetUsd: 20_022, hoursPerWeek: 3, assumptions });
+  expect(result.positions).toMatchObject([
+    { slug: "a", depositUsd: 10_000, feesUsd: 8 },
+    { slug: "b", depositUsd: 10_000, feesUsd: 14 },
+  ]);
 });
 
 test("reports up to five distinct feasible near misses and the top fifteen rejected rows", () => {

@@ -4,11 +4,11 @@ import { FARM_ASSUMPTIONS as assumptions } from "./assumptions.ts";
 interface Playbook {
   categories: readonly string[];
   minutes: readonly [number, number, number];
+  transactions: readonly [entry: number, review: number, exit: number];
   capitalApr: number;
   enter: string;
   review: string;
   cadence: "weekly" | "monthly";
-  reviewGas?: boolean;
   exit: string;
   exitCondition: string;
 }
@@ -70,6 +70,7 @@ export function farmTables(): FarmTables {
         "collateral markets",
       ],
       minutes: [12, 6, 10],
+      transactions: [1, 0, 1],
       capitalApr: assumptions.capitalApr.yieldBearing,
       enter: "Supply collateral. Log the rate and liquidation limit if borrowing.",
       review: "Log the supply rate and check the health factor of any debt.",
@@ -80,11 +81,11 @@ export function farmTables(): FarmTables {
     dex: {
       categories: ["dex", "dexs", "liquidity manager"],
       minutes: [15, 8, 12],
+      transactions: [1, 1, 1],
       capitalApr: assumptions.capitalApr.yieldBearing,
       enter: "Add liquidity to one pool. Save its fee tier, price range and entry amounts.",
       review: "Compare pool value plus fees against holding. Rebalance if the range breaks.",
       cadence: "weekly",
-      reviewGas: true,
       exit: "Remove liquidity and compare proceeds with holding the entry amounts.",
       exitCondition: "At the horizon or when fees fail to cover divergence loss.",
     },
@@ -98,11 +99,11 @@ export function farmTables(): FarmTables {
         "perps",
       ],
       minutes: [15, 12, 10],
+      transactions: [1, 2, 1],
       capitalApr: assumptions.capitalApr.nonYielding,
       enter: "Post margin and record funding and liquidation terms.",
       review: `If eligible, open and close a small position within ${formatUsd(assumptions.tradeVolumeUsd)} of gross volume at ${(assumptions.tradingFeeRate * 100).toFixed(2)}% in trading fees. Log funding.`,
       cadence: "weekly",
-      reviewGas: true,
       exit: "Close open positions and withdraw available margin.",
       exitCondition: "At the horizon or sooner if funding or margin hits your limit.",
     },
@@ -116,6 +117,7 @@ export function farmTables(): FarmTables {
         "risk curators",
       ],
       minutes: [12, 5, 9],
+      transactions: [1, 0, 1],
       capitalApr: assumptions.capitalApr.yieldBearing,
       enter: "Deposit into a vault. Record shares, strategy, fees and withdrawal terms.",
       review: "Check share price, strategy changes and available exit liquidity.",
@@ -133,6 +135,7 @@ export function farmTables(): FarmTables {
         "staking",
       ],
       minutes: [10, 4, 10],
+      transactions: [1, 0, 1],
       capitalApr: assumptions.capitalApr.yieldBearing,
       enter: "Stake with a validator or pool. Record commission and the unbonding period.",
       review: "Check validator uptime, rewards and slashing notices.",
@@ -143,6 +146,7 @@ export function farmTables(): FarmTables {
     rwa: {
       categories: ["rwa"],
       minutes: [45, 6, 15],
+      transactions: [1, 0, 1],
       capitalApr: assumptions.capitalApr.yieldBearing,
       enter:
         "Allow time for eligibility checks and KYC. If approved, subscribe and log the redemption window.",
@@ -154,6 +158,7 @@ export function farmTables(): FarmTables {
     prediction: {
       categories: ["prediction market", "prediction markets"],
       minutes: [12, 9, 8],
+      transactions: [1, 0, 1],
       capitalApr: assumptions.capitalApr.nonYielding,
       enter: "Read one market’s resolution rules. Set a loss limit before buying shares.",
       review: "Check resolution updates and available bids for the position.",
@@ -164,6 +169,7 @@ export function farmTables(): FarmTables {
     bridge: {
       categories: ["bridge", "canonical bridge", "cross chain bridge"],
       minutes: [16, 4, 6],
+      transactions: [1, 0, 0],
       capitalApr: assumptions.capitalApr.nonYielding,
       enter: "Quote the destination asset and minimum received. Send only after verifying both.",
       review: "Check unresolved transfers and follow the documented recovery path if needed.",
@@ -174,6 +180,7 @@ export function farmTables(): FarmTables {
     generic: {
       categories: [],
       minutes: [12, 5, 8],
+      transactions: [1, 0, 1],
       capitalApr: assumptions.capitalApr.nonYielding,
       enter: "Use a documented deposit or transfer and save the receipt.",
       review: "Check balances and changes to access or withdrawal terms.",

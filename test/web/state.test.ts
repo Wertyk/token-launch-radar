@@ -51,6 +51,11 @@ test("round-trips the planner budget, hours and selected chains", () => {
   expect(parseRoute(planHash(other))).toEqual({ page: "plan", state: other });
 });
 
+test("round-trips planner limits in exponent notation", () => {
+  const state = { budgetUsd: 1e21, hoursPerWeek: 1e22, chains: ["Base"] };
+  expect(parseRoute(planHash(state))).toEqual({ page: "plan", state });
+});
+
 test("defaults invalid planner limits and accepts an empty chain selection", () => {
   for (const hash of ["#/plan", "#/plan?budget=NaN&hours=-1", "#/plan?budget=&hours=Infinity"]) {
     expect(parseRoute(hash)).toEqual({
