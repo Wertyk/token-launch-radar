@@ -20,7 +20,7 @@ var Radar = (() => {
   // src/application/browser-api.ts
   var browser_api_exports = {};
   __export(browser_api_exports, {
-    buildRadar: () => buildRadar,
+    buildRadar: () => recomputeRadar,
     daysBetween: () => daysBetween,
     formatUsd: () => formatUsd,
     parseSnapshot: () => parseSnapshot,
@@ -462,6 +462,31 @@ var Radar = (() => {
     return sorted.length % 2 === 0 && lower ? (lower.value + upper.value) / 2 : upper.value;
   }
 
+  // src/domain/valuation/comparables.ts
+  function logAge(listedAt, asOf) {
+    return Math.log(Math.max(1, daysBetween(listedAt, asOf)));
+  }
+  function logMomentum(change) {
+    return change === null ? 0 : Math.log1p(clamp(change, -50, 100) / 100);
+  }
+  function comparablesFromFamilies(families, asOf) {
+    return families.flatMap(({ key, representative, tvl_usd, mcap_usd }) => {
+      if (mcap_usd === null) return [];
+      const { slug, listed_at, change_7d } = representative;
+      return [
+        {
+          slug,
+          familyKey: key,
+          listedAt: listed_at,
+          lnTvl: Math.log(tvl_usd),
+          lnAge: listed_at === null ? null : logAge(listed_at, asOf),
+          growth: logMomentum(change_7d),
+          target: Math.log(mcap_usd)
+        }
+      ];
+    });
+  }
+
   // src/domain/valuation/linalg.ts
   function at(values, index) {
     const value = values[index];
@@ -510,107 +535,211 @@ var Radar = (() => {
     return x;
   }
 
+  // src/domain/valuation/ridge.ts
+  var HUBER_K = 1.345;
+  var MAD_NORMAL_SCALE = 1.4826;
+  var MIN_SCALE = 1e-8;
+  var MAX_ITERATIONS = 20;
+  var TOLERANCE = 1e-5;
+  function weightedRidge(rows, weights, lambda) {
+    let weightSum = 0;
+    let tvlSum = 0;
+    let ageSum = 0;
+    let targetSum = 0;
+    let tvlSquared = 0;
+    let ageSquared = 0;
+    let tvlAge = 0;
+    let tvlTarget = 0;
+    let ageTarget = 0;
+    for (const [index, { tvl, age, target }] of rows.entries()) {
+      const weight = weights[index] ?? 1;
+      const weightedTvl = weight * tvl;
+      const weightedAge = weight * age;
+      weightSum += weight;
+      tvlSum += weightedTvl;
+      ageSum += weightedAge;
+      targetSum += weight * target;
+      tvlSquared += weightedTvl * tvl;
+      ageSquared += weightedAge * age;
+      tvlAge += weightedTvl * age;
+      tvlTarget += weightedTvl * target;
+      ageTarget += weightedAge * target;
+    }
+    if (lambda === 0 && tvlSquared > 0 && ageSquared > 0 && tvlAge ** 2 >= (1 - 8 * Number.EPSILON) * tvlSquared * ageSquared) {
+      return [
+        ...choleskySolve(
+          [
+            [weightSum, tvlSum],
+            [tvlSum, tvlSquared]
+          ],
+          [targetSum, tvlTarget]
+        ),
+        0
+      ];
+    }
+    return choleskySolve(
+      [
+        [weightSum, tvlSum, ageSum],
+        [tvlSum, (tvlSquared || 1) + lambda, tvlAge],
+        [ageSum, tvlAge, (ageSquared || 1) + lambda]
+      ],
+      [targetSum, tvlTarget, ageTarget]
+    );
+  }
+  function medianInPlace(values) {
+    const middle = Math.floor(values.length / 2);
+    let low = 0;
+    let high = values.length - 1;
+    while (low < high) {
+      const pivot = values[low + high >>> 1] ?? 0;
+      let left = low;
+      let right = high;
+      while (left <= right) {
+        while ((values[left] ?? pivot) < pivot) left++;
+        while ((values[right] ?? pivot) > pivot) right--;
+        if (left <= right) {
+          const value = values[left] ?? pivot;
+          values[left++] = values[right] ?? pivot;
+          values[right--] = value;
+        }
+      }
+      if (middle <= right) high = right;
+      else if (middle >= left) low = left;
+      else break;
+    }
+    const upper = values[middle] ?? 0;
+    if (values.length % 2 !== 0) return upper;
+    let lower = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < middle; i++) lower = Math.max(lower, values[i] ?? upper);
+    return (lower + upper) / 2;
+  }
+  function madScale(residuals, scratch) {
+    scratch.set(residuals);
+    const center = medianInPlace(scratch);
+    for (let i = 0; i < residuals.length; i++) scratch[i] = Math.abs((residuals[i] ?? 0) - center);
+    return Math.max(MIN_SCALE, MAD_NORMAL_SCALE * medianInPlace(scratch));
+  }
+  function fitHuber(size, solve, evaluateResiduals, robust = true) {
+    const weights = new Float64Array(size).fill(1);
+    const residuals = new Float64Array(size);
+    const scratch = new Float64Array(size);
+    let coefficients = solve(weights);
+    evaluateResiduals(coefficients, residuals);
+    let huberScale = madScale(residuals, scratch);
+    if (robust) {
+      for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+        const cutoff = HUBER_K * huberScale;
+        for (let i = 0; i < residuals.length; i++) {
+          weights[i] = Math.min(1, cutoff / Math.abs(residuals[i] ?? 0));
+        }
+        const next = solve(weights);
+        const converged = next.every(
+          (value, i) => Math.abs(value - (coefficients[i] ?? 0)) < TOLERANCE
+        );
+        coefficients = next;
+        evaluateResiduals(coefficients, residuals);
+        huberScale = madScale(residuals, scratch);
+        if (converged) break;
+      }
+    }
+    return { coefficients, huberScale };
+  }
+  function fitRidge(rows, lambda, robust) {
+    return fitHuber(
+      rows.length,
+      (weights) => weightedRidge(rows, weights, lambda),
+      ([intercept = 0, tvlSlope = 0, ageSlope = 0], residuals) => {
+        let i = 0;
+        for (const { target, tvl, age } of rows) {
+          residuals[i++] = target - (intercept + tvlSlope * tvl + ageSlope * age);
+        }
+      },
+      robust
+    );
+  }
+
   // src/domain/valuation/model.ts
-  var RIDGE = 1e-6;
   var FITTED_KEYS = ["lnTvl", "lnAge"];
-  function logAge(listedAt, asOf) {
-    return Math.log(Math.max(1, daysBetween(listedAt, asOf)));
-  }
-  function featuresForFit(protocol, asOf, medianLnAge) {
-    return {
-      lnTvl: Math.log(protocol.tvl_usd),
-      lnAge: protocol.listed_at === null ? medianLnAge : logAge(protocol.listed_at, asOf)
-    };
-  }
   function valueFeatures(protocol, asOf, medianLnAge) {
     const flags = [];
     if (protocol.change_7d === null) flags.push("growth-missing");
     if (protocol.listed_at === null) flags.push("age-missing");
     return {
       features: {
-        ...featuresForFit(protocol, asOf, medianLnAge),
-        growth: protocol.change_7d === null ? 0 : Math.log1p(clamp(protocol.change_7d, -50, 100) / 100)
+        lnTvl: Math.log(protocol.tvl_usd),
+        lnAge: protocol.listed_at === null ? medianLnAge : logAge(protocol.listed_at, asOf),
+        growth: logMomentum(protocol.change_7d)
       },
       flags
     };
   }
-  function fittingSet(census) {
-    const families = /* @__PURE__ */ new Map();
-    const independent = [];
-    for (const { protocol, status } of census) {
-      if (status !== "traded" || protocol.mcap_usd === null) continue;
-      const comparable = { ...protocol, mcap_usd: protocol.mcap_usd };
-      const family = protocol.gecko_id;
-      if (family === null) {
-        independent.push(comparable);
-        continue;
-      }
-      const prior = families.get(family);
-      if (!prior || compareText(protocol.slug, prior.slug) < 0) families.set(family, comparable);
+  function featureStats(values) {
+    let sum = 0;
+    let min = Number.POSITIVE_INFINITY;
+    let max = Number.NEGATIVE_INFINITY;
+    for (const value of values) {
+      sum += value;
+      min = Math.min(min, value);
+      max = Math.max(max, value);
     }
-    return [...independent, ...families.values()].sort((a, b) => compareText(a.slug, b.slug));
+    const mean = min === max ? min : sum / values.length;
+    const scale = Math.sqrt(
+      values.reduce((total, value) => total + (value - mean) ** 2, 0) / values.length
+    );
+    return { mean, scale, range: { min, max } };
   }
-  function fitValueModel(census, asOf) {
-    const comparables = fittingSet(census);
-    const n = comparables.length;
+  function prepareFit(rows, drop) {
+    const n = rows.length;
     if (n === 0) throw new Error("The value model needs at least one traded comparable.");
-    const knownAges = comparables.flatMap(
-      ({ slug, listed_at }) => listed_at === null ? [] : [{ slug, value: logAge(listed_at, asOf) }]
-    );
-    const medianLnAge = median(knownAges) ?? 0;
-    const rows = comparables.map((protocol) => ({
-      features: featuresForFit(protocol, asOf, medianLnAge),
-      target: Math.log(protocol.mcap_usd)
-    }));
-    const featureStats = (key) => {
-      let sum = 0;
-      let min = Number.POSITIVE_INFINITY;
-      let max = Number.NEGATIVE_INFINITY;
-      for (const { features } of rows) {
-        const value = features[key];
-        sum += value;
-        min = Math.min(min, value);
-        max = Math.max(max, value);
-      }
-      return { mean: sum / n, range: { min, max } };
-    };
-    const tvl = featureStats("lnTvl");
-    const age = featureStats("lnAge");
-    const featureMeans = { lnTvl: tvl.mean, lnAge: age.mean };
-    const featureRanges = { lnTvl: tvl.range, lnAge: age.range };
+    const medianLnAge = median(rows.flatMap(({ slug, lnAge }) => lnAge === null ? [] : [{ slug, value: lnAge }])) ?? 0;
+    const tvl = featureStats(rows.map(({ lnTvl }) => lnTvl));
+    const age = featureStats(rows.map(({ lnAge }) => lnAge ?? medianLnAge));
     const targetMean = rows.reduce((sum, row) => sum + row.target, 0) / n;
-    const centered = rows.map(({ features, target }) => ({
-      features: {
-        lnTvl: features.lnTvl - featureMeans.lnTvl,
-        lnAge: features.lnAge - featureMeans.lnAge
-      },
-      target: target - targetMean
+    const tvlScale = drop === "tvl" ? 0 : tvl.scale;
+    const ageScale = drop === "age" ? 0 : age.scale;
+    const design = rows.map((row) => ({
+      target: row.target - targetMean,
+      tvl: tvlScale ? (row.lnTvl - tvl.mean) / tvlScale : 0,
+      age: ageScale ? ((row.lnAge ?? medianLnAge) - age.mean) / ageScale : 0
     }));
-    const normal = FITTED_KEYS.map(
-      (first) => FITTED_KEYS.map(
-        (second) => centered.reduce(
-          (sum, row) => sum + row.features[first] * row.features[second],
-          first === second ? RIDGE : 0
-        )
-      )
-    );
-    const rhs = FITTED_KEYS.map(
-      (key) => centered.reduce((sum, row) => sum + row.features[key] * row.target, 0)
-    );
-    const [lnTvl, lnAge] = choleskySolve(normal, rhs);
-    if (lnTvl === void 0 || lnAge === void 0) {
-      throw new Error("The value model requires two fitted slopes.");
-    }
-    const intercept = targetMean - lnTvl * featureMeans.lnTvl - lnAge * featureMeans.lnAge;
-    return { n, medianLnAge, featureMeans, featureRanges, coefficients: { intercept, lnTvl, lnAge } };
+    return {
+      design,
+      targetMean,
+      tvlScale,
+      ageScale,
+      metadata: {
+        n,
+        medianLnAge,
+        featureMeans: { lnTvl: tvl.mean, lnAge: age.mean },
+        featureRanges: { lnTvl: tvl.range, lnAge: age.range }
+      }
+    };
+  }
+  function restoreCoefficients({ targetMean, tvlScale, ageScale, metadata: { featureMeans } }, centeredIntercept, tvlSlope, ageSlope) {
+    const lnTvl = tvlScale ? tvlSlope / tvlScale : 0;
+    const lnAge = ageScale ? ageSlope / ageScale : 0;
+    const intercept = targetMean + centeredIntercept - lnTvl * featureMeans.lnTvl - lnAge * featureMeans.lnAge;
+    return { intercept, lnTvl, lnAge };
+  }
+  function fitValueModel(rows, lambda, { drop, robust = true } = {}) {
+    const prepared = prepareFit(rows, drop);
+    const {
+      coefficients: [base = 0, tvl = 0, age = 0],
+      huberScale
+    } = fitRidge(prepared.design, lambda, robust);
+    return {
+      ...prepared.metadata,
+      lambda,
+      huberScale,
+      coefficients: restoreCoefficients(prepared, base, tvl, age)
+    };
+  }
+  function logValue({ lnTvl, growth, lnAge }, { coefficients }) {
+    return coefficients.intercept + coefficients.lnTvl * (lnTvl + growth) + coefficients.lnAge * lnAge;
   }
   function predictValue(protocol, asOf, model) {
     const row = valueFeatures(protocol, asOf, model.medianLnAge);
-    const {
-      featureMeans,
-      featureRanges,
-      coefficients: { intercept, lnTvl, lnAge }
-    } = model;
+    const { featureMeans, featureRanges, coefficients } = model;
     const { features } = row;
     if (FITTED_KEYS.some((key) => {
       const { min, max } = featureRanges[key];
@@ -618,9 +747,9 @@ var Radar = (() => {
     })) {
       row.flags.push("outside-comps-range");
     }
-    const logValue = intercept + lnTvl * (features.lnTvl + features.growth) + lnAge * features.lnAge;
+    const { intercept, lnTvl, lnAge } = coefficients;
     const logBase = intercept + lnTvl * featureMeans.lnTvl + lnAge * featureMeans.lnAge;
-    const valueUsd = Math.exp(logValue);
+    const valueUsd = Math.exp(logValue(features, model));
     return {
       ...row,
       valueUsd,
@@ -642,20 +771,14 @@ var Radar = (() => {
   }
 
   // src/application/build-radar.ts
-  function buildRadar(snapshot) {
-    const { protocols, watchlist, as_of } = snapshot;
+  function radarInputs({ protocols, as_of }) {
     const families = groupFamilies(protocols);
+    return { families, comparables: comparablesFromFamilies(families, as_of) };
+  }
+  function rankRadar(snapshot, { families, comparables }, lambda) {
+    const { protocols, watchlist, as_of } = snapshot;
     const entries = buildCensus(protocols, families);
-    const comparables = families.flatMap(
-      ({ key, representative, tvl_usd, mcap_usd }) => mcap_usd === null ? [] : [
-        {
-          protocol: { ...representative, tvl_usd, mcap_usd },
-          familyKey: key,
-          ...classify(representative, mcap_usd)
-        }
-      ]
-    );
-    const model = fitValueModel(comparables, as_of);
+    const model = fitValueModel(comparables, lambda);
     const ranked = rankBoard(boardEntries(entries, watchlist), as_of, model);
     const board = ranked.map((row) => {
       const plan = makeFarmPlan(row.protocol);
@@ -671,6 +794,9 @@ var Radar = (() => {
       })
     );
     return { census, houseRule: checkHouseRule(snapshot), model, board };
+  }
+  function recomputeRadar(snapshot, lambda) {
+    return rankRadar(snapshot, radarInputs(snapshot), lambda);
   }
   return __toCommonJS(browser_api_exports);
 })();

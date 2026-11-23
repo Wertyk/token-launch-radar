@@ -1,6 +1,6 @@
 import type { RadarResult } from "./build-radar.ts";
 
-export function toBoardRows(result: RadarResult) {
+export function toBoardRows(result: Pick<RadarResult, "board" | "houseRule">) {
   const slugsWithLikelyParent = new Set(result.houseRule.falsePositives.map(({ slug }) => slug));
   const rows = result.board.map((row) => ({
     slug: row.protocol.slug,

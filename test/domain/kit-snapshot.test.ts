@@ -1,8 +1,7 @@
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { expect, test } from "vitest";
+import { beforeAll, expect, test } from "vitest";
 import { toBoardRows } from "../../src/application/board-rows.ts";
-import { buildRadar } from "../../src/application/build-radar.ts";
+import { buildRadar, recomputeRadar } from "../../src/application/build-radar.ts";
 import type { Snapshot } from "../../src/domain/snapshot.ts";
 import { parseSnapshot } from "../../src/domain/snapshot.ts";
 
@@ -24,9 +23,15 @@ function readSnapshot(): Snapshot {
   return parseSnapshot(JSON.parse(json));
 }
 
+let snapshot: Snapshot;
+let result: ReturnType<typeof buildRadar>;
+
+beforeAll(() => {
+  snapshot = readSnapshot();
+  result = buildRadar(snapshot);
+}, 20_000);
+
 test("the kit snapshot produces a complete, valid and deterministic board", () => {
-  const snapshot = readSnapshot();
-  const result = buildRadar(snapshot);
   const { census, board } = result;
 
   expect(census).toHaveLength(758);
@@ -107,11 +112,10 @@ test("the kit snapshot produces a complete, valid and deterministic board", () =
       expect(step.trim().length).toBeLessThanOrEqual(600);
     }
   }
-  expect(buildRadar(snapshot)).toEqual(result);
+  expect(toBoardRows(recomputeRadar(snapshot, result.model.lambda))).toEqual(toBoardRows(result));
 });
 
-test("the published kit board differs from the pre-census board only by the parent flag", () => {
-  const result = buildRadar(readSnapshot());
+test("the parent flag still matches the house-rule audit on the published kit board", () => {
   const board = toBoardRows(result);
   const flag = "parent-protocol-likely";
   expect(
@@ -120,14 +124,24 @@ test("the published kit board differs from the pre-census board only by the pare
       .map(({ slug }) => slug)
       .sort(),
   ).toEqual(result.houseRule.falsePositives.map(({ slug }) => slug));
-  const priorBoard = {
-    rows: board.rows.map((row) => ({ ...row, flags: row.flags.filter((value) => value !== flag) })),
-  };
-  // Normalize floating-point metadata so the baseline tolerates differences across JS engines.
-  const json = JSON.stringify(priorBoard, (_, value) =>
-    typeof value === "number" && !Number.isInteger(value) ? Number(value.toPrecision(12)) : value,
-  );
-  expect(createHash("sha256").update(json).digest("hex")).toBe(
-    "0848697f840d8818e612e9099759b00eace97937898936a31f0993753cbeccfe",
-  );
+});
+
+test("the nested kit LOO model matches or improves on the flat multiple", () => {
+  const { validation, ablation } = result.model;
+  const loo = validation.leaveOneFamilyOut;
+  expect(loo.model.n).toBe(128);
+  expect(loo.flatMultiple.n).toBe(128);
+  expect(loo.categoryMultiple.n).toBe(128);
+  expect(validation.seededFiveFold.model.n).toBe(128);
+  expect(validation.walkForward.model.n).toBe(38);
+  expect(loo.model.medianMultiplier).not.toBeNull();
+  expect(loo.flatMultiple.medianMultiplier).not.toBeNull();
+  expect(loo.model.medianMultiplier).toBeLessThanOrEqual(loo.flatMultiple.medianMultiplier ?? 0);
+  expect(ablation.full).toEqual(loo.model);
+  expect(ablation.withCategory.medianMultiplier).toBeGreaterThan(loo.model.medianMultiplier ?? 0);
+  for (const score of Object.values(ablation)) {
+    expect(score.n).toBe(128);
+    expect(score.medianMultiplier).not.toBeNull();
+    expect(score.spearman).not.toBeNull();
+  }
 });

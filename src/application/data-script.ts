@@ -5,7 +5,7 @@ import type { RadarResult } from "./build-radar.ts";
 export function renderDataScript(
   snapshot: Snapshot,
   board: BoardRows,
-  { census, houseRule }: Pick<RadarResult, "census" | "houseRule">,
+  { census, houseRule, model }: Pick<RadarResult, "census" | "houseRule" | "model">,
 ): string {
   const { as_of, floor_usd, source, protocols, watchlist } = snapshot;
   const scheme = /https?:\/\//gi;
@@ -15,6 +15,7 @@ export function renderDataScript(
     watchlist,
     census,
     houseRule,
+    model,
     board,
   };
   // Preserve protocol and board strings when escaping any remaining URL literals.

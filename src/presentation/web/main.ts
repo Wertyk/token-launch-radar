@@ -12,6 +12,7 @@ import { boardHash, isSortKey, parseRoute } from "./state.ts";
 interface RadarData extends Pick<Snapshot, "protocols" | "watchlist"> {
   meta: Pick<Snapshot, "as_of" | "floor_usd" | "source">;
   board: BrowserApi.BoardRows;
+  model: ReturnType<typeof BrowserApi.buildRadar>["model"];
 }
 
 declare global {
@@ -102,7 +103,7 @@ function start(main: HTMLElement, data: RadarData, api: typeof BrowserApi): void
     protocols: data.protocols,
     watchlist: data.watchlist,
   });
-  const radar = buildRadar(snapshot);
+  const radar = buildRadar(snapshot, data.model.lambda);
   const published = data.board.rows;
   const computed = toBoard(radar).rows;
   const mismatches = countBoardMismatches(computed, published);

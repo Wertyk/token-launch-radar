@@ -1,11 +1,12 @@
-import type { BoardEntry, CensusEntry } from "../census/census.ts";
+import type { BoardEntry } from "../census/census.ts";
 import { clamp, median } from "../shared/math.ts";
 import { compareText } from "../shared/order.ts";
 import type { Protocol } from "../snapshot.ts";
-import { daysBetween } from "../snapshot.ts";
-import { choleskySolve } from "./linalg.ts";
+import type { Comparable } from "./comparables.ts";
+import { logAge, logMomentum } from "./comparables.ts";
+import type { RidgeRow } from "./ridge.ts";
+import { fitRidge } from "./ridge.ts";
 
-const RIDGE = 1e-6;
 const FITTED_KEYS = ["lnTvl", "lnAge"] as const;
 
 interface FittedFeatures {
@@ -26,6 +27,8 @@ export interface FeatureRow {
 
 export interface ValueModel {
   n: number;
+  lambda: number;
+  huberScale: number;
   medianLnAge: number;
   featureMeans: FittedFeatures;
   featureRanges: Record<keyof FittedFeatures, { min: number; max: number }>;
@@ -37,7 +40,7 @@ export interface Valuation extends FeatureRow {
   implied_value_usd: number;
   decomposition: {
     base: number;
-    multipliers: ValueFeatures;
+    multipliers: FittedFeatures & { growth: number };
   };
 }
 
@@ -45,16 +48,11 @@ export interface RankedRow extends BoardEntry, Valuation {
   rank: number;
 }
 
-function logAge(listedAt: string, asOf: string): number {
-  return Math.log(Math.max(1, daysBetween(listedAt, asOf)));
-}
+type FittedTerm = "tvl" | "age";
 
-function featuresForFit(protocol: Protocol, asOf: string, medianLnAge: number): FittedFeatures {
-  // Age is time since listing for comparables and time running with no token for pre-token rows.
-  return {
-    lnTvl: Math.log(protocol.tvl_usd),
-    lnAge: protocol.listed_at === null ? medianLnAge : logAge(protocol.listed_at, asOf),
-  };
+interface FitOptions {
+  drop?: FittedTerm;
+  robust?: boolean;
 }
 
 export function valueFeatures(protocol: Protocol, asOf: string, medianLnAge: number): FeatureRow {
@@ -64,101 +62,104 @@ export function valueFeatures(protocol: Protocol, asOf: string, medianLnAge: num
 
   return {
     features: {
-      ...featuresForFit(protocol, asOf, medianLnAge),
-      growth:
-        protocol.change_7d === null ? 0 : Math.log1p(clamp(protocol.change_7d, -50, 100) / 100),
+      lnTvl: Math.log(protocol.tvl_usd),
+      lnAge: protocol.listed_at === null ? medianLnAge : logAge(protocol.listed_at, asOf),
+      growth: logMomentum(protocol.change_7d),
     },
     flags,
   };
 }
 
-function fittingSet(census: readonly CensusEntry[]) {
-  const families = new Map<string, Protocol & { mcap_usd: number }>();
-  const independent: (Protocol & { mcap_usd: number })[] = [];
-  for (const { protocol, status } of census) {
-    if (status !== "traded" || protocol.mcap_usd === null) continue;
-    const comparable = { ...protocol, mcap_usd: protocol.mcap_usd };
-    const family = protocol.gecko_id;
-    if (family === null) {
-      independent.push(comparable);
-      continue;
-    }
-    const prior = families.get(family);
-    if (!prior || compareText(protocol.slug, prior.slug) < 0) families.set(family, comparable);
+function featureStats(values: readonly number[]) {
+  let sum = 0;
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  for (const value of values) {
+    sum += value;
+    min = Math.min(min, value);
+    max = Math.max(max, value);
   }
-  return [...independent, ...families.values()].sort((a, b) => compareText(a.slug, b.slug));
+  const mean = min === max ? min : sum / values.length;
+  const scale = Math.sqrt(
+    values.reduce((total, value) => total + (value - mean) ** 2, 0) / values.length,
+  );
+  return { mean, scale, range: { min, max } };
 }
 
-export function fitValueModel(census: readonly CensusEntry[], asOf: string): ValueModel {
-  const comparables = fittingSet(census);
-  const n = comparables.length;
+export function prepareFit(rows: readonly Comparable[], drop?: FittedTerm) {
+  const n = rows.length;
   if (n === 0) throw new Error("The value model needs at least one traded comparable.");
 
-  const knownAges = comparables.flatMap(({ slug, listed_at }) =>
-    listed_at === null ? [] : [{ slug, value: logAge(listed_at, asOf) }],
-  );
-  const medianLnAge = median(knownAges) ?? 0;
-  const rows = comparables.map((protocol) => ({
-    features: featuresForFit(protocol, asOf, medianLnAge),
-    target: Math.log(protocol.mcap_usd),
-  }));
-  const featureStats = (key: keyof FittedFeatures) => {
-    let sum = 0;
-    let min = Number.POSITIVE_INFINITY;
-    let max = Number.NEGATIVE_INFINITY;
-    for (const { features } of rows) {
-      const value = features[key];
-      sum += value;
-      min = Math.min(min, value);
-      max = Math.max(max, value);
-    }
-    return { mean: sum / n, range: { min, max } };
-  };
-  const tvl = featureStats("lnTvl");
-  const age = featureStats("lnAge");
-  const featureMeans = { lnTvl: tvl.mean, lnAge: age.mean };
-  const featureRanges = { lnTvl: tvl.range, lnAge: age.range };
+  const medianLnAge =
+    median(rows.flatMap(({ slug, lnAge }) => (lnAge === null ? [] : [{ slug, value: lnAge }]))) ??
+    0;
+  const tvl = featureStats(rows.map(({ lnTvl }) => lnTvl));
+  const age = featureStats(rows.map(({ lnAge }) => lnAge ?? medianLnAge));
   const targetMean = rows.reduce((sum, row) => sum + row.target, 0) / n;
-  const centered = rows.map(({ features, target }) => ({
-    features: {
-      lnTvl: features.lnTvl - featureMeans.lnTvl,
-      lnAge: features.lnAge - featureMeans.lnAge,
-    },
-    target: target - targetMean,
+  const tvlScale = drop === "tvl" ? 0 : tvl.scale;
+  const ageScale = drop === "age" ? 0 : age.scale;
+  const design: RidgeRow[] = rows.map((row) => ({
+    target: row.target - targetMean,
+    tvl: tvlScale ? (row.lnTvl - tvl.mean) / tvlScale : 0,
+    age: ageScale ? ((row.lnAge ?? medianLnAge) - age.mean) / ageScale : 0,
   }));
-
-  // Centering solves the normal equations for the slopes while leaving the intercept unpenalized.
-  const normal = FITTED_KEYS.map((first) =>
-    FITTED_KEYS.map((second) =>
-      centered.reduce(
-        (sum, row) => sum + row.features[first] * row.features[second],
-        first === second ? RIDGE : 0,
-      ),
-    ),
-  );
-  const rhs = FITTED_KEYS.map((key) =>
-    centered.reduce((sum, row) => sum + row.features[key] * row.target, 0),
-  );
-  const [lnTvl, lnAge] = choleskySolve(normal, rhs);
-  if (lnTvl === undefined || lnAge === undefined) {
-    throw new Error("The value model requires two fitted slopes.");
-  }
-  const intercept = targetMean - lnTvl * featureMeans.lnTvl - lnAge * featureMeans.lnAge;
-  return { n, medianLnAge, featureMeans, featureRanges, coefficients: { intercept, lnTvl, lnAge } };
+  return {
+    design,
+    targetMean,
+    tvlScale,
+    ageScale,
+    metadata: {
+      n,
+      medianLnAge,
+      featureMeans: { lnTvl: tvl.mean, lnAge: age.mean },
+      featureRanges: { lnTvl: tvl.range, lnAge: age.range },
+    },
+  };
 }
 
-/**
- * Comparables' seven-day TVL change mixes in their own token's price, making a fitted
- * growth slope specific to traded protocols. Price one week of TVL momentum using
- * the fitted TVL elasticity.
- */
+export function restoreCoefficients(
+  { targetMean, tvlScale, ageScale, metadata: { featureMeans } }: ReturnType<typeof prepareFit>,
+  centeredIntercept: number,
+  tvlSlope: number,
+  ageSlope: number,
+): ValueModel["coefficients"] {
+  const lnTvl = tvlScale ? tvlSlope / tvlScale : 0;
+  const lnAge = ageScale ? ageSlope / ageScale : 0;
+  const intercept =
+    targetMean + centeredIntercept - lnTvl * featureMeans.lnTvl - lnAge * featureMeans.lnAge;
+  return { intercept, lnTvl, lnAge };
+}
+
+export function fitValueModel(
+  rows: readonly Comparable[],
+  lambda: number,
+  { drop, robust = true }: FitOptions = {},
+): ValueModel {
+  const prepared = prepareFit(rows, drop);
+  const {
+    coefficients: [base = 0, tvl = 0, age = 0],
+    huberScale,
+  } = fitRidge(prepared.design, lambda, robust);
+  return {
+    ...prepared.metadata,
+    lambda,
+    huberScale,
+    coefficients: restoreCoefficients(prepared, base, tvl, age),
+  };
+}
+
+export function logValue(
+  { lnTvl, growth, lnAge }: ValueFeatures,
+  { coefficients }: Pick<ValueModel, "coefficients">,
+): number {
+  return (
+    coefficients.intercept + coefficients.lnTvl * (lnTvl + growth) + coefficients.lnAge * lnAge
+  );
+}
+
 export function predictValue(protocol: Protocol, asOf: string, model: ValueModel): Valuation {
   const row = valueFeatures(protocol, asOf, model.medianLnAge);
-  const {
-    featureMeans,
-    featureRanges,
-    coefficients: { intercept, lnTvl, lnAge },
-  } = model;
+  const { featureMeans, featureRanges, coefficients } = model;
   const { features } = row;
   if (
     FITTED_KEYS.some((key) => {
@@ -168,9 +169,9 @@ export function predictValue(protocol: Protocol, asOf: string, model: ValueModel
   ) {
     row.flags.push("outside-comps-range");
   }
-  const logValue = intercept + lnTvl * (features.lnTvl + features.growth) + lnAge * features.lnAge;
+  const { intercept, lnTvl, lnAge } = coefficients;
   const logBase = intercept + lnTvl * featureMeans.lnTvl + lnAge * featureMeans.lnAge;
-  const valueUsd = Math.exp(logValue);
+  const valueUsd = Math.exp(logValue(features, model));
 
   return {
     ...row,

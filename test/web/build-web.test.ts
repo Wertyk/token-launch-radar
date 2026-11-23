@@ -20,6 +20,9 @@ test("checks the generated bundles byte for byte without writing them", () => {
     expect(build.status, build.stderr).toBe(0);
     expect(run("--check").status).toBe(0);
 
+    const core = readFileSync(join(cwd, "dashboard/1-core.js"), "utf8");
+    expect(core).not.toMatch(/fitCategoryModel|categoryGroup|categoryPenalty|selectLambda/);
+
     const bundle = join(cwd, "dashboard/2-ui.js");
     const original = readFileSync(bundle, "utf8");
     appendFileSync(bundle, "\n// Changed bundle\n");

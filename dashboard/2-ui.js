@@ -342,7 +342,7 @@
       protocols: data.protocols,
       watchlist: data.watchlist
     });
-    const radar = buildRadar(snapshot);
+    const radar = buildRadar(snapshot, data.model.lambda);
     const published = data.board.rows;
     const computed = toBoard(radar).rows;
     const mismatches = countBoardMismatches(computed, published);

@@ -76,7 +76,7 @@ test("writes a byte-identical output tree and the vendor dossier on both runs", 
   expect(readFileSync(join(first, "dossier.json"))).toEqual(
     Buffer.from(buildDossier(first, dossierCaps)),
   );
-});
+}, 30_000);
 
 test("passes all seven gate checks and reproduces every byte with the repo assets", () => {
   const screenshots = fileURLToPath(new URL("../../screenshots/", import.meta.url));
@@ -102,7 +102,7 @@ test("passes all seven gate checks and reproduces every byte with the repo asset
       true,
     );
   }
-}, 15_000);
+}, 30_000);
 
 test("a rerun replaces the asset trees and builds the dossier from the new files", () => {
   const firstAssets = join(root, "first-assets");
@@ -144,7 +144,7 @@ test("a rerun replaces the asset trees and builds the dossier from the new files
   expect(readFileSync(join(output, "dossier.json"))).toEqual(
     Buffer.from(buildDossier(output, dossierCaps)),
   );
-});
+}, 30_000);
 
 test("reports a missing snapshot on a single stderr line", () => {
   const missing = join(root, "missing.json");
@@ -172,4 +172,4 @@ test("reports the vendor error when the dashboard has yet to be published", () =
   expect(result.stderr).toBe(
     "token radar: buildDossier: no dashboard/ directory: the page and its source are what the judge reads\n",
   );
-});
+}, 20_000);

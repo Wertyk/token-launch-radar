@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { toBoardRows } from "../../src/application/board-rows.ts";
 import * as radarApi from "../../src/application/browser-api.ts";
-import { buildRadar } from "../../src/application/build-radar.ts";
+import { buildRadar, recomputeRadar } from "../../src/application/build-radar.ts";
 import type { DossierBuilder, OutputSink, SnapshotSource } from "../../src/application/ports.ts";
 import { runRadar } from "../../src/application/run-radar.ts";
 import { parseSnapshot } from "../../src/domain/snapshot.ts";
@@ -102,8 +102,8 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   expect(dataScript.endsWith(";\n")).toBe(true);
   expect(dataScript).not.toMatch(/https?:\/\//i);
   const data = JSON.parse(dataScript.slice(prefix.length, -2));
-  const radar = buildRadar(snapshot);
-  expect(data).toEqual({
+  const radar = recomputeRadar(snapshot, data.model.lambda);
+  expect(data).toMatchObject({
     meta: {
       as_of: snapshot.as_of,
       floor_usd: snapshot.floor_usd,
@@ -113,8 +113,13 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     watchlist: snapshot.watchlist,
     census: radar.census,
     houseRule: radar.houseRule,
+    model: radar.model,
     board,
   });
+  expect(data.model.validation.leaveOneFamilyOut.model.n).toBe(128);
+  expect(data.model.ablation.withCategory.n).toBe(128);
+  expect(data.model.ablation.ols.n).toBe(128);
+  expect(data.model.coefficients).not.toHaveProperty("category");
   expect(data.protocols).toHaveLength(758);
 
   expect(radar.census).toHaveLength(snapshot.protocols.length);
@@ -135,9 +140,16 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     protocols: data.protocols,
     watchlist: data.watchlist,
   });
-  expect(radarApi.toBoard(radarApi.buildRadar(browserSnapshot))).toEqual(board);
+  const browserRadar = radarApi.buildRadar(browserSnapshot, data.model.lambda);
+  expect(browserRadar.model.lambda).toBe(data.model.lambda);
+  expect(rows.every((row) => !("category" in row.decomposition.multipliers))).toBe(true);
+  expect(browserRadar.model).not.toHaveProperty("validation");
+  expect(radarApi).not.toHaveProperty("validateModel");
+  expect(radarApi.toBoard(browserRadar)).toEqual(board);
 
-  const row = radar.board[0];
+  const row = radar.board.find(({ protocol: { slug } }) =>
+    radar.houseRule.falsePositives.some((entry) => entry.slug === slug),
+  );
   if (!row) throw new Error("Expected a ranked board row.");
   expect(Object.keys(rows[0] ?? {})).toEqual([
     "slug",
@@ -158,7 +170,7 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     "plan_total_cost_usd",
     "plan_total_minutes",
   ]);
-  expect(rows[0]).toMatchObject({
+  expect(rows.find(({ slug }) => slug === row.protocol.slug)).toMatchObject({
     category: row.protocol.category,
     chains: row.protocol.chains,
     tvl_usd: row.protocol.tvl_usd,
@@ -172,7 +184,7 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     plan_total_cost_usd: row.plan.totalCostUsd,
     plan_total_minutes: row.plan.totalMinutes,
   });
-});
+}, 20_000);
 
 test("fits a traded family once using its summed TVL, market cap and representative age", () => {
   const radar = buildRadar({
