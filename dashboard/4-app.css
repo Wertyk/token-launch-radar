@@ -7,6 +7,7 @@
     "Segoe UI",
     sans-serif;
   font-variant-numeric: tabular-nums;
+  scrollbar-gutter: stable;
   background: var(--paper);
   color: var(--ink);
 }
@@ -45,6 +46,7 @@ button,
 input,
 select {
   font: inherit;
+  font-variant-numeric: inherit;
   color: inherit;
 }
 
@@ -63,7 +65,7 @@ main:focus {
 }
 
 .shell {
-  width: min(100% - 64px, 1376px);
+  width: min(100% - var(--s8) * 2, 1376px);
   margin-inline: auto;
 }
 
@@ -81,6 +83,35 @@ main:focus {
 #snapshot-date {
   color: var(--muted);
   white-space: nowrap;
+}
+
+.masthead nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+  margin-top: var(--s2);
+}
+
+.masthead nav a {
+  display: block;
+  padding: var(--s2) var(--s3);
+  border-radius: var(--s1);
+  color: var(--muted);
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.masthead nav a:hover {
+  background: var(--chip);
+  color: var(--teal);
+}
+
+body:has(main :is(.ranking:not(.census), .protocol-heading)) nav a[href="#/"],
+body:has(main .method) nav a[href="#/method"],
+body:has(main .census) nav a[href="#/census"],
+body:has(main .portfolio) nav a[href="#/plan"] {
+  background: var(--teal);
+  color: var(--surface);
 }
 
 .kpis {
@@ -134,12 +165,6 @@ main:focus {
   font-size: var(--font-small);
 }
 
-.check {
-  color: var(--positive);
-  font-weight: 650;
-}
-
-.check-failed,
 .loss {
   color: var(--negative);
 }
@@ -190,6 +215,21 @@ main {
 
 .filters input[type="search"] {
   width: 248px;
+}
+
+.filters select[multiple] {
+  width: 216px;
+  padding: var(--s1);
+}
+
+.filters select[multiple] option {
+  padding: var(--s1) var(--s2);
+  border-radius: var(--s1);
+}
+
+.filters select[multiple] option:checked {
+  background: var(--teal-light);
+  color: var(--teal);
 }
 
 .filters .toggle {
@@ -350,7 +390,7 @@ button[data-sort]::after {
 .value svg {
   display: block;
   width: 100%;
-  height: var(--s2);
+  height: var(--s3);
   margin-top: var(--s1);
   fill: var(--teal);
 }
@@ -362,11 +402,24 @@ button[data-sort]::after {
 .integrity {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--s1) var(--s4);
+  gap: var(--s1) var(--s2);
   padding: 0;
   margin: var(--s2) 0 0;
   list-style: none;
   font-size: var(--font-small);
+}
+
+.integrity li {
+  padding: var(--s1) var(--s2);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--positive);
+  font-weight: 650;
+}
+
+.integrity .check-failed {
+  background: var(--negative-light);
+  color: var(--negative);
 }
 
 .ranking .empty {
@@ -483,8 +536,12 @@ button[data-sort]::after {
 }
 
 .plan-meta {
-  margin: var(--s1) 0 var(--s3);
+  margin: var(--s1) 0 var(--s2);
   color: var(--muted);
+}
+
+:where(.detail-grid) .farm table {
+  margin-top: var(--s2);
 }
 
 .farm table {
@@ -550,7 +607,7 @@ button[data-sort]::after {
 
 @media (max-width: 760px) {
   .shell {
-    width: calc(100% - 32px);
+    width: calc(100% - var(--s4) * 2);
   }
 
   .detail-grid {
@@ -654,13 +711,15 @@ h2 + div.filters {
 
 .sliders {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
-  align-items: center;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 184px), 1fr));
+  align-items: end;
   gap: var(--s2) var(--s4);
   margin: 0;
-  padding: var(--s2) var(--s3);
+  padding: var(--s2) var(--s4) var(--s4);
+  min-inline-size: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius);
+  background: var(--paper);
 }
 
 .sliders legend {
@@ -669,6 +728,8 @@ h2 + div.filters {
 }
 
 .sliders label {
+  min-width: 0;
+  color: var(--muted);
   font-size: var(--font-small);
 }
 
@@ -681,17 +742,23 @@ h2 + div.filters {
 .sliders input {
   display: block;
   width: 100%;
+  margin: var(--s1) 0 0;
   accent-color: var(--teal);
+  cursor: pointer;
 }
 
 .sliders button[data-reset] {
   justify-self: start;
-  border: 1px solid var(--line);
+  border: 1px solid var(--input-border);
   border-radius: var(--s1);
   padding: var(--s1) var(--s2);
   color: var(--teal);
   background: var(--teal-light);
   cursor: pointer;
+}
+
+.sliders button[data-reset]:hover {
+  background: var(--hover);
 }
 
 .verdicts {

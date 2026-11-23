@@ -14,7 +14,12 @@ test("labels the board fee column with its horizon", () => {
 });
 
 test("renders the labor rate and farmer haircut beside the protocol verdicts", () => {
-  const tracked = protocol({ slug: "tracked", mcap_usd: 8_000_000, gecko_id: "tracked" });
+  const tracked = protocol({
+    slug: "tracked",
+    name: "Traded & Co",
+    mcap_usd: 8_000_000,
+    gecko_id: "tracked",
+  });
   const { board } = recomputeRadar(
     {
       protocols: [tracked, protocol()],
@@ -29,7 +34,7 @@ test("renders the labor rate and farmer haircut beside the protocol verdicts", (
   );
   const [row] = board;
   if (!row) throw new Error("Expected a ranked protocol.");
-  const html = protocolView(row, {
+  const card = {
     age: null,
     back: "#/",
     usd: formatUsd,
@@ -44,16 +49,27 @@ test("renders the labor rate and farmer haircut beside the protocol verdicts", (
     families: new Map([["tracked", { representative: tracked, mcap_usd: 8_000_000 }]]),
     launchClock: { points: [{ ageDays: 100, share: 0.4, count: 2 }], medianAgeDays: 80 },
     clockShareAt,
-  });
+  };
+  const html = protocolView(row, card);
   expect(html).toMatch(/\$10,000 SKIP<\/span><\/div>\s*<p[^>]*>\$25\/h[^<]*50%[^<]*haircut/);
   expect(html).toContain("P10–P90");
   expect(html).toContain("$100–$1,000");
-  expect(html).toContain("gecko:tracked");
-  expect(html).toContain("up 2 places");
+  expect(html).toContain("Without Traded &amp; Co, rank moves by 2");
+  expect(html).not.toContain("gecko:tracked");
   expect(html).toContain("$8,000,000");
   expect(html).toContain("25.0%");
   expect(html).toContain("80 days");
   expect(html).not.toContain("xmlns");
+
+  const noMovement = protocolView(row, {
+    ...card,
+    diagnostics: {
+      ...card.diagnostics,
+      influence: { ...card.diagnostics.influence, rank_delta: 0 },
+    },
+  });
+  expect(noMovement).toContain("No single comparable moves this rank");
+  expect(noMovement).not.toContain("Without Traded &amp; Co");
 });
 
 test("draws a separate P10–P90 band below the board value", () => {

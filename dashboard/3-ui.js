@@ -201,21 +201,30 @@ farmerHaircut}=farm;const{airdropYieldApr,breakEvenDepositUsd}=economics;const f
 tvl_usd)],["7d TVL change",growthText(protocol.change_7d)],["Listed",escapeHtml(protocol.listed_at??
 "Unlisted")],[status==="traded"||status==="token-unpriced"?"Days since listing":"Days with no token",
 formatInteger(age)]];const interval=diagnostics?`${usd(diagnostics.interval_p10_usd)}–${usd(diagnostics.
-interval_p90_usd)}`:"—";const influence=diagnostics?.influence;const delta=influence?.rank_delta??
-0;const places=Math.abs(delta);const movement=delta>0?"down ":delta<0?"up ":"";const clockAge=Math.max(
-0,age??launchClock.medianAgeDays??0);const{points}=launchClock;const p12=diagnostics?.launch_p12??economics.
-launchProbability12;const twins=(diagnostics?.twins??[]).map(slug=>{const family=families.get(slug);
-return[escapeHtml(family?.representative.name??slug),family?.mcap_usd?usd(family.mcap_usd):"—"]});
-const steps=table(["Action","Est. fee","Minutes","Cadence"],plan.steps.map(step=>[escapeHtml(step.action)+
-(step.exitCondition?`<small>${escapeHtml(step.exitCondition)}</small>`:""),usd(step.costUsd),formatInteger(
-step.minutes),step.cadence]),{total:["Total planned",usd(plan.totalCostUsd),formatInteger(plan.totalMinutes),
-"All"]});return`<a class="back" href="${escapeHtml(back)}">← Back to board</a>
+interval_p90_usd)}`:"—";const influence=diagnostics?.influence;const comparable=influence&&families.
+get(influence.slug)?.representative.name;const influenceLine=influence?.rank_delta===0?"No single co\
+mparable moves this rank":influence&&comparable?`Without ${escapeHtml(comparable)}, rank moves by ${Math.
+abs(influence.rank_delta)}`:"";const clockAge=Math.max(0,age??launchClock.medianAgeDays??0);const{points}=launchClock;
+const p12=diagnostics?.launch_p12??economics.launchProbability12;const twins=(diagnostics?.twins??[]).
+map(slug=>{const family=families.get(slug);return[escapeHtml(family?.representative.name??slug),family?.
+mcap_usd?usd(family.mcap_usd):"—"]});const steps=table(["Action","Est. fee","Minutes","Cadence"],plan.
+steps.map(step=>[escapeHtml(step.action)+(step.exitCondition?`<small>${escapeHtml(step.exitCondition)}\
+</small>`:""),usd(step.costUsd),formatInteger(step.minutes),step.cadence]),{total:["Total planned",usd(
+plan.totalCostUsd),formatInteger(plan.totalMinutes),"All"]});return`<a class="back" href="${escapeHtml(
+back)}">← Back to board</a>
     <header class="protocol-heading"><div><h2>${escapeHtml(protocol.name)}</h2>
       <div class="chips">${chip(protocol.category??"Unlisted category")}${protocol.chains.map(chain=>chip(
 chain)).join("")}</div>
     </div>${chip(`Board rank ${row.rank}`,"badge")}</header>
     <div class="detail-grid">
       <div class="detail-facts">
+        <section class="panel"><h3>Conditional value at launch</h3>
+          <p class="figure">${usd(row.implied_value_usd)}</p>
+          <p>P10–P90 · ${interval}</p>
+          <p class="caption">If the protocol’s record stays as it is.</p>
+          ${decomposition(row,usd)}
+          ${influenceLine?`<p class="caption">${influenceLine}</p>`:""}
+        </section>
         <section class="panel"><h3>Protocol record</h3>
           <dl class="facts">${facts.map(([label,value])=>`<div><dt>${label}</dt><dd>${value}</dd></d\
 iv>`).join("")}</dl>
@@ -225,14 +234,6 @@ reason)}`}</p>
  ")}</p>
           ${row.flags.length?`<ul class="flags">${row.flags.map(flag=>`<li>${flagLabels[flag]}</li>`).
 join("")}</ul>`:""}
-        </section>
-        <section class="panel"><h3>Conditional value at launch</h3>
-          <p class="figure">${usd(row.implied_value_usd)}</p>
-          <p>P10–P90 · ${interval}</p>
-          <p class="caption">If the protocol’s record stays as it is.</p>
-          ${decomposition(row,usd)}
-          ${influence?`<p class="caption">Removing ${escapeHtml(influence.family_key)} moves this ro\
-w ${movement}${places} ${places===1?"place":"places"}.</p>`:""}
         </section>
         <section class="panel clock"><h3>Launch clock F(t)</h3>
           ${ageSparkline(points,clockAge,clockShareAt(points,clockAge))}

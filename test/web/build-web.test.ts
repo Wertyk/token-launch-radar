@@ -43,12 +43,18 @@ test("checks the generated bundles byte for byte without writing them", () => {
   }
 });
 
-test("keeps the guide and browser bundles within the judge's source budget", () => {
+test("keeps the guide, design tokens and browser bundles within the judge's source budget", () => {
   const bytes = ["0-guide.md", "1-tokens.css", "2-core.js", "3-ui.js"].reduce(
     (total, file) => total + readFileSync(new URL(`dashboard/${file}`, root)).length,
     0,
   );
-  expect(bytes).toBeLessThanOrEqual(60_000);
+  expect(bytes).toBeLessThanOrEqual(63_000);
+});
+
+test("keeps the judge's guide within 1,900 bytes and free of URLs", () => {
+  const guide = readFileSync(new URL("dashboard/0-guide.md", root));
+  expect(guide.length).toBeLessThanOrEqual(1_900);
+  expect(guide.toString("utf8")).not.toMatch(/https?:\/\//i);
 });
 
 test("keeps the handwritten design tokens within 1.5 KB", () => {

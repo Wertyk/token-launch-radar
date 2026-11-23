@@ -10,11 +10,17 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
-import type { Page } from "playwright";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import type { LaunchOptions, Page } from "playwright";
 import { chromium } from "playwright";
 import type { BoardRows } from "../src/application/board-rows.ts";
-import { boardHash, defaultState, protocolHash } from "../src/presentation/web/state.ts";
+import {
+  boardHash,
+  censusHash,
+  defaultCensus,
+  defaultState,
+  protocolHash,
+} from "../src/presentation/web/state.ts";
 import { imageDimensions, screenshotTarget } from "./gate/image.ts";
 
 interface Shot {
@@ -46,14 +52,22 @@ function renderRadar(out: string): BoardRows {
   return JSON.parse(readFileSync(join(out, "board.json"), "utf8"));
 }
 
-function shotStates({ rows }: BoardRows) {
-  const first = rows.find(({ rank }) => rank === 1);
-  if (!first) throw new Error("board.json needs a rank-1 row");
+type ShotRow = Pick<BoardRows["rows"][number], "slug" | "rank" | "farm_economics">;
+
+export function shotStates({ rows }: { rows: readonly ShotRow[] }) {
+  let detail: ShotRow | undefined;
+  for (const row of rows) {
+    const eligible = row.farm_economics.deposits.some(
+      ({ depositUsd, verdict }) => depositUsd === 10_000 && verdict !== "SKIP",
+    );
+    if (eligible && (!detail || row.rank < detail.rank)) detail = row;
+  }
+  if (!detail) throw new Error("board.json has no non-SKIP verdict at $10K");
   return [
     { name: "1-board", hash: boardHash(defaultState) },
-    { name: "2-detail", hash: protocolHash(first.slug, defaultState) },
+    { name: "2-detail", hash: protocolHash(detail.slug, defaultState) },
     { name: "3-method", hash: "#/method" },
-    { name: "4-census", hash: "#/census" },
+    { name: "4-census", hash: censusHash(defaultCensus) },
   ];
 }
 
@@ -76,8 +90,12 @@ async function capture(page: Page, name: string): Promise<Shot> {
   return { name: `${name}.${extension}`, bytes, ...dimensions };
 }
 
-async function takeShots(out: string, states: ReturnType<typeof shotStates>): Promise<Shot[]> {
-  const browser = await chromium.launch({ channel: "chrome", headless: true });
+async function takeShots(
+  out: string,
+  states: ReturnType<typeof shotStates>,
+  options: LaunchOptions,
+): Promise<Shot[]> {
+  const browser = await chromium.launch({ ...options, headless: true });
   try {
     const context = await browser.newContext({
       viewport,
@@ -103,6 +121,27 @@ async function takeShots(out: string, states: ReturnType<typeof shotStates>): Pr
       try {
         await page.goto(url.href);
         await page.locator("main[data-ready]").waitFor({ state: "visible" });
+        if (name === "2-detail") {
+          const evidence = [
+            page.getByText(/^P10–P90 · /),
+            page.locator(".waterfall"),
+            page.locator(".farm .chips"),
+          ];
+          for (const item of evidence) {
+            const box = await item.boundingBox();
+            if (!box || box.y < 0 || box.y + box.height > viewport.height) {
+              throw new Error(
+                "2-detail must show the range, value breakdown and verdicts above the fold",
+              );
+            }
+          }
+        }
+        if (
+          name === "4-census" &&
+          (await page.locator('th[aria-sort="descending"] button[data-sort="tvl"]').count()) !== 1
+        ) {
+          throw new Error("4-census must be sorted by descending TVL");
+        }
         shots.push(await capture(page, name));
       } catch (error) {
         if (errors.length) throw new Error(`${name}: ${errors.join("\n")}`, { cause: error });
@@ -146,17 +185,25 @@ function publish(shots: readonly Shot[]): void {
   }
 }
 
-const out = mkdtempSync(join(tmpdir(), "radar-shots-"));
-try {
-  const states = shotStates(renderRadar(out));
-  const shots = await takeShots(out, states);
-  publish(shots);
-  for (const { name, bytes, width, height } of shots) {
-    console.log(`screenshots/${name} ${bytes.length} bytes, ${width}×${height}`);
+export async function generateScreenshots(options: LaunchOptions = { channel: "chrome" }) {
+  const out = mkdtempSync(join(tmpdir(), "radar-shots-"));
+  try {
+    const states = shotStates(renderRadar(out));
+    const shots = await takeShots(out, states, options);
+    publish(shots);
+    for (const { name, bytes, width, height } of shots) {
+      console.log(`screenshots/${name} ${bytes.length} bytes, ${width}×${height}`);
+    }
+  } finally {
+    rmSync(out, { recursive: true, force: true });
   }
-} catch (error) {
-  console.error(`shots: ${error instanceof Error ? error.message : String(error)}`);
-  process.exitCode = 1;
-} finally {
-  rmSync(out, { recursive: true, force: true });
+}
+
+if (resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
+  try {
+    await generateScreenshots();
+  } catch (error) {
+    console.error(`shots: ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  }
 }

@@ -77,9 +77,13 @@ export function protocolView(
     ? `${usd(diagnostics.interval_p10_usd)}–${usd(diagnostics.interval_p90_usd)}`
     : "—";
   const influence = diagnostics?.influence;
-  const delta = influence?.rank_delta ?? 0;
-  const places = Math.abs(delta);
-  const movement = delta > 0 ? "down " : delta < 0 ? "up " : "";
+  const comparable = influence && families.get(influence.slug)?.representative.name;
+  const influenceLine =
+    influence?.rank_delta === 0
+      ? "No single comparable moves this rank"
+      : influence && comparable
+        ? `Without ${esc(comparable)}, rank moves by ${Math.abs(influence.rank_delta)}`
+        : "";
   const clockAge = Math.max(0, age ?? launchClock.medianAgeDays ?? 0);
   const { points } = launchClock;
   const p12 = diagnostics?.launch_p12 ?? economics.launchProbability12;
@@ -106,18 +110,18 @@ export function protocolView(
     </div>${chip(`Board rank ${row.rank}`, "badge")}</header>
     <div class="detail-grid">
       <div class="detail-facts">
-        <section class="panel"><h3>Protocol record</h3>
-          <dl class="facts">${facts.map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("")}</dl>
-          <p><strong>${statusLabels[status]}</strong>${status === "pre-token" ? "" : ` · ${esc(row.reason)}`}</p>
-          <p class="muted">Included · ${row.boardReasons.map((reason) => reasonLabels[reason]).join(" · ")}</p>
-          ${row.flags.length ? `<ul class="flags">${row.flags.map((flag) => `<li>${flagLabels[flag]}</li>`).join("")}</ul>` : ""}
-        </section>
         <section class="panel"><h3>Conditional value at launch</h3>
           <p class="figure">${usd(row.implied_value_usd)}</p>
           <p>P10–P90 · ${interval}</p>
           <p class="caption">If the protocol’s record stays as it is.</p>
           ${decomposition(row, usd)}
-          ${influence ? `<p class="caption">Removing ${esc(influence.family_key)} moves this row ${movement}${places} ${places === 1 ? "place" : "places"}.</p>` : ""}
+          ${influenceLine ? `<p class="caption">${influenceLine}</p>` : ""}
+        </section>
+        <section class="panel"><h3>Protocol record</h3>
+          <dl class="facts">${facts.map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("")}</dl>
+          <p><strong>${statusLabels[status]}</strong>${status === "pre-token" ? "" : ` · ${esc(row.reason)}`}</p>
+          <p class="muted">Included · ${row.boardReasons.map((reason) => reasonLabels[reason]).join(" · ")}</p>
+          ${row.flags.length ? `<ul class="flags">${row.flags.map((flag) => `<li>${flagLabels[flag]}</li>`).join("")}</ul>` : ""}
         </section>
         <section class="panel clock"><h3>Launch clock F(t)</h3>
           ${ageSparkline(points, clockAge, clockShareAt(points, clockAge))}
