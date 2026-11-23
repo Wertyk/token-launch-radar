@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 function run(...args: string[]) {
-  return spawnSync(process.execPath, [main, ...args], { encoding: "utf8" });
+  return spawnSync(process.execPath, [main, ...args], { encoding: "utf8", timeout: 10_000 });
 }
 
 function outputFiles(path: string): string[] {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { expect, test } from "vitest";
 import { toBoardRows } from "../../src/application/board-rows.ts";
 import * as radarApi from "../../src/application/browser-api.ts";
@@ -5,6 +6,7 @@ import { buildRadar, recomputeRadar } from "../../src/application/build-radar.ts
 import type { DossierBuilder, OutputSink, SnapshotSource } from "../../src/application/ports.ts";
 import { runRadar } from "../../src/application/run-radar.ts";
 import { parseSnapshot } from "../../src/domain/snapshot.ts";
+import type { ValueDiagnostics } from "../../src/domain/valuation/diagnostics.ts";
 import { protocol } from "../domain/protocol-fixture.ts";
 import { readKitSnapshot } from "../radar-fixtures.ts";
 
@@ -64,6 +66,12 @@ test("runs the ports in order and publishes the kit board and browser data", () 
 
   const board = JSON.parse(output.text("board.json")) as ReturnType<typeof toBoardRows>;
   const { rows } = board;
+  const valuationBytes = JSON.stringify(
+    rows.map(({ slug, rank, implied_value_usd }) => ({ slug, rank, implied_value_usd })),
+  );
+  expect(createHash("sha256").update(valuationBytes).digest("hex")).toBe(
+    "f4468f70d48b3e318dbf9655d0269bdd7954dedf619a04b54e15d77363e5e240",
+  );
   expect(summary).toEqual({
     rowCount: rows.length,
     watchlistCovered: 40,
@@ -102,6 +110,30 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   expect(dataScript.endsWith(";\n")).toBe(true);
   expect(dataScript).not.toMatch(/https?:\/\//i);
   const data = JSON.parse(dataScript.slice(prefix.length, -2));
+  const publishedRows = data.board.rows as ((typeof rows)[number] &
+    ValueDiagnostics & {
+      launch_p12: number;
+    })[];
+  expect(data.intervalCoverage).toBeGreaterThan(0);
+  expect(data.intervalCoverage).toBeLessThanOrEqual(1);
+  expect(data.launchClock.points).toHaveLength(6);
+  expect(
+    data.launchClock.points.reduce((sum: number, point: { count: number }) => sum + point.count, 0),
+  ).toBe(snapshot.protocols.filter(({ listed_at }) => listed_at !== null).length);
+  for (const [index, row] of rows.entries()) {
+    const published = publishedRows[index];
+    if (!published) throw new Error(`Missing data for ${row.slug}.`);
+    const { interval_p10_usd, interval_p90_usd, influence, twins, launch_p12 } = published;
+    expect(Number.isInteger(interval_p10_usd)).toBe(true);
+    expect(Number.isInteger(interval_p90_usd)).toBe(true);
+    expect(interval_p10_usd).toBeLessThanOrEqual(row.implied_value_usd);
+    expect(interval_p90_usd).toBeGreaterThanOrEqual(row.implied_value_usd);
+    expect(influence === null || Number.isInteger(influence.rank_delta)).toBe(true);
+    expect(new Set(twins).size).toBe(5);
+    expect(launch_p12).toBeGreaterThanOrEqual(0);
+    expect(launch_p12).toBeLessThanOrEqual(1);
+    expect(published.flags).toEqual(row.flags);
+  }
   const radar = recomputeRadar(snapshot, data.model.lambda);
   expect(data).toMatchObject({
     meta: {
@@ -114,8 +146,19 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     census: radar.census,
     houseRule: radar.houseRule,
     model: radar.model,
-    board,
   });
+  expect(
+    publishedRows.map(
+      ({
+        interval_p10_usd: _lower,
+        interval_p90_usd: _upper,
+        influence: _influence,
+        twins: _twins,
+        launch_p12: _launch,
+        ...published
+      }) => published,
+    ),
+  ).toEqual(rows);
   expect(data.model.validation.leaveOneFamilyOut.model.n).toBe(128);
   expect(data.model.ablation.withCategory.n).toBe(128);
   expect(data.model.ablation.ols.n).toBe(128);
@@ -199,6 +242,7 @@ test("fits a traded family once using its summed TVL, market cap and representat
     watchlist: [],
   });
   expect(radar.model.n).toBe(1);
+  expect(radar.intervalCoverage).toBeNull();
   expect(radar.model.featureMeans).toEqual({ lnTvl: Math.log(50), lnAge: Math.log(16) });
   expect(radar.model.coefficients.intercept).toBeCloseTo(Math.log(100), 12);
   expect(radar.census[1]).toEqual({
