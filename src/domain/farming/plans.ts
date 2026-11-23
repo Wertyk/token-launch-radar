@@ -1,150 +1,192 @@
 import { formatUsd } from "../shared/money.ts";
 import { compareText } from "../shared/order.ts";
 import type { Protocol } from "../snapshot.ts";
+import { FARM_ASSUMPTIONS as assumptions } from "./assumptions.ts";
 
-export const ASSUMPTIONS_AS_OF = "2026-11-14";
-export const DEFAULT_DEPOSIT_USD = 1_000;
+export { ASSUMPTIONS_AS_OF } from "./assumptions.ts";
+export const DEFAULT_DEPOSIT_USD = assumptions.depositsUsd[0];
+
+type Cadence = "once" | "weekly" | "monthly";
 
 export interface FarmStep {
   action: string;
   chain: string | null;
   costUsd: number;
   minutes: number;
-  note?: string;
+  cadence: Cadence;
+  exitCondition?: string;
 }
 
 export interface FarmPlan {
   chain: string | null;
   depositUsd: number;
   steps: FarmStep[];
+  flags: "fee-assumed"[];
+  assumptionsAsOf: string;
+  horizonMonths: number;
+  capitalApr: number;
+  oneTimeCostUsd: number;
+  recurringCostUsd: number;
   totalCostUsd: number;
   totalMinutes: number;
 }
 
-interface GasAssumptions {
-  transactionUsd: number;
-  bridgeUsd: number;
-}
-
-// Planning assumptions in USD as of ASSUMPTIONS_AS_OF. A bridge estimate includes gas.
-const BSC_GAS = { transactionUsd: 0.1, bridgeUsd: 0.5 };
-const GAS_ASSUMPTIONS = new Map<string, GasAssumptions>([
-  ["Arbitrum", { transactionUsd: 0.09, bridgeUsd: 0.35 }],
-  ["Avalanche", { transactionUsd: 0.15, bridgeUsd: 0.65 }],
-  ["Base", { transactionUsd: 0.05, bridgeUsd: 0.3 }],
-  ["Binance", BSC_GAS],
-  ["BSC", BSC_GAS],
-  ["Ethereum", { transactionUsd: 3, bridgeUsd: 8 }],
-  ["Optimism", { transactionUsd: 0.07, bridgeUsd: 0.35 }],
-  ["Polygon", { transactionUsd: 0.06, bridgeUsd: 0.5 }],
-  ["Solana", { transactionUsd: 0.02, bridgeUsd: 0.4 }],
-  ["Sui", { transactionUsd: 0.04, bridgeUsd: 0.55 }],
-]);
-const DEFAULT_GAS = { transactionUsd: 0.45, bridgeUsd: 2.5 };
-
 interface Playbook {
-  enter: (deposit: string, name: string) => string;
+  capitalApr: number;
+  enter: string;
+  review: string;
+  cadence: Exclude<Cadence, "once">;
+  reviewGas?: boolean;
   exit: string;
+  exitCondition: string;
 }
 
-const PLAYBOOKS = {
-  dex: {
-    enter: (deposit, name) =>
-      `Provide up to ${deposit} to a liquidity pool in ${name}. Save the pool and position details.`,
-    exit: "Remove liquidity and reconcile the assets and fees received with the starting position.",
-  },
+type Group = keyof typeof assumptions.minutes;
+
+const PLAYBOOKS: Record<Group, Playbook> = {
   lending: {
-    enter: (deposit, name) =>
-      `Supply up to ${deposit} as collateral in ${name}. Record the rates and any collateral rules.`,
-    exit: "Repay any open debt, then withdraw the collateral and reconcile the balance.",
+    capitalApr: assumptions.capitalApr.yieldBearing,
+    enter: "Supply collateral. Log the rate and liquidation limit if borrowing.",
+    review: "Log the supply rate and check the health factor of any debt.",
+    cadence: "monthly",
+    exit: "Repay any debt and withdraw the collateral.",
+    exitCondition: "At the horizon or sooner if collateral nears liquidation.",
   },
-  staking: {
-    enter: (deposit, name) =>
-      `Stake or restake up to ${deposit} in ${name}. Record the receipt token or staking position.`,
-    exit: "Request unstaking and put the applicable unlock or claim date on your calendar.",
-  },
-  yield: {
-    enter: (deposit, name) =>
-      `Deposit up to ${deposit} in a supported vault or yield strategy in ${name}. Record the shares received.`,
-    exit: "Redeem the shares when eligible and record the returned assets and fees.",
+  dex: {
+    capitalApr: assumptions.capitalApr.yieldBearing,
+    enter: "Add liquidity to one pool. Save its fee tier, price range and entry amounts.",
+    review: "Compare pool value plus fees against holding. Rebalance if the range breaks.",
+    cadence: "weekly",
+    reviewGas: true,
+    exit: "Remove liquidity and compare proceeds with holding the entry amounts.",
+    exitCondition: "At the horizon or when fees fail to cover divergence loss.",
   },
   derivatives: {
-    enter: (deposit, name) =>
-      `Post up to ${deposit} as margin in ${name} and record the market, margin rules and funding fees.`,
-    exit: "Close any open exposure, then withdraw unused margin and reconcile fees and balances.",
+    capitalApr: assumptions.capitalApr.nonYielding,
+    enter: "Post margin and record funding and liquidation terms.",
+    review: `If eligible, open and close a small position within ${formatUsd(assumptions.tradeVolumeUsd)} of gross volume at ${(assumptions.tradingFeeRate * 100).toFixed(2)}% in trading fees. Log funding.`,
+    cadence: "weekly",
+    reviewGas: true,
+    exit: "Close open positions and withdraw available margin.",
+    exitCondition: "At the horizon or sooner if funding or margin hits your limit.",
   },
-  bridge: {
-    enter: (deposit, name) =>
-      `Use a route offered by ${name} to bridge up to ${deposit}. Record the destination, quoted fee and minimum received.`,
-    exit: "Verify the destination balance and save both the sending and receiving transaction IDs.",
+  yield: {
+    capitalApr: assumptions.capitalApr.yieldBearing,
+    enter: "Deposit into a vault. Record shares, strategy, fees and withdrawal terms.",
+    review: "Check share price, strategy changes and available exit liquidity.",
+    cadence: "monthly",
+    exit: "Redeem vault shares and record assets received.",
+    exitCondition: "When withdrawals open at the horizon or after a strategy change.",
+  },
+  staking: {
+    capitalApr: assumptions.capitalApr.yieldBearing,
+    enter: "Stake with a validator or pool. Record commission and the unbonding period.",
+    review: "Check validator uptime, rewards and slashing notices.",
+    cadence: "monthly",
+    exit: "Request unstaking and schedule the claim after unbonding.",
+    exitCondition: "Allow for unbonding before the horizon or exit after a slash.",
   },
   rwa: {
-    enter: (deposit, name) =>
-      `Check eligibility, minimums and redemption terms for ${name}. Subscribe with up to ${deposit} if eligible.`,
-    exit: "Check the redemption window and submit a redemption or record the earliest eligible date.",
+    capitalApr: assumptions.capitalApr.yieldBearing,
+    enter:
+      "Allow time for eligibility checks and KYC. If approved, subscribe and log the redemption window.",
+    review: "Check issuer updates, access restrictions and redemption liquidity.",
+    cadence: "monthly",
+    exit: "Submit a redemption and track settlement.",
+    exitCondition: "At the first eligible window near the horizon or after a terms change.",
+  },
+  prediction: {
+    capitalApr: assumptions.capitalApr.nonYielding,
+    enter: "Read one market’s resolution rules. Set a loss limit before buying shares.",
+    review: "Check resolution updates and available bids for the position.",
+    cadence: "weekly",
+    exit: "Claim settled proceeds or close against available bids.",
+    exitCondition: "At resolution, the loss limit or the horizon.",
+  },
+  bridge: {
+    capitalApr: assumptions.capitalApr.nonYielding,
+    enter: "Quote the destination asset and minimum received. Send only after verifying both.",
+    review: "Check unresolved transfers and follow the documented recovery path if needed.",
+    cadence: "monthly",
+    exit: "Reconcile the destination balance and save both transaction IDs.",
+    exitCondition: "Once the transfer settles or recovery completes.",
   },
   generic: {
-    enter: (deposit, name) =>
-      `Check the official instructions for a supported deposit or transfer in ${name}. Use up to ${deposit} and save the confirmation.`,
-    exit: "Use the documented withdrawal if available, then reconcile the balance and record any fees.",
+    capitalApr: assumptions.capitalApr.nonYielding,
+    enter: "Use a documented deposit or transfer and save the receipt.",
+    review: "Check balances and changes to access or withdrawal terms.",
+    cadence: "monthly",
+    exit: "Withdraw through the documented route and reconcile proceeds.",
+    exitCondition: "At the horizon or when access or withdrawal terms change.",
   },
-} satisfies Record<string, Playbook>;
+};
 
-type Group = keyof typeof PLAYBOOKS;
+const categories: Record<Group, readonly string[]> = {
+  dex: ["dex", "dexs", "liquidity manager"],
+  lending: ["lending", "uncollateralized lending", "cdp", "cdp manager", "collateral markets"],
+  staking: [
+    "liquid staking",
+    "staking pool",
+    "restaking",
+    "liquid restaking",
+    "restaked btc",
+    "staking",
+  ],
+  yield: [
+    "yield",
+    "yield aggregator",
+    "leveraged farming",
+    "farm",
+    "onchain capital allocator",
+    "risk curators",
+  ],
+  derivatives: [
+    "derivatives",
+    "interest rate derivatives",
+    "basis trading",
+    "options",
+    "options vault",
+    "perps",
+  ],
+  bridge: ["bridge", "canonical bridge", "cross chain bridge"],
+  rwa: ["rwa"],
+  prediction: ["prediction market", "prediction markets"],
+  generic: [],
+};
 
-const CATEGORY_GROUPS = new Map<string, Group>([
-  ["dex", "dex"],
-  ["dexs", "dex"],
-  ["liquidity manager", "dex"],
-  ["lending", "lending"],
-  ["uncollateralized lending", "lending"],
-  ["cdp", "lending"],
-  ["cdp manager", "lending"],
-  ["collateral markets", "lending"],
-  ["liquid staking", "staking"],
-  ["staking pool", "staking"],
-  ["restaking", "staking"],
-  ["liquid restaking", "staking"],
-  ["restaked btc", "staking"],
-  ["yield", "yield"],
-  ["yield aggregator", "yield"],
-  ["leveraged farming", "yield"],
-  ["farm", "yield"],
-  ["derivatives", "derivatives"],
-  ["interest rate derivatives", "derivatives"],
-  ["basis trading", "derivatives"],
-  ["options", "derivatives"],
-  ["options vault", "derivatives"],
-  ["bridge", "bridge"],
-  ["canonical bridge", "bridge"],
-  ["cross chain bridge", "bridge"],
-  ["rwa", "rwa"],
-]);
+const groups = new Map(
+  (Object.keys(categories) as Group[]).flatMap((group) =>
+    categories[group].map((label) => [label, group] as const),
+  ),
+);
+const chainFees: Readonly<Record<string, readonly [number, number]>> = assumptions.chainFees;
+const horizonYears = assumptions.horizonMonths / assumptions.monthsPerYear;
+const occurrences = {
+  once: 1,
+  weekly: Math.floor(assumptions.weeksPerYear * horizonYears),
+  monthly: assumptions.horizonMonths,
+};
 
-function estimate(chain: string | null, isBridge: boolean) {
-  const { transactionUsd, bridgeUsd } =
-    (chain === null ? undefined : GAS_ASSUMPTIONS.get(chain)) ?? DEFAULT_GAS;
-  const entryUsd = isBridge ? bridgeUsd : transactionUsd;
-  const followUpUsd = isBridge ? 0 : transactionUsd;
-  const exitUsd = isBridge ? 0 : transactionUsd;
-  const totalCostUsd = Math.round((bridgeUsd + entryUsd + followUpUsd + exitUsd) * 100) / 100;
-  return { chain, bridgeUsd, entryUsd, followUpUsd, exitUsd, totalCostUsd };
+function estimate(chain: string | null, bridge: boolean, reviewTransactions: number) {
+  const fees = chain !== null && Object.hasOwn(chainFees, chain) ? chainFees[chain] : undefined;
+  const [transactionUsd, bridgeUsd] = fees ?? assumptions.defaultChainFees;
+  const cost = roundUsd(bridgeUsd + (bridge ? 0 : 2 + reviewTransactions) * transactionUsd);
+  return { chain, transactionUsd, bridgeUsd, cost, feeAssumed: fees === undefined };
 }
 
-function chooseChain(chains: readonly string[], isBridge: boolean) {
+function chooseChain(chains: readonly string[], bridge: boolean, reviewTransactions: number) {
   let cheapest: ReturnType<typeof estimate> | undefined;
   for (const chain of chains) {
-    const candidate = estimate(chain, isBridge);
+    const candidate = estimate(chain, bridge, reviewTransactions);
     if (
       !cheapest ||
-      candidate.totalCostUsd < cheapest.totalCostUsd ||
-      (candidate.totalCostUsd === cheapest.totalCostUsd &&
-        compareText(chain, cheapest.chain ?? "") < 0)
+      candidate.cost < cheapest.cost ||
+      (candidate.cost === cheapest.cost && compareText(chain, cheapest.chain ?? "") < 0)
     ) {
       cheapest = candidate;
     }
   }
-  return cheapest ?? estimate(null, isBridge);
+  return cheapest ?? estimate(null, bridge, reviewTransactions);
 }
 
 function shorten(text: string, max: number): string {
@@ -153,71 +195,103 @@ function shorten(text: string, max: number): string {
   return `${normalized.slice(0, max - 1).trimEnd()}…`;
 }
 
-export function makeFarmPlan(protocol: Protocol, depositUsd = DEFAULT_DEPOSIT_USD): FarmPlan {
+function roundUsd(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+export function makeFarmPlan(
+  protocol: Protocol,
+  depositUsd: number = DEFAULT_DEPOSIT_USD,
+): FarmPlan {
   if (!Number.isFinite(depositUsd) || depositUsd <= 0) {
     throw new Error("The farm plan needs a positive, finite deposit size.");
   }
-  const group = CATEGORY_GROUPS.get(protocol.category?.trim().toLowerCase() ?? "") ?? "generic";
+  const group = groups.get(protocol.category?.trim().toLowerCase() ?? "") ?? "generic";
   const playbook = PLAYBOOKS[group];
-  const isBridge = group === "bridge";
-  const { chain, bridgeUsd, entryUsd, followUpUsd, exitUsd, totalCostUsd } = chooseChain(
+  const bridge = group === "bridge";
+  const repeats = occurrences[playbook.cadence];
+  const { chain, transactionUsd, bridgeUsd, feeAssumed } = chooseChain(
     protocol.chains,
-    isBridge,
+    bridge,
+    playbook.reviewGas ? repeats : 0,
   );
+  const [entryMinutes, reviewMinutes, exitMinutes] = assumptions.minutes[group];
+  const tradingFees =
+    group === "derivatives" ? assumptions.tradeVolumeUsd * assumptions.tradingFeeRate : 0;
   const deposit = formatUsd(depositUsd);
-  const name = shorten(protocol.name, 140);
   const steps: FarmStep[] = [
     {
       action:
         chain === null
-          ? `Verify a supported chain in the protocol documentation before setting aside ${deposit} and gas.`
+          ? `Verify a supported chain before setting aside ${deposit} and gas.`
           : `Set aside ${deposit} in a compatible wallet or account and check its gas balance.`,
       chain,
       costUsd: 0,
-      minutes: 5,
+      minutes: assumptions.setupMinutes,
+      cadence: "once",
     },
-    {
-      action:
-        "If funds are on another chain, confirm the receiving asset and use a supported bridge.",
+  ];
+  if (!bridge) {
+    steps.push({
+      action: "If funding from another chain, verify the receiving asset and bridge funds.",
       chain,
       costUsd: bridgeUsd,
-      minutes: 10,
-      note: "Budget this fee only if you need to bridge funds first.",
+      minutes: assumptions.bridgeMinutes,
+      cadence: "once",
+    });
+  }
+  steps.push(
+    {
+      action: `${shorten(protocol.name, 140)} — ${playbook.enter}`,
+      chain,
+      costUsd: bridge ? bridgeUsd : transactionUsd,
+      minutes: entryMinutes,
+      cadence: "once",
     },
     {
-      action: playbook.enter(deposit, name),
+      action: playbook.review,
       chain,
-      costUsd: entryUsd,
-      minutes: 10,
-    },
-    {
-      action: isBridge
-        ? "After 7 days, check the transfer record and reconcile the destination balance."
-        : "After 7 days, check balances and log one small follow-up transaction if supported.",
-      chain,
-      costUsd: followUpUsd,
-      minutes: 5,
+      costUsd: roundUsd(tradingFees + (playbook.reviewGas ? transactionUsd : 0)),
+      minutes: reviewMinutes,
+      cadence: playbook.cadence,
     },
     {
       action: playbook.exit,
       chain,
-      costUsd: exitUsd,
-      minutes: 10,
+      costUsd: bridge ? 0 : transactionUsd,
+      minutes: exitMinutes,
+      cadence: "once",
+      exitCondition: playbook.exitCondition,
     },
-  ];
+  );
 
+  let oneTimeCostUsd = 0;
+  let recurringCostUsd = 0;
+  let totalMinutes = 0;
+  for (const { costUsd, minutes, cadence } of steps) {
+    const count = occurrences[cadence];
+    if (cadence === "once") oneTimeCostUsd += costUsd;
+    else recurringCostUsd += costUsd * count;
+    totalMinutes += minutes * count;
+  }
   return {
     chain,
     depositUsd,
     steps,
-    totalCostUsd,
-    totalMinutes: steps.reduce((sum, step) => sum + step.minutes, 0),
+    flags: feeAssumed ? ["fee-assumed"] : [],
+    assumptionsAsOf: assumptions.asOf,
+    horizonMonths: assumptions.horizonMonths,
+    capitalApr: playbook.capitalApr,
+    oneTimeCostUsd: roundUsd(oneTimeCostUsd),
+    recurringCostUsd: roundUsd(recurringCostUsd),
+    totalCostUsd: roundUsd(oneTimeCostUsd + recurringCostUsd),
+    totalMinutes,
   };
 }
 
 export function renderFarmStep(step: FarmStep): string {
   const action = shorten(step.action, 280);
   const chain = shorten(step.chain ?? "Chain unlisted", 110);
-  const note = step.note ? shorten(step.note, 100) : "";
-  return `${action} | ${chain} | Est. fee ${formatUsd(step.costUsd)} | ${step.minutes} minutes${note ? ` | ${note}` : ""}`.trim();
+  const exit = step.exitCondition ? ` | Exit · ${shorten(step.exitCondition, 100)}` : "";
+  return `${action} | ${chain} | Est. fee ${formatUsd(step.costUsd)} | ${step.minutes} minutes | ${step.cadence}${exit}`;
 }

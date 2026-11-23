@@ -24,8 +24,45 @@ var Radar = (() => {
     daysBetween: () => daysBetween,
     formatUsd: () => formatUsd,
     parseSnapshot: () => parseSnapshot,
-    toBoard: () => toBoardRows
+    toBoard: () => toBoard
   });
+
+  // src/application/board-rows.ts
+  function toBoardRows(result) {
+    const slugsWithLikelyParent = new Set(result.houseRule.falsePositives.map(({ slug }) => slug));
+    const rows = result.board.map((row) => ({
+      slug: row.protocol.slug,
+      name: row.protocol.name,
+      rank: row.rank,
+      implied_value_usd: row.implied_value_usd,
+      farm_steps: row.farm_steps,
+      category: row.protocol.category,
+      chains: row.protocol.chains,
+      tvl_usd: row.protocol.tvl_usd,
+      change_7d: row.protocol.change_7d,
+      listed_at: row.protocol.listed_at,
+      status: row.status,
+      board_reasons: row.boardReasons,
+      flags: [
+        ...row.flags,
+        ...slugsWithLikelyParent.has(row.protocol.slug) ? ["parent-protocol-likely"] : [],
+        ...row.plan.flags
+      ],
+      decomposition: row.decomposition,
+      plan_chain: row.plan.chain,
+      plan_one_time_cost_usd: row.plan.oneTimeCostUsd,
+      plan_recurring_cost_usd: row.plan.recurringCostUsd,
+      plan_total_cost_usd: row.plan.totalCostUsd,
+      plan_total_minutes: row.plan.totalMinutes,
+      airdrop_yield_apr: row.economics.airdropYieldApr,
+      farm_economics: {
+        launchProbability12: row.economics.launchProbability12,
+        deposits: row.economics.deposits,
+        breakEvenDepositUsd: row.economics.breakEvenDepositUsd
+      }
+    }));
+    return { rows };
+  }
 
   // src/domain/shared/money.ts
   function formatUsd(value) {
@@ -127,31 +164,6 @@ var Radar = (() => {
       return slug;
     });
     return { as_of, source, floor_usd, protocols, watchlist };
-  }
-
-  // src/application/board-rows.ts
-  function toBoardRows(result) {
-    const slugsWithLikelyParent = new Set(result.houseRule.falsePositives.map(({ slug }) => slug));
-    const rows = result.board.map((row) => ({
-      slug: row.protocol.slug,
-      name: row.protocol.name,
-      rank: row.rank,
-      implied_value_usd: row.implied_value_usd,
-      farm_steps: row.farm_steps,
-      category: row.protocol.category,
-      chains: row.protocol.chains,
-      tvl_usd: row.protocol.tvl_usd,
-      change_7d: row.protocol.change_7d,
-      listed_at: row.protocol.listed_at,
-      status: row.status,
-      board_reasons: row.boardReasons,
-      flags: slugsWithLikelyParent.has(row.protocol.slug) ? [...row.flags, "parent-protocol-likely"] : row.flags,
-      decomposition: row.decomposition,
-      plan_chain: row.plan.chain,
-      plan_total_cost_usd: row.plan.totalCostUsd,
-      plan_total_minutes: row.plan.totalMinutes
-    }));
-    return { rows };
   }
 
   // src/domain/shared/order.ts
@@ -287,166 +299,336 @@ var Radar = (() => {
     return entries;
   }
 
+  // src/domain/farming/assumptions.ts
+  var ASSUMPTIONS_AS_OF = "2026-11-14";
+  var binance = [0.1, 0.5];
+  var FARM_ASSUMPTIONS = {
+    asOf: ASSUMPTIONS_AS_OF,
+    airdropShareOfLaunchCap: 0.25,
+    farmerHaircut: 0.5,
+    hourlyRateUsd: 25,
+    capitalApr: { yieldBearing: 0.02, nonYielding: 0.05 },
+    horizonMonths: 12,
+    monthsPerYear: 12,
+    weeksPerYear: 52,
+    minutesPerHour: 60,
+    farmThreshold: 1.5,
+    thinThreshold: 0.75,
+    depositsUsd: [1e3, 1e4],
+    tradeVolumeUsd: 200,
+    tradingFeeRate: 6e-4,
+    setupMinutes: 5,
+    bridgeMinutes: 10,
+    // Active minutes for entry, each recurring check, and exit.
+    minutes: {
+      lending: [12, 6, 10],
+      dex: [15, 8, 12],
+      derivatives: [15, 12, 10],
+      yield: [12, 5, 9],
+      staking: [10, 4, 10],
+      rwa: [45, 6, 15],
+      prediction: [12, 9, 8],
+      bridge: [16, 4, 6],
+      generic: [12, 5, 8]
+    },
+    // Planning estimates as of asOf, in USD per transaction and per bridge (including gas).
+    chainFees: {
+      Aptos: [0.03, 0.55],
+      Arbitrum: [0.09, 0.35],
+      Arc: [0.05, 0.5],
+      Avalanche: [0.15, 0.65],
+      Base: [0.05, 0.3],
+      Berachain: [0.08, 0.5],
+      Binance: binance,
+      Bitcoin: [2, 7],
+      BSC: binance,
+      Ethereum: [3, 8],
+      Flare: [0.03, 0.5],
+      Hemi: [0.14, 0.85],
+      "Hyperliquid L1": [0.12, 0.8],
+      Ink: [0.05, 0.4],
+      Katana: [0.07, 0.45],
+      Linea: [0.12, 0.5],
+      Mantle: [0.1, 0.5],
+      Monad: [0.04, 0.4],
+      Optimism: [0.07, 0.35],
+      Plasma: [0.04, 0.45],
+      "Plume Mainnet": [0.06, 0.5],
+      Polygon: [0.06, 0.5],
+      "Robinhood Chain": [0.06, 0.45],
+      Solana: [0.02, 0.4],
+      Sonic: [0.04, 0.45],
+      Starknet: [0.12, 0.65],
+      Stellar: [0.01, 0.45],
+      Sui: [0.04, 0.55],
+      Unichain: [0.05, 0.35],
+      "zkSync Era": [0.12, 0.6]
+    },
+    defaultChainFees: [0.45, 2.5]
+  };
+
+  // src/domain/farming/economics.ts
+  function estimateFarmEconomics(plan, valueUsd, tvlUsd, launchProbability) {
+    const fixedCosts = plan.totalCostUsd + plan.totalMinutes / FARM_ASSUMPTIONS.minutesPerHour * FARM_ASSUMPTIONS.hourlyRateUsd;
+    const horizonYears2 = FARM_ASSUMPTIONS.horizonMonths / FARM_ASSUMPTIONS.monthsPerYear;
+    const capitalCarry = plan.capitalApr * horizonYears2;
+    const k = valueUsd * FARM_ASSUMPTIONS.airdropShareOfLaunchCap * launchProbability * FARM_ASSUMPTIONS.farmerHaircut / tvlUsd;
+    const atDeposit = (depositUsd) => {
+      const expectedValueUsd = k * depositUsd;
+      const costUsd = fixedCosts + depositUsd * capitalCarry;
+      const ratio = expectedValueUsd / costUsd;
+      const verdict = ratio >= FARM_ASSUMPTIONS.farmThreshold ? "FARM" : ratio >= FARM_ASSUMPTIONS.thinThreshold ? "THIN" : "SKIP";
+      return { depositUsd, expectedValueUsd, costUsd, verdict };
+    };
+    const [small, large] = FARM_ASSUMPTIONS.depositsUsd;
+    return {
+      launchProbability12: launchProbability,
+      airdropYieldApr: k / horizonYears2,
+      deposits: [atDeposit(small), atDeposit(large)],
+      breakEvenDepositUsd: k > capitalCarry ? fixedCosts / (k - capitalCarry) : "never"
+    };
+  }
+  function renderEconomics({
+    deposits: [atDeposit],
+    breakEvenDepositUsd
+  }) {
+    const { depositUsd, expectedValueUsd, costUsd, verdict } = atDeposit;
+    const breakEven = breakEvenDepositUsd === "never" ? "never" : `≈ ${formatUsd(breakEvenDepositUsd)}`;
+    return `Economics at ${formatUsd(depositUsd)} over ${FARM_ASSUMPTIONS.horizonMonths} months · expected airdrop ≈ ${formatUsd(expectedValueUsd)} vs cost ≈ ${formatUsd(costUsd)} → ${verdict}. Break-even deposit ${breakEven}. Assumes ${FARM_ASSUMPTIONS.airdropShareOfLaunchCap * 100}% of circulating launch cap because a mostly unlocked airdrop can account for much of a small launch float.`;
+  }
+
   // src/domain/farming/plans.ts
-  var DEFAULT_DEPOSIT_USD = 1e3;
-  var BSC_GAS = { transactionUsd: 0.1, bridgeUsd: 0.5 };
-  var GAS_ASSUMPTIONS = /* @__PURE__ */ new Map([
-    ["Arbitrum", { transactionUsd: 0.09, bridgeUsd: 0.35 }],
-    ["Avalanche", { transactionUsd: 0.15, bridgeUsd: 0.65 }],
-    ["Base", { transactionUsd: 0.05, bridgeUsd: 0.3 }],
-    ["Binance", BSC_GAS],
-    ["BSC", BSC_GAS],
-    ["Ethereum", { transactionUsd: 3, bridgeUsd: 8 }],
-    ["Optimism", { transactionUsd: 0.07, bridgeUsd: 0.35 }],
-    ["Polygon", { transactionUsd: 0.06, bridgeUsd: 0.5 }],
-    ["Solana", { transactionUsd: 0.02, bridgeUsd: 0.4 }],
-    ["Sui", { transactionUsd: 0.04, bridgeUsd: 0.55 }]
-  ]);
-  var DEFAULT_GAS = { transactionUsd: 0.45, bridgeUsd: 2.5 };
+  var DEFAULT_DEPOSIT_USD = FARM_ASSUMPTIONS.depositsUsd[0];
   var PLAYBOOKS = {
-    dex: {
-      enter: (deposit, name) => `Provide up to ${deposit} to a liquidity pool in ${name}. Save the pool and position details.`,
-      exit: "Remove liquidity and reconcile the assets and fees received with the starting position."
-    },
     lending: {
-      enter: (deposit, name) => `Supply up to ${deposit} as collateral in ${name}. Record the rates and any collateral rules.`,
-      exit: "Repay any open debt, then withdraw the collateral and reconcile the balance."
+      capitalApr: FARM_ASSUMPTIONS.capitalApr.yieldBearing,
+      enter: "Supply collateral. Log the rate and liquidation limit if borrowing.",
+      review: "Log the supply rate and check the health factor of any debt.",
+      cadence: "monthly",
+      exit: "Repay any debt and withdraw the collateral.",
+      exitCondition: "At the horizon or sooner if collateral nears liquidation."
     },
-    staking: {
-      enter: (deposit, name) => `Stake or restake up to ${deposit} in ${name}. Record the receipt token or staking position.`,
-      exit: "Request unstaking and put the applicable unlock or claim date on your calendar."
-    },
-    yield: {
-      enter: (deposit, name) => `Deposit up to ${deposit} in a supported vault or yield strategy in ${name}. Record the shares received.`,
-      exit: "Redeem the shares when eligible and record the returned assets and fees."
+    dex: {
+      capitalApr: FARM_ASSUMPTIONS.capitalApr.yieldBearing,
+      enter: "Add liquidity to one pool. Save its fee tier, price range and entry amounts.",
+      review: "Compare pool value plus fees against holding. Rebalance if the range breaks.",
+      cadence: "weekly",
+      reviewGas: true,
+      exit: "Remove liquidity and compare proceeds with holding the entry amounts.",
+      exitCondition: "At the horizon or when fees fail to cover divergence loss."
     },
     derivatives: {
-      enter: (deposit, name) => `Post up to ${deposit} as margin in ${name} and record the market, margin rules and funding fees.`,
-      exit: "Close any open exposure, then withdraw unused margin and reconcile fees and balances."
+      capitalApr: FARM_ASSUMPTIONS.capitalApr.nonYielding,
+      enter: "Post margin and record funding and liquidation terms.",
+      review: `If eligible, open and close a small position within ${formatUsd(FARM_ASSUMPTIONS.tradeVolumeUsd)} of gross volume at ${(FARM_ASSUMPTIONS.tradingFeeRate * 100).toFixed(2)}% in trading fees. Log funding.`,
+      cadence: "weekly",
+      reviewGas: true,
+      exit: "Close open positions and withdraw available margin.",
+      exitCondition: "At the horizon or sooner if funding or margin hits your limit."
     },
-    bridge: {
-      enter: (deposit, name) => `Use a route offered by ${name} to bridge up to ${deposit}. Record the destination, quoted fee and minimum received.`,
-      exit: "Verify the destination balance and save both the sending and receiving transaction IDs."
+    yield: {
+      capitalApr: FARM_ASSUMPTIONS.capitalApr.yieldBearing,
+      enter: "Deposit into a vault. Record shares, strategy, fees and withdrawal terms.",
+      review: "Check share price, strategy changes and available exit liquidity.",
+      cadence: "monthly",
+      exit: "Redeem vault shares and record assets received.",
+      exitCondition: "When withdrawals open at the horizon or after a strategy change."
+    },
+    staking: {
+      capitalApr: FARM_ASSUMPTIONS.capitalApr.yieldBearing,
+      enter: "Stake with a validator or pool. Record commission and the unbonding period.",
+      review: "Check validator uptime, rewards and slashing notices.",
+      cadence: "monthly",
+      exit: "Request unstaking and schedule the claim after unbonding.",
+      exitCondition: "Allow for unbonding before the horizon or exit after a slash."
     },
     rwa: {
-      enter: (deposit, name) => `Check eligibility, minimums and redemption terms for ${name}. Subscribe with up to ${deposit} if eligible.`,
-      exit: "Check the redemption window and submit a redemption or record the earliest eligible date."
+      capitalApr: FARM_ASSUMPTIONS.capitalApr.yieldBearing,
+      enter: "Allow time for eligibility checks and KYC. If approved, subscribe and log the redemption window.",
+      review: "Check issuer updates, access restrictions and redemption liquidity.",
+      cadence: "monthly",
+      exit: "Submit a redemption and track settlement.",
+      exitCondition: "At the first eligible window near the horizon or after a terms change."
+    },
+    prediction: {
+      capitalApr: FARM_ASSUMPTIONS.capitalApr.nonYielding,
+      enter: "Read one market’s resolution rules. Set a loss limit before buying shares.",
+      review: "Check resolution updates and available bids for the position.",
+      cadence: "weekly",
+      exit: "Claim settled proceeds or close against available bids.",
+      exitCondition: "At resolution, the loss limit or the horizon."
+    },
+    bridge: {
+      capitalApr: FARM_ASSUMPTIONS.capitalApr.nonYielding,
+      enter: "Quote the destination asset and minimum received. Send only after verifying both.",
+      review: "Check unresolved transfers and follow the documented recovery path if needed.",
+      cadence: "monthly",
+      exit: "Reconcile the destination balance and save both transaction IDs.",
+      exitCondition: "Once the transfer settles or recovery completes."
     },
     generic: {
-      enter: (deposit, name) => `Check the official instructions for a supported deposit or transfer in ${name}. Use up to ${deposit} and save the confirmation.`,
-      exit: "Use the documented withdrawal if available, then reconcile the balance and record any fees."
+      capitalApr: FARM_ASSUMPTIONS.capitalApr.nonYielding,
+      enter: "Use a documented deposit or transfer and save the receipt.",
+      review: "Check balances and changes to access or withdrawal terms.",
+      cadence: "monthly",
+      exit: "Withdraw through the documented route and reconcile proceeds.",
+      exitCondition: "At the horizon or when access or withdrawal terms change."
     }
   };
-  var CATEGORY_GROUPS = /* @__PURE__ */ new Map([
-    ["dex", "dex"],
-    ["dexs", "dex"],
-    ["liquidity manager", "dex"],
-    ["lending", "lending"],
-    ["uncollateralized lending", "lending"],
-    ["cdp", "lending"],
-    ["cdp manager", "lending"],
-    ["collateral markets", "lending"],
-    ["liquid staking", "staking"],
-    ["staking pool", "staking"],
-    ["restaking", "staking"],
-    ["liquid restaking", "staking"],
-    ["restaked btc", "staking"],
-    ["yield", "yield"],
-    ["yield aggregator", "yield"],
-    ["leveraged farming", "yield"],
-    ["farm", "yield"],
-    ["derivatives", "derivatives"],
-    ["interest rate derivatives", "derivatives"],
-    ["basis trading", "derivatives"],
-    ["options", "derivatives"],
-    ["options vault", "derivatives"],
-    ["bridge", "bridge"],
-    ["canonical bridge", "bridge"],
-    ["cross chain bridge", "bridge"],
-    ["rwa", "rwa"]
-  ]);
-  function estimate(chain, isBridge) {
-    const { transactionUsd, bridgeUsd } = (chain === null ? void 0 : GAS_ASSUMPTIONS.get(chain)) ?? DEFAULT_GAS;
-    const entryUsd = isBridge ? bridgeUsd : transactionUsd;
-    const followUpUsd = isBridge ? 0 : transactionUsd;
-    const exitUsd = isBridge ? 0 : transactionUsd;
-    const totalCostUsd = Math.round((bridgeUsd + entryUsd + followUpUsd + exitUsd) * 100) / 100;
-    return { chain, bridgeUsd, entryUsd, followUpUsd, exitUsd, totalCostUsd };
+  var categories = {
+    dex: ["dex", "dexs", "liquidity manager"],
+    lending: ["lending", "uncollateralized lending", "cdp", "cdp manager", "collateral markets"],
+    staking: [
+      "liquid staking",
+      "staking pool",
+      "restaking",
+      "liquid restaking",
+      "restaked btc",
+      "staking"
+    ],
+    yield: [
+      "yield",
+      "yield aggregator",
+      "leveraged farming",
+      "farm",
+      "onchain capital allocator",
+      "risk curators"
+    ],
+    derivatives: [
+      "derivatives",
+      "interest rate derivatives",
+      "basis trading",
+      "options",
+      "options vault",
+      "perps"
+    ],
+    bridge: ["bridge", "canonical bridge", "cross chain bridge"],
+    rwa: ["rwa"],
+    prediction: ["prediction market", "prediction markets"],
+    generic: []
+  };
+  var groups = new Map(
+    Object.keys(categories).flatMap(
+      (group) => categories[group].map((label) => [label, group])
+    )
+  );
+  var chainFees = FARM_ASSUMPTIONS.chainFees;
+  var horizonYears = FARM_ASSUMPTIONS.horizonMonths / FARM_ASSUMPTIONS.monthsPerYear;
+  var occurrences = {
+    once: 1,
+    weekly: Math.floor(FARM_ASSUMPTIONS.weeksPerYear * horizonYears),
+    monthly: FARM_ASSUMPTIONS.horizonMonths
+  };
+  function estimate(chain, bridge, reviewTransactions) {
+    const fees = chain !== null && Object.hasOwn(chainFees, chain) ? chainFees[chain] : void 0;
+    const [transactionUsd, bridgeUsd] = fees ?? FARM_ASSUMPTIONS.defaultChainFees;
+    const cost = roundUsd(bridgeUsd + (bridge ? 0 : 2 + reviewTransactions) * transactionUsd);
+    return { chain, transactionUsd, bridgeUsd, cost, feeAssumed: fees === void 0 };
   }
-  function chooseChain(chains, isBridge) {
+  function chooseChain(chains, bridge, reviewTransactions) {
     let cheapest;
     for (const chain of chains) {
-      const candidate = estimate(chain, isBridge);
-      if (!cheapest || candidate.totalCostUsd < cheapest.totalCostUsd || candidate.totalCostUsd === cheapest.totalCostUsd && compareText(chain, cheapest.chain ?? "") < 0) {
+      const candidate = estimate(chain, bridge, reviewTransactions);
+      if (!cheapest || candidate.cost < cheapest.cost || candidate.cost === cheapest.cost && compareText(chain, cheapest.chain ?? "") < 0) {
         cheapest = candidate;
       }
     }
-    return cheapest ?? estimate(null, isBridge);
+    return cheapest ?? estimate(null, bridge, reviewTransactions);
   }
   function shorten(text, max) {
     const normalized = text.trim().replace(/\s+/g, " ");
     if (normalized.length <= max) return normalized;
     return `${normalized.slice(0, max - 1).trimEnd()}…`;
   }
+  function roundUsd(value) {
+    return Math.round(value * 100) / 100;
+  }
   function makeFarmPlan(protocol, depositUsd = DEFAULT_DEPOSIT_USD) {
     if (!Number.isFinite(depositUsd) || depositUsd <= 0) {
       throw new Error("The farm plan needs a positive, finite deposit size.");
     }
-    const group = CATEGORY_GROUPS.get(protocol.category?.trim().toLowerCase() ?? "") ?? "generic";
+    const group = groups.get(protocol.category?.trim().toLowerCase() ?? "") ?? "generic";
     const playbook = PLAYBOOKS[group];
-    const isBridge = group === "bridge";
-    const { chain, bridgeUsd, entryUsd, followUpUsd, exitUsd, totalCostUsd } = chooseChain(
+    const bridge = group === "bridge";
+    const repeats = occurrences[playbook.cadence];
+    const { chain, transactionUsd, bridgeUsd, feeAssumed } = chooseChain(
       protocol.chains,
-      isBridge
+      bridge,
+      playbook.reviewGas ? repeats : 0
     );
+    const [entryMinutes, reviewMinutes, exitMinutes] = FARM_ASSUMPTIONS.minutes[group];
+    const tradingFees = group === "derivatives" ? FARM_ASSUMPTIONS.tradeVolumeUsd * FARM_ASSUMPTIONS.tradingFeeRate : 0;
     const deposit = formatUsd(depositUsd);
-    const name = shorten(protocol.name, 140);
     const steps = [
       {
-        action: chain === null ? `Verify a supported chain in the protocol documentation before setting aside ${deposit} and gas.` : `Set aside ${deposit} in a compatible wallet or account and check its gas balance.`,
+        action: chain === null ? `Verify a supported chain before setting aside ${deposit} and gas.` : `Set aside ${deposit} in a compatible wallet or account and check its gas balance.`,
         chain,
         costUsd: 0,
-        minutes: 5
-      },
-      {
-        action: "If funds are on another chain, confirm the receiving asset and use a supported bridge.",
+        minutes: FARM_ASSUMPTIONS.setupMinutes,
+        cadence: "once"
+      }
+    ];
+    if (!bridge) {
+      steps.push({
+        action: "If funding from another chain, verify the receiving asset and bridge funds.",
         chain,
         costUsd: bridgeUsd,
-        minutes: 10,
-        note: "Budget this fee only if you need to bridge funds first."
+        minutes: FARM_ASSUMPTIONS.bridgeMinutes,
+        cadence: "once"
+      });
+    }
+    steps.push(
+      {
+        action: `${shorten(protocol.name, 140)} — ${playbook.enter}`,
+        chain,
+        costUsd: bridge ? bridgeUsd : transactionUsd,
+        minutes: entryMinutes,
+        cadence: "once"
       },
       {
-        action: playbook.enter(deposit, name),
+        action: playbook.review,
         chain,
-        costUsd: entryUsd,
-        minutes: 10
-      },
-      {
-        action: isBridge ? "After 7 days, check the transfer record and reconcile the destination balance." : "After 7 days, check balances and log one small follow-up transaction if supported.",
-        chain,
-        costUsd: followUpUsd,
-        minutes: 5
+        costUsd: roundUsd(tradingFees + (playbook.reviewGas ? transactionUsd : 0)),
+        minutes: reviewMinutes,
+        cadence: playbook.cadence
       },
       {
         action: playbook.exit,
         chain,
-        costUsd: exitUsd,
-        minutes: 10
+        costUsd: bridge ? 0 : transactionUsd,
+        minutes: exitMinutes,
+        cadence: "once",
+        exitCondition: playbook.exitCondition
       }
-    ];
+    );
+    let oneTimeCostUsd = 0;
+    let recurringCostUsd = 0;
+    let totalMinutes = 0;
+    for (const { costUsd, minutes, cadence } of steps) {
+      const count = occurrences[cadence];
+      if (cadence === "once") oneTimeCostUsd += costUsd;
+      else recurringCostUsd += costUsd * count;
+      totalMinutes += minutes * count;
+    }
     return {
       chain,
       depositUsd,
       steps,
-      totalCostUsd,
-      totalMinutes: steps.reduce((sum, step) => sum + step.minutes, 0)
+      flags: feeAssumed ? ["fee-assumed"] : [],
+      assumptionsAsOf: FARM_ASSUMPTIONS.asOf,
+      horizonMonths: FARM_ASSUMPTIONS.horizonMonths,
+      capitalApr: playbook.capitalApr,
+      oneTimeCostUsd: roundUsd(oneTimeCostUsd),
+      recurringCostUsd: roundUsd(recurringCostUsd),
+      totalCostUsd: roundUsd(oneTimeCostUsd + recurringCostUsd),
+      totalMinutes
     };
   }
   function renderFarmStep(step) {
     const action = shorten(step.action, 280);
     const chain = shorten(step.chain ?? "Chain unlisted", 110);
-    const note = step.note ? shorten(step.note, 100) : "";
-    return `${action} | ${chain} | Est. fee ${formatUsd(step.costUsd)} | ${step.minutes} minutes${note ? ` | ${note}` : ""}`.trim();
+    const exit = step.exitCondition ? ` | Exit · ${shorten(step.exitCondition, 100)}` : "";
+    return `${action} | ${chain} | Est. fee ${formatUsd(step.costUsd)} | ${step.minutes} minutes | ${step.cadence}${exit}`;
   }
 
   // src/domain/shared/math.ts
@@ -460,6 +642,27 @@ var Radar = (() => {
     const lower = sorted[mid - 1];
     if (!upper) return void 0;
     return sorted.length % 2 === 0 && lower ? (lower.value + upper.value) / 2 : upper.value;
+  }
+
+  // src/domain/launch-clock/clock.ts
+  var YEAR_DAYS = 365;
+  function shareAt(points, age) {
+    let left = points[0];
+    if (!left) return 0;
+    if (age <= left.ageDays) return left.share;
+    for (const right of points) {
+      if (age <= right.ageDays) {
+        const fraction = (age - left.ageDays) / (right.ageDays - left.ageDays);
+        return left.share + fraction * (right.share - left.share);
+      }
+      left = right;
+    }
+    return left.share;
+  }
+  function launchProbability12(points, age) {
+    const now = shareAt(points, age);
+    if (now === 1) return 0;
+    return clamp((shareAt(points, age + YEAR_DAYS) - now) / (1 - now), 0, 1);
   }
 
   // src/domain/valuation/comparables.ts
@@ -775,14 +978,23 @@ var Radar = (() => {
     const families = groupFamilies(protocols);
     return { families, comparables: comparablesFromFamilies(families, as_of) };
   }
-  function rankRadar(snapshot, { families, comparables }, lambda) {
+  function rankRadar(snapshot, { families, comparables }, lambda, launchClock) {
     const { protocols, watchlist, as_of } = snapshot;
     const entries = buildCensus(protocols, families);
     const model = fitValueModel(comparables, lambda);
     const ranked = rankBoard(boardEntries(entries, watchlist), as_of, model);
     const board = ranked.map((row) => {
-      const plan = makeFarmPlan(row.protocol);
-      return { ...row, plan, farm_steps: plan.steps.map(renderFarmStep) };
+      const { protocol, implied_value_usd } = row;
+      const age = protocol.listed_at === null ? launchClock.medianAgeDays ?? 0 : Math.max(0, daysBetween(protocol.listed_at, as_of));
+      const p12 = launchProbability12(launchClock.points, age);
+      const plan = makeFarmPlan(protocol);
+      const economics = estimateFarmEconomics(plan, implied_value_usd, protocol.tvl_usd, p12);
+      return {
+        ...row,
+        plan,
+        economics,
+        farm_steps: [...plan.steps.map(renderFarmStep), renderEconomics(economics)]
+      };
     });
     const census = entries.map(
       ({ protocol: { slug, name, category, tvl_usd }, ...classification }) => ({
@@ -795,8 +1007,26 @@ var Radar = (() => {
     );
     return { census, houseRule: checkHouseRule(snapshot), model, board };
   }
-  function recomputeRadar(snapshot, lambda) {
-    return rankRadar(snapshot, radarInputs(snapshot), lambda);
+  function recomputeRadar(snapshot, lambda, launchClock) {
+    return rankRadar(snapshot, radarInputs(snapshot), lambda, launchClock);
+  }
+
+  // src/application/browser-api.ts
+  function samePrecision(a, b) {
+    return a === b || Math.abs(a - b) / Math.max(Math.abs(a), Math.abs(b)) <= 1e-12;
+  }
+  function toBoard(radar, published = []) {
+    const board = toBoardRows(radar);
+    for (const [index, row] of board.rows.entries()) {
+      const reference = published[index];
+      if (!reference || row.slug !== reference.slug) continue;
+      const a = row.decomposition;
+      const b = reference.decomposition;
+      if (samePrecision(a.base, b.base) && samePrecision(a.multipliers.lnTvl, b.multipliers.lnTvl) && samePrecision(a.multipliers.growth, b.multipliers.growth) && samePrecision(a.multipliers.lnAge, b.multipliers.lnAge)) {
+        row.decomposition = b;
+      }
+    }
+    return board;
   }
   return __toCommonJS(browser_api_exports);
 })();

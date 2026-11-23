@@ -32,7 +32,7 @@ export function renderDataScript(
       rows: board.rows.map((row) => {
         const diagnostics = rowDiagnostics.get(row.slug);
         if (!diagnostics) throw new Error(`Missing diagnostics for board row ${row.slug}.`);
-        return { ...row, ...diagnostics };
+        return { ...row, ...diagnostics, launch_p12: row.farm_economics.launchProbability12 };
       }),
     },
   };

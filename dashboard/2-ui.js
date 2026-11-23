@@ -214,7 +214,8 @@
     }).join("")}</ol>`;
   }
   function protocolView(row, age, back, usd) {
-    const { protocol, plan, status } = row;
+    const { protocol, plan, economics, status } = row;
+    const { airdropYieldApr, breakEvenDepositUsd } = economics;
     const isTokenRecorded = status === "traded" || status === "token-unpriced";
     const facts = [
       ["TVL", usd(protocol.tvl_usd)],
@@ -253,15 +254,18 @@
       </div>
       <section class="panel farm">
         <h3>Farm plan</h3>
-        <p class="plan-meta"><strong>${escapeHtml(plan.chain ?? "Chain unlisted")}</strong> · ${usd(plan.depositUsd)} planned deposit</p>
+        <p class="plan-meta"><strong>${escapeHtml(plan.chain ?? "Chain unlisted")}</strong> · ${usd(plan.depositUsd)} plan · ${plan.horizonMonths} months</p>
+        <div class="chips">${economics.deposits.map(({ depositUsd, verdict }) => `<span class="badge">${usd(depositUsd)} ${verdict}</span>`).join("")}</div>
+        <p>Expected airdrop yield ${(airdropYieldApr * 100).toFixed(2)}% APR · Net capital cost ${(plan.capitalApr * 100).toFixed(2)}% APR</p>
+        <p>Break-even deposit · ${breakEvenDepositUsd === "never" ? "never" : usd(breakEvenDepositUsd)}</p>
         <table>
-          <thead><tr><th scope="col">Action</th><th scope="col">Est. fee</th><th scope="col">Minutes</th></tr></thead>
+          <thead><tr><th scope="col">Action</th><th scope="col">Est. fee</th><th scope="col">Minutes</th><th scope="col">Cadence</th></tr></thead>
           <tbody>${plan.steps.map(
-      (step) => `<tr><td>${escapeHtml(step.action)}${step.note ? `<small>${escapeHtml(step.note)}</small>` : ""}</td><td>${usd(step.costUsd)}</td><td>${formatInteger(step.minutes)}</td></tr>`
+      (step) => `<tr><td>${escapeHtml(step.action)}${step.exitCondition ? `<small>${escapeHtml(step.exitCondition)}</small>` : ""}</td><td>${usd(step.costUsd)}</td><td>${formatInteger(step.minutes)}</td><td>${step.cadence}</td></tr>`
     ).join("")}</tbody>
-          <tfoot><tr><th scope="row">Total planned</th><td>${usd(plan.totalCostUsd)}</td><td>${formatInteger(plan.totalMinutes)}</td></tr></tfoot>
+          <tfoot><tr><th scope="row">Total planned</th><td>${usd(plan.totalCostUsd)}</td><td>${formatInteger(plan.totalMinutes)}</td><td>All</td></tr></tfoot>
         </table>
-        <p class="caption">Minutes measure active work. Fees include the bridge allowance.</p>
+        <p class="caption">Active minutes and fees per occurrence. Fee assumptions ${plan.assumptionsAsOf}${plan.flags.length ? " · default chain fees" : ""}.</p>
       </section>
     </div>`;
   }
@@ -342,9 +346,9 @@
       protocols: data.protocols,
       watchlist: data.watchlist
     });
-    const radar = buildRadar(snapshot, data.model.lambda);
+    const radar = buildRadar(snapshot, data.model.lambda, data.launchClock);
     const published = data.board.rows;
-    const computed = toBoard(radar).rows;
+    const computed = toBoard(radar, published).rows;
     const mismatches = countBoardMismatches(computed, published);
     const watchlisted = new Set(snapshot.watchlist);
     const protocols = new Map(radar.board.map((row) => [row.protocol.slug, row]));

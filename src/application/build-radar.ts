@@ -1,6 +1,8 @@
 import type { CensusRecord, HouseRuleCheck } from "../domain/census/census.ts";
 import { boardEntries, buildCensus, checkHouseRule } from "../domain/census/census.ts";
 import { groupFamilies } from "../domain/census/families.ts";
+import type { FarmEconomics } from "../domain/farming/economics.ts";
+import { estimateFarmEconomics, renderEconomics } from "../domain/farming/economics.ts";
 import type { FarmPlan } from "../domain/farming/plans.ts";
 import { makeFarmPlan, renderFarmStep } from "../domain/farming/plans.ts";
 import type { LaunchClock } from "../domain/launch-clock/clock.ts";
@@ -20,6 +22,7 @@ import { validateModel } from "../domain/valuation/validation.ts";
 
 export interface RadarRow extends RankedRow {
   plan: FarmPlan;
+  economics: FarmEconomics;
   farm_steps: string[];
 }
 
@@ -32,7 +35,7 @@ interface RadarCore {
 
 export interface RadarResult extends RadarCore {
   model: ValueModel & ModelValidation;
-  rowDiagnostics: ReadonlyMap<string, ValueDiagnostics & { launch_p12: number }>;
+  rowDiagnostics: ReadonlyMap<string, ValueDiagnostics>;
   intervalCoverage: number | null;
   launchClock: LaunchClock;
 }
@@ -46,14 +49,27 @@ function rankRadar(
   snapshot: Snapshot,
   { families, comparables }: ReturnType<typeof radarInputs>,
   lambda: number,
+  launchClock: LaunchClock,
 ): RadarCore {
   const { protocols, watchlist, as_of } = snapshot;
   const entries = buildCensus(protocols, families);
   const model = fitValueModel(comparables, lambda);
   const ranked = rankBoard(boardEntries(entries, watchlist), as_of, model);
   const board = ranked.map((row) => {
-    const plan = makeFarmPlan(row.protocol);
-    return { ...row, plan, farm_steps: plan.steps.map(renderFarmStep) };
+    const { protocol, implied_value_usd } = row;
+    const age =
+      protocol.listed_at === null
+        ? (launchClock.medianAgeDays ?? 0)
+        : Math.max(0, daysBetween(protocol.listed_at, as_of));
+    const p12 = launchProbability12(launchClock.points, age);
+    const plan = makeFarmPlan(protocol);
+    const economics = estimateFarmEconomics(plan, implied_value_usd, protocol.tvl_usd, p12);
+    return {
+      ...row,
+      plan,
+      economics,
+      farm_steps: [...plan.steps.map(renderFarmStep), renderEconomics(economics)],
+    };
   });
   const census = entries.map(
     ({ protocol: { slug, name, category, tvl_usd }, ...classification }) => ({
@@ -69,24 +85,15 @@ function rankRadar(
 
 export function buildRadar(snapshot: Snapshot): RadarResult {
   const inputs = radarInputs(snapshot);
-  const radar = rankRadar(snapshot, inputs, selectLambda(inputs.comparables));
-  const validationRows = groupComparableCategories(inputs.comparables, inputs.families);
   const { as_of, protocols } = snapshot;
   const launchClock = fitLaunchClock(protocols, as_of);
+  const radar = rankRadar(snapshot, inputs, selectLambda(inputs.comparables), launchClock);
+  const validationRows = groupComparableCategories(inputs.comparables, inputs.families);
   const refits = leaveOneFamilyOut(inputs.comparables, radar.model.lambda);
   const boardValues = describeBoardValues(radar.board, inputs.comparables, refits, as_of);
   const coverage = jackknifePlusCoverage(inputs.comparables);
   const rowDiagnostics = new Map(
-    boardValues.map(({ protocol: { slug, listed_at }, diagnostics }) => {
-      const age =
-        listed_at === null
-          ? (launchClock.medianAgeDays ?? 0)
-          : Math.max(0, daysBetween(listed_at, as_of));
-      return [
-        slug,
-        { ...diagnostics, launch_p12: launchProbability12(launchClock.points, age) },
-      ] as const;
-    }),
+    boardValues.map(({ protocol: { slug }, diagnostics }) => [slug, diagnostics]),
   );
   return {
     ...radar,
@@ -97,6 +104,10 @@ export function buildRadar(snapshot: Snapshot): RadarResult {
   };
 }
 
-export function recomputeRadar(snapshot: Snapshot, lambda: number): RadarCore {
-  return rankRadar(snapshot, radarInputs(snapshot), lambda);
+export function recomputeRadar(
+  snapshot: Snapshot,
+  lambda: number,
+  launchClock: LaunchClock,
+): RadarCore {
+  return rankRadar(snapshot, radarInputs(snapshot), lambda, launchClock);
 }

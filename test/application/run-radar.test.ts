@@ -134,7 +134,7 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     expect(launch_p12).toBeLessThanOrEqual(1);
     expect(published.flags).toEqual(row.flags);
   }
-  const radar = recomputeRadar(snapshot, data.model.lambda);
+  const radar = recomputeRadar(snapshot, data.model.lambda, data.launchClock);
   expect(data).toMatchObject({
     meta: {
       as_of: snapshot.as_of,
@@ -183,12 +183,39 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     protocols: data.protocols,
     watchlist: data.watchlist,
   });
-  const browserRadar = radarApi.buildRadar(browserSnapshot, data.model.lambda);
+  const browserRadar = radarApi.buildRadar(browserSnapshot, data.model.lambda, data.launchClock);
   expect(browserRadar.model.lambda).toBe(data.model.lambda);
   expect(rows.every((row) => !("category" in row.decomposition.multipliers))).toBe(true);
   expect(browserRadar.model).not.toHaveProperty("validation");
   expect(radarApi).not.toHaveProperty("validateModel");
-  expect(radarApi.toBoard(browserRadar)).toEqual(board);
+  expect(JSON.stringify(radarApi.toBoard(browserRadar))).toBe(JSON.stringify(board));
+
+  const first = browserRadar.board[0];
+  const second = browserRadar.board[1];
+  if (!first || !second) throw new Error("Expected two ranked board rows.");
+  const originalFactor = first.decomposition.multipliers.lnAge;
+  first.decomposition.multipliers.lnAge *= 1 - 12 * Number.EPSILON;
+  expect(first.decomposition.multipliers.lnAge).not.toBe(originalFactor);
+  expect(JSON.stringify(radarApi.toBoard(browserRadar, publishedRows))).toBe(JSON.stringify(board));
+  second.decomposition.multipliers.lnAge *= 1.01;
+  const checked = radarApi.toBoard(browserRadar, publishedRows);
+  expect(checked.rows[1]?.decomposition).toEqual(second.decomposition);
+  expect(checked.rows[1]?.decomposition).not.toEqual(board.rows[1]?.decomposition);
+
+  const flatClockRadar = radarApi.buildRadar(browserSnapshot, data.model.lambda, {
+    points: [],
+    medianAgeDays: null,
+  });
+  expect(
+    flatClockRadar.board.every(({ economics }) =>
+      economics.deposits.every(({ expectedValueUsd }) => expectedValueUsd === 0),
+    ),
+  ).toBe(true);
+  expect(
+    board.rows.some(({ farm_economics }) =>
+      farm_economics.deposits.some(({ expectedValueUsd }) => expectedValueUsd > 0),
+    ),
+  ).toBe(true);
 
   const row = radar.board.find(({ protocol: { slug } }) =>
     radar.houseRule.falsePositives.some((entry) => entry.slug === slug),
@@ -210,8 +237,12 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     "flags",
     "decomposition",
     "plan_chain",
+    "plan_one_time_cost_usd",
+    "plan_recurring_cost_usd",
     "plan_total_cost_usd",
     "plan_total_minutes",
+    "airdrop_yield_apr",
+    "farm_economics",
   ]);
   expect(rows.find(({ slug }) => slug === row.protocol.slug)).toMatchObject({
     category: row.protocol.category,
@@ -221,11 +252,19 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     listed_at: row.protocol.listed_at,
     status: row.status,
     board_reasons: row.boardReasons,
-    flags: [...row.flags, "parent-protocol-likely"],
+    flags: [...row.flags, "parent-protocol-likely", ...row.plan.flags],
     decomposition: row.decomposition,
     plan_chain: row.plan.chain,
+    plan_one_time_cost_usd: row.plan.oneTimeCostUsd,
+    plan_recurring_cost_usd: row.plan.recurringCostUsd,
     plan_total_cost_usd: row.plan.totalCostUsd,
     plan_total_minutes: row.plan.totalMinutes,
+    airdrop_yield_apr: row.economics.airdropYieldApr,
+    farm_economics: {
+      launchProbability12: row.economics.launchProbability12,
+      deposits: row.economics.deposits,
+      breakEvenDepositUsd: row.economics.breakEvenDepositUsd,
+    },
   });
 }, 20_000);
 

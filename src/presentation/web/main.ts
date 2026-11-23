@@ -13,6 +13,7 @@ interface RadarData extends Pick<Snapshot, "protocols" | "watchlist"> {
   meta: Pick<Snapshot, "as_of" | "floor_usd" | "source">;
   board: BrowserApi.BoardRows;
   model: ReturnType<typeof BrowserApi.buildRadar>["model"];
+  launchClock: Parameters<typeof BrowserApi.buildRadar>[2];
 }
 
 declare global {
@@ -103,9 +104,9 @@ function start(main: HTMLElement, data: RadarData, api: typeof BrowserApi): void
     protocols: data.protocols,
     watchlist: data.watchlist,
   });
-  const radar = buildRadar(snapshot, data.model.lambda);
+  const radar = buildRadar(snapshot, data.model.lambda, data.launchClock);
   const published = data.board.rows;
-  const computed = toBoard(radar).rows;
+  const computed = toBoard(radar, published).rows;
   const mismatches = countBoardMismatches(computed, published);
   const watchlisted = new Set(snapshot.watchlist);
   const protocols = new Map(radar.board.map((row) => [row.protocol.slug, row]));

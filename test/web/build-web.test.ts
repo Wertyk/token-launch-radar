@@ -21,7 +21,9 @@ test("checks the generated bundles byte for byte without writing them", () => {
     expect(run("--check").status).toBe(0);
 
     const core = readFileSync(join(cwd, "dashboard/1-core.js"), "utf8");
-    expect(core).not.toMatch(/fitCategoryModel|categoryGroup|categoryPenalty|selectLambda/);
+    expect(core).not.toMatch(
+      /fitCategoryModel|categoryGroup|categoryPenalty|selectLambda|fitLaunchClock|pava/,
+    );
 
     const bundle = join(cwd, "dashboard/2-ui.js");
     const original = readFileSync(bundle, "utf8");
