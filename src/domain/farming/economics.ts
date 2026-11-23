@@ -18,23 +18,44 @@ export interface FarmEconomics {
   breakEvenDepositUsd: number | "never";
 }
 
+export interface EconomicsAssumptions {
+  horizonMonths: number;
+  monthsPerYear: number;
+  minutesPerHour: number;
+  hourlyRateUsd: number;
+  airdropShareOfLaunchCap: number;
+  farmerHaircut: number;
+}
+
+export function farmEconomicsTerms(
+  plan: Pick<FarmPlan, "totalCostUsd" | "totalMinutes" | "capitalApr">,
+  valueUsd: number,
+  tvlUsd: number,
+  launchProbability: number,
+  settings: EconomicsAssumptions = assumptions,
+) {
+  const fixedCosts =
+    plan.totalCostUsd + (plan.totalMinutes / settings.minutesPerHour) * settings.hourlyRateUsd;
+  const horizonYears = settings.horizonMonths / settings.monthsPerYear;
+  const capitalCarry = plan.capitalApr * horizonYears;
+  const k =
+    (valueUsd * settings.airdropShareOfLaunchCap * launchProbability * settings.farmerHaircut) /
+    tvlUsd;
+  return { fixedCosts, horizonYears, capitalCarry, k };
+}
+
 export function estimateFarmEconomics(
   plan: Pick<FarmPlan, "totalCostUsd" | "totalMinutes" | "capitalApr">,
   valueUsd: number,
   tvlUsd: number,
   launchProbability: number,
 ): FarmEconomics {
-  const fixedCosts =
-    plan.totalCostUsd +
-    (plan.totalMinutes / assumptions.minutesPerHour) * assumptions.hourlyRateUsd;
-  const horizonYears = assumptions.horizonMonths / assumptions.monthsPerYear;
-  const capitalCarry = plan.capitalApr * horizonYears;
-  const k =
-    (valueUsd *
-      assumptions.airdropShareOfLaunchCap *
-      launchProbability *
-      assumptions.farmerHaircut) /
-    tvlUsd;
+  const { fixedCosts, horizonYears, capitalCarry, k } = farmEconomicsTerms(
+    plan,
+    valueUsd,
+    tvlUsd,
+    launchProbability,
+  );
   const atDeposit = (depositUsd: number): DepositEconomics => {
     const expectedValueUsd = k * depositUsd;
     const costUsd = fixedCosts + depositUsd * capitalCarry;

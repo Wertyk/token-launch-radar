@@ -3,6 +3,7 @@ import {
   boardHash,
   defaultState,
   parseRoute,
+  planHash,
   protocolHash,
 } from "../../src/presentation/web/state.ts";
 
@@ -39,4 +40,26 @@ test("recognizes unknown paths and malformed slug escapes", () => {
   for (const hash of ["#/about", "#/p/", "#/p/a/b", "#/p/%ZZ"]) {
     expect(parseRoute(hash)).toEqual({ page: "unknown", state: defaultState });
   }
+});
+
+test("round-trips the planner budget, hours and selected chains", () => {
+  const state = { budgetUsd: 5_000, hoursPerWeek: 3, chains: ["Base", "Solana"] };
+  expect(planHash(state)).toBe("#/plan?budget=5000&hours=3&chains=Base,Solana");
+  expect(parseRoute(planHash(state))).toEqual({ page: "plan", state });
+
+  const other = { budgetUsd: 0, hoursPerWeek: 1.5, chains: ["A, B", "C & D"] };
+  expect(parseRoute(planHash(other))).toEqual({ page: "plan", state: other });
+});
+
+test("defaults invalid planner limits and accepts an empty chain selection", () => {
+  for (const hash of ["#/plan", "#/plan?budget=NaN&hours=-1", "#/plan?budget=&hours=Infinity"]) {
+    expect(parseRoute(hash)).toEqual({
+      page: "plan",
+      state: { budgetUsd: 5_000, hoursPerWeek: 3, chains: [] },
+    });
+  }
+  expect(parseRoute("#/plan?budget=0&hours=0&chains=Base,Base")).toEqual({
+    page: "plan",
+    state: { budgetUsd: 0, hoursPerWeek: 0, chains: ["Base"] },
+  });
 });

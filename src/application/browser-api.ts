@@ -1,37 +1,29 @@
-import type { BoardRows } from "./board-rows.ts";
-import { toBoardRows } from "./board-rows.ts";
+import type { Snapshot } from "../domain/snapshot.ts";
 
+export { FARM_ASSUMPTIONS as farmAssumptions } from "../domain/farming/assumptions.ts";
+export { planPortfolio } from "../domain/farming/portfolio.ts";
 export { formatUsd } from "../domain/shared/money.ts";
-export { daysBetween, parseSnapshot } from "../domain/snapshot.ts";
+export { daysBetween } from "../domain/snapshot.ts";
 export type { BoardRows } from "./board-rows.ts";
 export type { RadarRow } from "./build-radar.ts";
 export { recomputeRadar as buildRadar } from "./build-radar.ts";
 
-type BoardRow = BoardRows["rows"][number];
-
-function samePrecision(a: number, b: number): boolean {
-  return a === b || Math.abs(a - b) / Math.max(Math.abs(a), Math.abs(b)) <= 1e-12;
+export interface PublishedSnapshot extends Pick<Snapshot, "protocols" | "watchlist"> {
+  meta: Pick<Snapshot, "as_of" | "floor_usd" | "source"> & { protocolCount: number };
 }
 
-export function toBoard(
-  radar: Parameters<typeof toBoardRows>[0],
-  published: readonly BoardRow[] = [],
-): BoardRows {
-  const board = toBoardRows(radar);
-  for (const [index, row] of board.rows.entries()) {
-    const reference = published[index];
-    if (!reference || row.slug !== reference.slug) continue;
-    const a = row.decomposition;
-    const b = reference.decomposition;
-    // Math.log and Math.exp can differ in the last digits across engines. Preserve equivalent published factors.
-    if (
-      samePrecision(a.base, b.base) &&
-      samePrecision(a.multipliers.lnTvl, b.multipliers.lnTvl) &&
-      samePrecision(a.multipliers.growth, b.multipliers.growth) &&
-      samePrecision(a.multipliers.lnAge, b.multipliers.lnAge)
-    ) {
-      row.decomposition = b;
-    }
+export function readPublishedSnapshot({
+  meta,
+  protocols,
+  watchlist,
+}: PublishedSnapshot): Snapshot | null {
+  if (
+    !Array.isArray(protocols) ||
+    !Array.isArray(watchlist) ||
+    protocols.length !== meta?.protocolCount
+  ) {
+    return null;
   }
-  return board;
+  const { as_of, floor_usd, source } = meta;
+  return { as_of, floor_usd, source, protocols, watchlist };
 }

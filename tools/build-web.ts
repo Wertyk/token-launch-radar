@@ -22,7 +22,9 @@ const outputs = await Promise.all(
       format: "iife",
       target: "es2022",
       charset: "utf8",
-      minify: false,
+      // Keep the source names in the dossier while reclaiming formatting bytes.
+      minifyWhitespace: true,
+      lineLimit: 100,
       sourcemap: false,
       write: false,
     });

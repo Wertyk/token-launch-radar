@@ -2,11 +2,12 @@ import { createHash } from "node:crypto";
 import { expect, test } from "vitest";
 import { toBoardRows } from "../../src/application/board-rows.ts";
 import * as radarApi from "../../src/application/browser-api.ts";
-import { buildRadar, recomputeRadar } from "../../src/application/build-radar.ts";
+import { buildRadar } from "../../src/application/build-radar.ts";
 import type { DossierBuilder, OutputSink, SnapshotSource } from "../../src/application/ports.ts";
 import { runRadar } from "../../src/application/run-radar.ts";
 import { parseSnapshot } from "../../src/domain/snapshot.ts";
 import type { ValueDiagnostics } from "../../src/domain/valuation/diagnostics.ts";
+import { countBoardMismatches } from "../../src/presentation/web/recompute.ts";
 import { protocol } from "../domain/protocol-fixture.ts";
 import { readKitSnapshot } from "../radar-fixtures.ts";
 
@@ -110,6 +111,9 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   expect(dataScript.endsWith(";\n")).toBe(true);
   expect(dataScript).not.toMatch(/https?:\/\//i);
   const data = JSON.parse(dataScript.slice(prefix.length, -2));
+  expect(data.meta.protocolCount).toBe(snapshot.protocols.length);
+  expect(data.meta.playbooks.lending.enter).toContain("Supply collateral");
+  expect(data.meta.gas.chains.Base).toEqual([0.05, 0.3]);
   const publishedRows = data.board.rows as ((typeof rows)[number] &
     ValueDiagnostics & {
       launch_p12: number;
@@ -134,7 +138,7 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     expect(launch_p12).toBeLessThanOrEqual(1);
     expect(published.flags).toEqual(row.flags);
   }
-  const radar = recomputeRadar(snapshot, data.model.lambda, data.launchClock);
+  const radar = buildRadar(snapshot);
   expect(data).toMatchObject({
     meta: {
       as_of: snapshot.as_of,
@@ -171,41 +175,40 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   expect(board).toEqual(toBoardRows(radar));
   for (const fn of [
     radarApi.buildRadar,
-    radarApi.toBoard,
-    radarApi.parseSnapshot,
+    radarApi.readPublishedSnapshot,
     radarApi.daysBetween,
     radarApi.formatUsd,
   ]) {
     expect(typeof fn).toBe("function");
   }
-  const browserSnapshot = radarApi.parseSnapshot({
-    ...data.meta,
-    protocols: data.protocols,
-    watchlist: data.watchlist,
-  });
-  const browserRadar = radarApi.buildRadar(browserSnapshot, data.model.lambda, data.launchClock);
+  const browserSnapshot = radarApi.readPublishedSnapshot(data);
+  if (!browserSnapshot) throw new Error("Expected a browser snapshot.");
+  expect(browserSnapshot.protocols).toBe(data.protocols);
+  expect(radarApi.readPublishedSnapshot({ ...data, protocols: [] })).toBeNull();
+  expect(radarApi.readPublishedSnapshot({ ...data, watchlist: null })).toBeNull();
+  const browserRadar = radarApi.buildRadar(
+    browserSnapshot,
+    data.model.lambda,
+    data.launchClock,
+    data.meta,
+  );
   expect(browserRadar.model.lambda).toBe(data.model.lambda);
   expect(rows.every((row) => !("category" in row.decomposition.multipliers))).toBe(true);
   expect(browserRadar.model).not.toHaveProperty("validation");
   expect(radarApi).not.toHaveProperty("validateModel");
-  expect(JSON.stringify(radarApi.toBoard(browserRadar))).toBe(JSON.stringify(board));
+  expect(
+    countBoardMismatches(
+      browserRadar.board.map((row) => ({ ...row, slug: row.protocol.slug })),
+      rows,
+    ),
+  ).toBe(0);
 
-  const first = browserRadar.board[0];
-  const second = browserRadar.board[1];
-  if (!first || !second) throw new Error("Expected two ranked board rows.");
-  const originalFactor = first.decomposition.multipliers.lnAge;
-  first.decomposition.multipliers.lnAge *= 1 - 12 * Number.EPSILON;
-  expect(first.decomposition.multipliers.lnAge).not.toBe(originalFactor);
-  expect(JSON.stringify(radarApi.toBoard(browserRadar, publishedRows))).toBe(JSON.stringify(board));
-  second.decomposition.multipliers.lnAge *= 1.01;
-  const checked = radarApi.toBoard(browserRadar, publishedRows);
-  expect(checked.rows[1]?.decomposition).toEqual(second.decomposition);
-  expect(checked.rows[1]?.decomposition).not.toEqual(board.rows[1]?.decomposition);
-
-  const flatClockRadar = radarApi.buildRadar(browserSnapshot, data.model.lambda, {
-    points: [],
-    medianAgeDays: null,
-  });
+  const flatClockRadar = radarApi.buildRadar(
+    browserSnapshot,
+    data.model.lambda,
+    { points: [], medianAgeDays: null },
+    data.meta,
+  );
   expect(
     flatClockRadar.board.every(({ economics }) =>
       economics.deposits.every(({ expectedValueUsd }) => expectedValueUsd === 0),

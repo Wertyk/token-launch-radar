@@ -1,10 +1,16 @@
 import { expect, test } from "vitest";
 import { ASSUMPTIONS_AS_OF, FARM_ASSUMPTIONS } from "../../../src/domain/farming/assumptions.ts";
 import { estimateFarmEconomics, renderEconomics } from "../../../src/domain/farming/economics.ts";
-import { makeFarmPlan, renderFarmStep } from "../../../src/domain/farming/plans.ts";
+import { makeFarmPlan as buildPlan, renderFarmStep } from "../../../src/domain/farming/plans.ts";
+import { farmTables } from "../../../src/domain/farming/playbook-data.ts";
 import { protocol } from "../protocol-fixture.ts";
 
 const horizonOccurrences = { once: 1, weekly: 52, monthly: 12 };
+const tables = farmTables();
+
+function makeFarmPlan(record: ReturnType<typeof protocol>, depositUsd?: number) {
+  return buildPlan(record, tables, depositUsd);
+}
 
 const playbooks = [
   ["Dexs", /pool/i, 0.02],

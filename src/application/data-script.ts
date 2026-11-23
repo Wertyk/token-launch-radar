@@ -1,3 +1,4 @@
+import type { FarmTables } from "../domain/farming/playbook-data.ts";
 import type { Snapshot } from "../domain/snapshot.ts";
 import type { BoardRows } from "./board-rows.ts";
 import type { RadarResult } from "./build-radar.ts";
@@ -16,11 +17,18 @@ export function renderDataScript(
     RadarResult,
     "census" | "houseRule" | "model" | "rowDiagnostics" | "intervalCoverage" | "launchClock"
   >,
+  tables: FarmTables,
 ): string {
   const { as_of, floor_usd, source, protocols, watchlist } = snapshot;
   const scheme = /https?:\/\//gi;
   const data = {
-    meta: { as_of, floor_usd, source: source.replace(scheme, "") },
+    meta: {
+      as_of,
+      floor_usd,
+      source: source.replace(scheme, ""),
+      protocolCount: protocols.length,
+      ...tables,
+    },
     protocols,
     watchlist,
     census,

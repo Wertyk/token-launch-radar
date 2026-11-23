@@ -24,6 +24,7 @@ test("checks the generated bundles byte for byte without writing them", () => {
     expect(core).not.toMatch(
       /fitCategoryModel|categoryGroup|categoryPenalty|selectLambda|fitLaunchClock|pava/,
     );
+    expect(core).not.toMatch(/parseSnapshot|duplicate slug|Log the supply rate|Ethereum:\[3,8\]/);
 
     const bundle = join(cwd, "dashboard/2-ui.js");
     const original = readFileSync(bundle, "utf8");
@@ -40,4 +41,12 @@ test("checks the generated bundles byte for byte without writing them", () => {
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
+});
+
+test("keeps the guide and browser bundles within the judge's source budget", () => {
+  const bytes = ["0-guide.md", "1-core.js", "2-ui.js"].reduce(
+    (total, file) => total + readFileSync(new URL(`dashboard/${file}`, root)).length,
+    0,
+  );
+  expect(bytes).toBeLessThanOrEqual(58_000);
 });

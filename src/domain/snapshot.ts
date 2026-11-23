@@ -39,7 +39,7 @@ function utcDay(iso: string, path: string): number {
 }
 
 export function daysBetween(fromIso: string, toIso: string): number {
-  return utcDay(toIso, "toIso") - utcDay(fromIso, "fromIso");
+  return (Date.parse(toIso) - Date.parse(fromIso)) / DAY_MS;
 }
 
 function object(value: unknown, path: string): Record<string, unknown> {

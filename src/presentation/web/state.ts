@@ -21,9 +21,16 @@ export interface BoardState {
   q: string;
 }
 
+export interface PlanState {
+  budgetUsd: number;
+  hoursPerWeek: number;
+  chains: string[];
+}
+
 type Route =
   | { page: "board" | "unknown"; state: BoardState }
-  | { page: "protocol"; state: BoardState; slug: string };
+  | { page: "protocol"; state: BoardState; slug: string }
+  | { page: "plan"; state: PlanState };
 
 export const defaultState: BoardState = {
   sort: "rank",
@@ -38,9 +45,27 @@ export function isSortKey(value: string | undefined): value is SortKey {
   return value !== undefined && Object.hasOwn(columns, value);
 }
 
+function limit(value: string | null, fallback: number): number {
+  const number = Number(value);
+  return value?.trim() && Number.isFinite(number) && number >= 0 ? number : fallback;
+}
+
 export function parseRoute(hash: string): Route {
   const [path, query] = hash.slice(1).split(/\?(.*)/s, 2);
   const params = new URLSearchParams(query);
+  if (path === "/plan") {
+    // Split the raw list so an encoded comma can be part of a chain name.
+    const list = /(?:^|&)chains=([^&]*)/.exec(query ?? "")?.[1] ?? "";
+    const chains = list.split(",").map((part) => new URLSearchParams(`c=${part}`).get("c") ?? "");
+    return {
+      page: "plan",
+      state: {
+        budgetUsd: limit(params.get("budget"), 5_000),
+        hoursPerWeek: limit(params.get("hours"), 3),
+        chains: [...new Set(chains.filter(Boolean))],
+      },
+    };
+  }
   const sort = params.get("sort") ?? undefined;
   const state: BoardState = {
     sort: isSortKey(sort) ? sort : defaultState.sort,
@@ -60,6 +85,11 @@ export function parseRoute(hash: string): Route {
     }
   }
   return { page: "unknown", state };
+}
+
+export function planHash({ budgetUsd, hoursPerWeek, chains }: PlanState): string {
+  const list = chains.map(encodeURIComponent).join(",");
+  return `#/plan?budget=${budgetUsd}&hours=${hoursPerWeek}${list ? `&chains=${list}` : ""}`;
 }
 
 export function boardHash(state: BoardState): string {

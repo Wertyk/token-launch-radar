@@ -3,6 +3,7 @@ import { beforeAll, expect, test } from "vitest";
 import { toBoardRows } from "../../src/application/board-rows.ts";
 import { buildRadar, recomputeRadar } from "../../src/application/build-radar.ts";
 import { ASSUMPTIONS_AS_OF } from "../../src/domain/farming/assumptions.ts";
+import { farmTables } from "../../src/domain/farming/playbook-data.ts";
 import type { Snapshot } from "../../src/domain/snapshot.ts";
 import { parseSnapshot } from "../../src/domain/snapshot.ts";
 
@@ -113,9 +114,13 @@ test("the kit snapshot produces a complete, valid and deterministic board", () =
       expect(step.trim().length).toBeLessThanOrEqual(600);
     }
   }
-  expect(toBoardRows(recomputeRadar(snapshot, result.model.lambda, result.launchClock))).toEqual(
-    toBoardRows(result),
+  const recomputed = recomputeRadar(
+    snapshot,
+    result.model.lambda,
+    result.launchClock,
+    farmTables(),
   );
+  expect(toBoardRows({ board: recomputed.board, houseRule })).toEqual(toBoardRows(result));
 });
 
 test("the parent flag still matches the house-rule audit on the published kit board", () => {

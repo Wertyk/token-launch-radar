@@ -1,3 +1,4 @@
+import { farmTables } from "../domain/farming/playbook-data.ts";
 import { parseSnapshot } from "../domain/snapshot.ts";
 import { toBoardRows } from "./board-rows.ts";
 import { buildRadar } from "./build-radar.ts";
@@ -16,10 +17,11 @@ export function runRadar(
   dossier: DossierBuilder,
 ): RadarSummary {
   const snapshot = parseSnapshot(source.load());
-  const radar = buildRadar(snapshot);
+  const tables = farmTables();
+  const radar = buildRadar(snapshot, tables);
   const board = toBoardRows(radar);
   output.write("board.json", `${JSON.stringify(board)}\n`);
-  output.write("data.js", renderDataScript(snapshot, board, radar));
+  output.write("data.js", renderDataScript(snapshot, board, radar, tables));
   const assets = output.publishAssets();
   output.write("dossier.json", dossier.build());
 

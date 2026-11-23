@@ -1,16 +1,18 @@
 import type * as BrowserApi from "../../application/browser-api.ts";
+import type { FarmTables } from "../../domain/farming/playbook-data.ts";
 import type { Snapshot } from "../../domain/snapshot.ts";
 import type { BoardRow } from "./board.ts";
 import { selectRows } from "./board.ts";
 import { boardRows, boardView } from "./board-view.ts";
 import { escapeHtml as esc, formatInteger } from "./format.ts";
+import { plannerForm, plannerResults } from "./plan-view.ts";
 import { protocolView } from "./protocol-view.ts";
 import { countBoardMismatches } from "./recompute.ts";
-import type { BoardState, SortKey } from "./state.ts";
-import { boardHash, isSortKey, parseRoute } from "./state.ts";
+import type { BoardState, PlanState, SortKey } from "./state.ts";
+import { boardHash, isSortKey, parseRoute, planHash } from "./state.ts";
 
-interface RadarData extends Pick<Snapshot, "protocols" | "watchlist"> {
-  meta: Pick<Snapshot, "as_of" | "floor_usd" | "source">;
+interface RadarData extends BrowserApi.PublishedSnapshot {
+  meta: BrowserApi.PublishedSnapshot["meta"] & FarmTables;
   board: BrowserApi.BoardRows;
   model: ReturnType<typeof BrowserApi.buildRadar>["model"];
   launchClock: Parameters<typeof BrowserApi.buildRadar>[2];
@@ -97,16 +99,23 @@ function mountBoard(
   };
 }
 
-function start(main: HTMLElement, data: RadarData, api: typeof BrowserApi): void {
-  const { buildRadar, daysBetween, formatUsd, parseSnapshot, toBoard } = api;
-  const snapshot = parseSnapshot({
-    ...data.meta,
-    protocols: data.protocols,
-    watchlist: data.watchlist,
-  });
-  const radar = buildRadar(snapshot, data.model.lambda, data.launchClock);
+function start(
+  main: HTMLElement,
+  snapshot: Snapshot,
+  data: RadarData,
+  api: typeof BrowserApi,
+): void {
+  const { buildRadar, daysBetween, formatUsd } = api;
+  const radar = buildRadar(snapshot, data.model.lambda, data.launchClock, data.meta);
   const published = data.board.rows;
-  const computed = toBoard(radar, published).rows;
+  const computed = radar.board.map(
+    ({ protocol: { slug }, rank, implied_value_usd, farm_steps }) => ({
+      slug,
+      rank,
+      implied_value_usd,
+      farm_steps,
+    }),
+  );
   const mismatches = countBoardMismatches(computed, published);
   const watchlisted = new Set(snapshot.watchlist);
   const protocols = new Map(radar.board.map((row) => [row.protocol.slug, row]));
@@ -139,7 +148,7 @@ function start(main: HTMLElement, data: RadarData, api: typeof BrowserApi): void
   element("#snapshot-date").textContent = `Snapshot · ${snapshot.as_of}`;
   element("#summary").innerHTML = header(
     [
-      ["Protocols scanned", formatInteger(radar.census.length)],
+      ["Protocols scanned", formatInteger(snapshot.protocols.length)],
       ["Traded comparables", formatInteger(radar.model.n)],
       ["Board rows", formatInteger(rows.length)],
       [
@@ -153,7 +162,38 @@ function start(main: HTMLElement, data: RadarData, api: typeof BrowserApi): void
   );
 
   let updateBoard: ReturnType<typeof mountBoard> | undefined;
+  let updatePlan: ((state: PlanState) => void) | undefined;
   let lastPage: string | undefined;
+
+  function mountPlanner() {
+    const chains = [...new Set(rows.flatMap((row) => row.chains))].sort();
+    const names = new Map(rows.map(({ slug, name }) => [slug, name]));
+    main.innerHTML = plannerForm(chains);
+    const budget = element<HTMLInputElement>('[name="budget"]', main);
+    const hours = element<HTMLInputElement>('[name="hours"]', main);
+    const select = element<HTMLSelectElement>('[name="chains"]', main);
+    const results = element("#portfolio-results", main);
+    const assumptions = { ...api.farmAssumptions, tables: data.meta };
+
+    return (state: PlanState) => {
+      budget.value = String(state.budgetUsd);
+      hours.value = String(state.hoursPerWeek);
+      for (const chain of state.chains) {
+        if (![...select.options].some((option) => option.value === chain)) {
+          select.add(new Option(chain, chain));
+        }
+      }
+      for (const option of select.options) option.selected = state.chains.includes(option.value);
+      const { budgetUsd, hoursPerWeek } = state;
+      const result = api.planPortfolio(radar.board, {
+        budgetUsd,
+        hoursPerWeek,
+        assumptions,
+        ...(state.chains.length ? { chains: state.chains } : {}),
+      });
+      results.innerHTML = plannerResults(result, names, formatUsd);
+    };
+  }
 
   function draw(): void {
     delete main.dataset.ready;
@@ -161,11 +201,15 @@ function start(main: HTMLElement, data: RadarData, api: typeof BrowserApi): void
     const page = route.page === "protocol" ? `protocol/${route.slug}` : route.page;
     const changedPage = lastPage !== undefined && lastPage !== page;
     lastPage = page;
+    if (route.page !== "board") updateBoard = undefined;
+    if (route.page !== "plan") updatePlan = undefined;
     if (route.page === "board") {
       updateBoard ??= mountBoard(main, rows, maxLogValue, formatUsd);
       updateBoard(route.state);
+    } else if (route.page === "plan") {
+      updatePlan ??= mountPlanner();
+      updatePlan(route.state);
     } else {
-      updateBoard = undefined;
       const back = boardHash(route.state);
       const detail = route.page === "protocol" ? protocols.get(route.slug) : undefined;
       main.innerHTML = detail
@@ -182,7 +226,9 @@ function start(main: HTMLElement, data: RadarData, api: typeof BrowserApi): void
   }
 
   function sortBy(sort: SortKey): void {
-    const { state } = parseRoute(location.hash);
+    const route = parseRoute(location.hash);
+    if (route.page !== "board") return;
+    const { state } = route;
     const dir = state.sort === sort && state.dir === "asc" ? "desc" : "asc";
     location.hash = boardHash({ ...state, sort, dir });
   }
@@ -203,16 +249,41 @@ function start(main: HTMLElement, data: RadarData, api: typeof BrowserApi): void
       if (link) location.hash = link.hash;
     }
   });
-  main.addEventListener("submit", (event) => event.preventDefault());
+  function savePlan(form: HTMLFormElement): void {
+    if (!form.checkValidity()) return;
+    const fields = new FormData(form);
+    location.hash = planHash({
+      budgetUsd: Number(fields.get("budget")),
+      hoursPerWeek: Number(fields.get("hours")),
+      chains: fields.getAll("chains").map(String),
+    });
+  }
+
+  main.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (updatePlan && event.target instanceof HTMLFormElement) savePlan(event.target);
+  });
   main.addEventListener("input", (event) => {
     if (!(event.target instanceof HTMLInputElement) || event.target.name !== "q") return;
-    const { state } = parseRoute(location.hash);
+    const route = parseRoute(location.hash);
+    if (route.page !== "board") return;
+    const { state } = route;
     history.replaceState(null, "", boardHash({ ...state, q: event.target.value }));
     draw();
   });
   main.addEventListener("change", (event) => {
     const target = event.target;
-    const { state } = parseRoute(location.hash);
+    const route = parseRoute(location.hash);
+    if (route.page === "plan") {
+      if (
+        (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) &&
+        target.form
+      ) {
+        savePlan(target.form);
+      }
+      return;
+    }
+    const { state } = route;
     if (target instanceof HTMLSelectElement && (target.name === "cat" || target.name === "chain")) {
       location.hash = boardHash({ ...state, [target.name]: target.value });
     } else if (target instanceof HTMLInputElement && target.name === "wl") {
@@ -224,8 +295,10 @@ function start(main: HTMLElement, data: RadarData, api: typeof BrowserApi): void
 }
 
 const main = element("main");
-if (window.RADAR_DATA) {
-  start(main, window.RADAR_DATA, window.Radar);
+const { RADAR_DATA: data, Radar: api } = window;
+const snapshot = data && api.readPublishedSnapshot(data);
+if (data && snapshot) {
+  start(main, snapshot, data, api);
 } else {
   main.innerHTML = `<section class="panel message"><h2>Snapshot data unavailable</h2>
     <p><code>main.ts</code> writes <code>../data.js</code>. Run <code>pnpm radar</code> and open <code>out/dashboard/index.html</code>.</p></section>`;

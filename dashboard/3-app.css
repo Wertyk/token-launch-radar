@@ -198,7 +198,7 @@ main {
 }
 
 .filters select,
-.filters input[type="search"] {
+.filters input:is([type="search"], [type="number"]) {
   width: 184px;
   min-height: 36px;
   padding: var(--s1) var(--s2);
@@ -534,6 +534,18 @@ table {
 .farm small {
   display: block;
   color: var(--muted);
+}
+
+.portfolio .filters {
+  align-items: start;
+}
+
+.portfolio-table {
+  overflow-x: auto;
+}
+
+.portfolio h3 {
+  margin-top: var(--s4);
 }
 
 .message {
