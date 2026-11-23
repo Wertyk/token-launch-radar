@@ -13,14 +13,21 @@ import { methodView } from "./method-view.ts";
 import { plannerForm, plannerResults, plannerSettings, sliderValues } from "./plan-view.ts";
 import { protocolView } from "./protocol-view.ts";
 import type { BoardState, PlanState, Sliders } from "./state.ts";
-import { boardHash, censusHash, isSortKey, parseRoute, planHash } from "./state.ts";
+import {
+  boardHash,
+  censusHash,
+  isCensusSortKey,
+  isSortKey,
+  parseRoute,
+  planHash,
+} from "./state.ts";
 
 type PublishedRow = BrowserApi.BoardRows["rows"][number] &
   ValueDiagnostics & { launch_p12: number };
 
 interface RadarData
   extends BrowserApi.PublishedSnapshot,
-    Pick<RadarResult, "model" | "launchClock" | "census" | "houseRule" | "intervalCounts"> {
+    Pick<RadarResult, "model" | "launchClock" | "census" | "intervalCounts"> {
   meta: BrowserApi.PublishedSnapshot["meta"] & FarmTables;
   board: { rows: PublishedRow[] };
 }
@@ -52,7 +59,8 @@ function header(
 <dl class="kpis">${counts.map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("")}</dl>
 <section class="model" aria-label="Value model">
 <p class="equation">ln V = ${intercept.toFixed(3)} ${signedTerm(lnTvl)}·ln(TVL·(1+g₇)) ${signedTerm(lnAge)}·ln(age)</p>
-<p class="caption">Age is days since listing, minimum 1. g₇ is 7-day TVL growth clipped to −50%…+100%.</p>
+<p class="caption">Implied value is conditional market cap at launch if the record stays as it is. Launch odds are separate.
+Age is days since listing (min 1). g₇ is 7-day TVL growth clipped to −50%…+100%.</p>
 <ul class="integrity">${checks
     .map(
       ({ pass, label }) =>
@@ -78,8 +86,13 @@ function mountBoard(
   const buttons = main.querySelectorAll<HTMLButtonElement>("button[data-sort]");
 
   function setSelect(select: HTMLSelectElement, value: string): void {
+    select.querySelector("[data-temporary]")?.remove();
     select.value = value;
-    if (select.selectedIndex < 0) select.add(new Option(value, value, false, true));
+    if (select.selectedIndex < 0) {
+      const option = new Option(value, value, false, true);
+      option.dataset.temporary = "";
+      select.add(option);
+    }
   }
 
   return (state: BoardState) => {
@@ -113,11 +126,12 @@ function start(
   const { launchClock, meta } = data;
   const radar = buildRadar(snapshot, data.model.lambda, launchClock, meta);
   const published = data.board.rows;
-  const computed = radar.board.map((row) => ({ ...row, slug: row.protocol.slug }));
   const families = new Map(radar.families.map((family) => [family.representative.slug, family]));
   const evidence = new Map(published.map((row) => [row.slug, row]));
-  const checks = integrityChecks(computed, published, snapshot.watchlist, {
-    ...data,
+  const checks = integrityChecks(radar.board, published, snapshot.watchlist, {
+    fitted: radar.model.n,
+    houseRule: radar.houseRule,
+    intervalCounts: data.intervalCounts,
     loo: data.model.validation.leaveOneFamilyOut,
   });
   const watchlisted = new Set(snapshot.watchlist);
@@ -259,7 +273,11 @@ function start(
     } else if (route.page === "census") {
       main.innerHTML = censusView(data.census, route.state, formatUsd);
     } else if (route.page === "method") {
-      main.innerHTML = methodView(data, farmAssumptions, formatUsd);
+      main.innerHTML = methodView(
+        { ...data, houseRule: radar.houseRule },
+        farmAssumptions,
+        formatUsd,
+      );
     } else {
       const back = boardHash(route.state);
       const detail = route.page === "protocol" ? protocols.get(route.slug) : undefined;
@@ -291,10 +309,7 @@ function start(
       const { state } = route;
       const dir = state.sort === sort && state.dir === "asc" ? "desc" : "asc";
       location.hash = boardHash({ ...state, sort, dir });
-    } else if (
-      route.page === "census" &&
-      (sort === "name" || sort === "status" || sort === "tvl")
-    ) {
+    } else if (route.page === "census" && isCensusSortKey(sort)) {
       const { state } = route;
       const dir = state.sort === sort && state.dir === "asc" ? "desc" : "asc";
       location.hash = censusHash({ ...state, sort, dir });

@@ -111,6 +111,7 @@ async function takeShots(
     const shots: Shot[] = [];
     for (const { name, hash } of states) {
       const page = await context.newPage();
+      page.on("websocket", (socket) => errors.push(`WebSocket ${socket.url()}`));
       page.on("console", (message) => {
         if (message.type() === "error") errors.push(message.text());
       });

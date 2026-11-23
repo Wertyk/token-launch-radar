@@ -1,7 +1,13 @@
 import type { farmAssumptions, formatUsd } from "../../application/browser-api.ts";
 import type { RadarResult } from "../../application/build-radar.ts";
+import type { HouseRuleEvidence } from "./integrity.ts";
 import { multiplier } from "./integrity.ts";
 import { table } from "./render.ts";
+
+function relativeScore(variant: number | null, full: number | null): string {
+  if (variant === null || full === null) return "unavailable";
+  return variant === full ? "unchanged" : variant < full ? "lower" : "higher";
+}
 
 export function methodView(
   {
@@ -9,7 +15,9 @@ export function methodView(
     houseRule,
     intervalCounts,
     launchClock,
-  }: Pick<RadarResult, "model" | "houseRule" | "intervalCounts" | "launchClock">,
+  }: Pick<RadarResult, "model" | "intervalCounts" | "launchClock"> & {
+    houseRule: HouseRuleEvidence;
+  },
   farm: typeof farmAssumptions,
   usd: typeof formatUsd,
 ): string {
@@ -65,7 +73,7 @@ export function methodView(
           ["OLS", ols],
         ] as const
       ).map(([label, metrics]) => [label, ...score(metrics)]),
-      "Category was tested and rejected. Without age, both scores improve slightly.",
+      `Without age, median error is ${relativeScore(withoutAge.medianMultiplier, full.medianMultiplier)} and Spearman is ${relativeScore(withoutAge.spearman, full.spearman)}.`,
     )}
     ${section(
       "Held-out P10–P90 coverage",

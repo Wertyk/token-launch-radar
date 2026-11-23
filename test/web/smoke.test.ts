@@ -36,6 +36,8 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
     await context.route(/^(?!file:\/\/)/, (route) => route.abort());
     const page = await context.newPage();
     const errors: string[] = [];
+    const webSockets: string[] = [];
+    page.on("websocket", (socket) => webSockets.push(socket.url()));
     page.on("console", (message) => {
       if (message.type() === "error") errors.push(message.text());
     });
@@ -52,11 +54,22 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
       await waitUntilReady();
     };
 
-    await goTo("#/");
+    await goTo("#/?cat=Unknown&chain=Unknown");
     await page
       .locator(".integrity .check")
-      .filter({ hasText: /Page recompute = board\.json/ })
+      .filter({ hasText: "Recompute = board.json: values, ranks, plans, economics" })
       .waitFor({ timeout: 4_000 });
+    expect(await page.locator(".integrity .check").count()).toBe(5);
+    expect(
+      await page.getByText(/^Implied value is conditional market cap at launch/).isVisible(),
+    ).toBe(true);
+    const category = ready.getByRole("combobox", { name: "Category" });
+    const chain = ready.getByRole("combobox", { name: "Chain" });
+    for (const select of [category, chain]) {
+      expect(await select.inputValue()).toBe("Unknown");
+      await select.selectOption("");
+      await expect.poll(() => select.locator('option[value="Unknown"]').count()).toBe(0);
+    }
     const rows = ready.locator("tr[data-protocol]");
     const originalCount = await rows.count();
     const firstRank = rows.first().locator("td").first();
@@ -82,12 +95,27 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
     expect(await ready.locator('th[aria-sort="descending"] button[data-sort="tvl"]').count()).toBe(
       1,
     );
+    await ready.locator('button[data-sort="reason"]').click({ timeout: 4_000 });
+    await expect.poll(() => new URL(page.url()).hash).toBe("#/census?sort=reason&dir=asc");
+    await expect
+      .poll(() => ready.locator('th[aria-sort="ascending"] button[data-sort="reason"]').count())
+      .toBe(1);
 
     await nav.getByRole("link", { name: "Farm planner", exact: true }).click();
     await heading("Farm portfolio");
     const sliders = ready.getByRole("slider");
     expect(await sliders.count()).toBe(5);
-    const share = sliders.and(ready.locator('input[name="share"]'));
+    const names = [
+      "Airdrop share of launch cap (%)",
+      "Farmer haircut, retained (%)",
+      "Labor rate (USD/h)",
+      "Yield-bearing capital APR (%)",
+      "Non-yielding capital APR (%)",
+    ] as const;
+    for (const name of names) {
+      expect(await ready.getByRole("slider", { name, exact: true }).count()).toBe(1);
+    }
+    const share = ready.getByRole("slider", { name: names[0], exact: true });
     const verdicts = ready.locator(".verdicts tbody");
     const before = await verdicts.textContent();
     await share.press("Home");
@@ -103,6 +131,7 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
 
     expect(errors).toEqual([]);
     expect(nonFileRequests).toEqual([]);
+    expect(webSockets).toEqual([]);
   } finally {
     try {
       await browser.close();

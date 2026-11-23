@@ -37,3 +37,20 @@ test("renders all filtered rows, with reason and TVL escaped or formatted", () =
   );
   expect(html).not.toContain("<td>Excluded</td>");
 });
+
+test("sorts by displayed status and reason, with ascending slug ties in both directions", () => {
+  const records: CensusRecord[] = [
+    { ...second, status: "pre-token", reason: "alpha" },
+    { ...third, status: "token-unpriced", reason: "Zulu" },
+    { ...first, status: "pre-token", reason: "Alpha" },
+  ];
+  const slugs = (sort: "status" | "reason", dir: "asc" | "desc") =>
+    selectCensus(records, { ...defaultCensus, sort, dir }).map(({ slug }) => slug);
+  expect(slugs("status", "asc")).toEqual(["c", "a", "b"]);
+  expect(slugs("status", "desc")).toEqual(["a", "b", "c"]);
+  expect(slugs("reason", "asc")).toEqual(["a", "b", "c"]);
+  expect(slugs("reason", "desc")).toEqual(["c", "a", "b"]);
+  expect(censusView(records, { ...defaultCensus, sort: "reason" }, formatUsd)).toContain(
+    `aria-sort="descending"><button type="button" data-sort="reason">Reason</button>`,
+  );
+});

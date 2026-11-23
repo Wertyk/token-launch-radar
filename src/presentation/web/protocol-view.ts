@@ -49,7 +49,7 @@ interface CardOptions {
   back: string;
   usd: FormatUsd;
   farm: Pick<EconomicsAssumptions, "hourlyRateUsd" | "farmerHaircut">;
-  diagnostics: (ValueDiagnostics & { launch_p12: number }) | undefined;
+  diagnostics: ValueDiagnostics | undefined;
   families: ReadonlyMap<string, Pick<ProtocolFamily, "representative" | "mcap_usd">>;
   launchClock: LaunchClock;
   clockShareAt: typeof clockShareAt;
@@ -86,7 +86,7 @@ export function protocolView(
         : "";
   const clockAge = Math.max(0, age ?? launchClock.medianAgeDays ?? 0);
   const { points } = launchClock;
-  const p12 = diagnostics?.launch_p12 ?? economics.launchProbability12;
+  const p12 = economics.launchProbability12;
   const twins = (diagnostics?.twins ?? []).map((slug) => {
     const family = families.get(slug);
     return [

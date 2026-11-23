@@ -1,17 +1,25 @@
 import type { RadarResult } from "../../application/build-radar.ts";
 import type { ValidationScore } from "../../domain/valuation/metrics.ts";
-import type { CheckRow } from "./recompute.ts";
+import type { CheckRow, RecomputedRow } from "./recompute.ts";
 import { countBoardMismatches } from "./recompute.ts";
 
-interface Evidence extends Pick<RadarResult, "houseRule" | "intervalCounts"> {
+export interface HouseRuleEvidence {
+  truePositives: readonly string[];
+  falsePositives: readonly unknown[];
+  falseNegatives: readonly string[];
+}
+
+interface Evidence extends Pick<RadarResult, "intervalCounts"> {
+  fitted: number;
+  houseRule: HouseRuleEvidence;
   loo: { model: ValidationScore; flatMultiple: ValidationScore };
 }
 
 export function integrityChecks(
-  computed: readonly CheckRow[],
+  computed: readonly RecomputedRow[],
   published: readonly CheckRow[],
   watchlist: readonly string[],
-  { houseRule, intervalCounts, loo }: Evidence,
+  { fitted, houseRule, intervalCounts, loo }: Evidence,
 ) {
   const mismatches = countBoardMismatches(computed, published);
   const slugs = new Set(published.map(({ slug }) => slug));
@@ -23,28 +31,31 @@ export function integrityChecks(
     missHigh,
   } = intervalCounts ?? { missLow: 0, covered: 0, missHigh: 0 };
   const samples = missLow + inside + missHigh;
+  const matches = houseRule.truePositives.length;
   const extra = houseRule.falsePositives.length;
-  const model = loo.model.medianMultiplier;
-  const flat = loo.flatMultiple.medianMultiplier;
+  const { model, flatMultiple: flat } = loo;
+  const samePopulation = model.n === fitted && flat.n === fitted;
   return [
     {
       pass: mismatches === 0,
-      label: mismatches
-        ? `Page recompute · ${mismatches} mismatch${mismatches === 1 ? "" : "es"}`
-        : `Page recompute = board.json (${published.length} rows)`,
+      label: `Recompute ${mismatches ? "≠" : "="} board.json: values, ranks, plans, economics (${mismatches ? `${mismatches} mismatched` : published.length})`,
     },
     { pass: covered === unique.length, label: `Watchlist ${covered}/${unique.length} on board` },
     {
-      pass: houseRule.recall === 1 && houseRule.falseNegatives.length === 0,
-      label: `House rule ${(houseRule.recall * 100).toFixed(0)}% recall${extra ? ` · ${extra} extra explained by parentProtocol` : ""}`,
+      pass: matches === unique.length && unique.length > 0,
+      label: `House rule ${matches}/${unique.length} recall${extra ? ` · ${extra} extra explained by parentProtocol` : ""}`,
     },
     {
-      pass: samples > 0 && inside / samples >= 0.8,
-      label: samples ? `${inside}/${samples} inside P10–P90` : "P10–P90 coverage unavailable",
+      pass: samples === fitted && inside / samples >= 0.8,
+      label: `${inside}/${samples} inside P10–P90${samples === fitted ? "" : ` · ${samples}/${fitted} families`}`,
     },
     {
-      pass: model !== null && flat !== null && model < flat,
-      label: `LOO median error ${multiplier(model)} vs ${multiplier(flat)} flat`,
+      pass:
+        samePopulation &&
+        model.medianMultiplier !== null &&
+        flat.medianMultiplier !== null &&
+        model.medianMultiplier < flat.medianMultiplier,
+      label: `LOO median error ${multiplier(model.medianMultiplier)} vs ${multiplier(flat.medianMultiplier)} flat${samePopulation ? "" : ` · model n=${model.n}/${fitted}, flat n=${flat.n}/${fitted}`}`,
     },
   ];
 }

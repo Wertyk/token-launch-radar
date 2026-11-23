@@ -97,11 +97,11 @@ export function buildCensus(
   });
 }
 
-export function checkHouseRule({
+export function houseRuleMembership({
   protocols,
   floor_usd,
   watchlist,
-}: Pick<Snapshot, "protocols" | "floor_usd" | "watchlist">): HouseRuleCheck {
+}: Pick<Snapshot, "protocols" | "floor_usd" | "watchlist">) {
   const watchlisted = new Set(watchlist);
   const matches = new Set(
     protocols
@@ -115,25 +115,31 @@ export function checkHouseRule({
       .sort(compareText),
   );
   const truePositives: string[] = [];
-  const falsePositives: HouseRuleCheck["falsePositives"] = [];
+  const falsePositives: string[] = [];
   for (const slug of matches) {
-    if (watchlisted.has(slug)) {
-      truePositives.push(slug);
-    } else {
-      falsePositives.push({
-        slug,
-        reason:
-          "DefiLlama names a parent protocol for it (parentProtocol), a field the snapshot does not carry",
-      });
-    }
+    (watchlisted.has(slug) ? truePositives : falsePositives).push(slug);
   }
   const falseNegatives = [...watchlisted].filter((slug) => !matches.has(slug)).sort(compareText);
+  return { truePositives, falsePositives, falseNegatives };
+}
+
+export function checkHouseRule(
+  snapshot: Pick<Snapshot, "protocols" | "floor_usd" | "watchlist">,
+): HouseRuleCheck {
+  const { truePositives, falsePositives, falseNegatives } = houseRuleMembership(snapshot);
+  const hits = truePositives.length;
+  const watchlistSize = hits + falseNegatives.length;
+  const matchCount = hits + falsePositives.length;
   return {
     truePositives,
-    falsePositives,
+    falsePositives: falsePositives.map((slug) => ({
+      slug,
+      reason:
+        "DefiLlama names a parent protocol for it (parentProtocol), a field the snapshot does not carry",
+    })),
     falseNegatives,
-    recall: watchlisted.size === 0 ? 0 : truePositives.length / watchlisted.size,
-    precision: matches.size === 0 ? 0 : truePositives.length / matches.size,
+    recall: watchlistSize === 0 ? 0 : hits / watchlistSize,
+    precision: matchCount === 0 ? 0 : hits / matchCount,
   };
 }
 

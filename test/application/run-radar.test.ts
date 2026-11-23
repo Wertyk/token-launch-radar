@@ -7,7 +7,7 @@ import type { DossierBuilder, OutputSink, SnapshotSource } from "../../src/appli
 import { runRadar } from "../../src/application/run-radar.ts";
 import { parseSnapshot } from "../../src/domain/snapshot.ts";
 import type { ValueDiagnostics } from "../../src/domain/valuation/diagnostics.ts";
-import { countBoardMismatches } from "../../src/presentation/web/recompute.ts";
+import { integrityChecks } from "../../src/presentation/web/integrity.ts";
 import { protocol } from "../domain/protocol-fixture.ts";
 import { readKitSnapshot } from "../radar-fixtures.ts";
 
@@ -197,12 +197,13 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   expect(rows.every((row) => !("category" in row.decomposition.multipliers))).toBe(true);
   expect(browserRadar.model).not.toHaveProperty("validation");
   expect(radarApi).not.toHaveProperty("validateModel");
-  expect(
-    countBoardMismatches(
-      browserRadar.board.map((row) => ({ ...row, slug: row.protocol.slug })),
-      rows,
-    ),
-  ).toBe(0);
+  const checks = integrityChecks(browserRadar.board, publishedRows, browserSnapshot.watchlist, {
+    fitted: browserRadar.model.n,
+    houseRule: browserRadar.houseRule,
+    intervalCounts: radar.intervalCounts,
+    loo: data.model.validation.leaveOneFamilyOut,
+  });
+  expect(checks.filter(({ pass }) => !pass)).toEqual([]);
 
   const flatClockRadar = radarApi.buildRadar(
     browserSnapshot,

@@ -75,6 +75,10 @@ test("recognizes Method and round-trips Census filters and sorting", () => {
   const state = { status: "traded", sort: "name", dir: "asc" } as const;
   expect(censusHash(state)).toBe("#/census?status=traded&sort=name&dir=asc");
   expect(parseRoute(censusHash(state))).toEqual({ page: "census", state });
+  expect(parseRoute(censusHash({ ...state, sort: "reason" }))).toEqual({
+    page: "census",
+    state: { ...state, sort: "reason" },
+  });
   expect(parseRoute("#/census?status=bad&sort=value&dir=bad")).toEqual({
     page: "census",
     state: { status: "", sort: "tvl", dir: "desc" },

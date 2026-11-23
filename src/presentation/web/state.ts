@@ -35,7 +35,7 @@ export const statusLabels: Record<TokenStatus, string> = {
 
 export interface CensusState {
   status: TokenStatus | "";
-  sort: "tvl" | "name" | "status";
+  sort: "tvl" | "name" | "status" | "reason";
   dir: "asc" | "desc";
 }
 
@@ -68,6 +68,10 @@ export function isSortKey(value: string | undefined): value is SortKey {
   return value !== undefined && Object.hasOwn(columns, value);
 }
 
+export function isCensusSortKey(value: string | null | undefined): value is CensusState["sort"] {
+  return value === "tvl" || value === "name" || value === "status" || value === "reason";
+}
+
 function limit(value: string | null, fallback: number): number {
   const number = Number(value);
   return value?.trim() && Number.isFinite(number) && number >= 0 ? number : fallback;
@@ -84,7 +88,7 @@ export function parseRoute(hash: string): Route {
       page: "census",
       state: {
         status: status && Object.hasOwn(statusLabels, status) ? (status as TokenStatus) : "",
-        sort: sort === "name" || sort === "status" ? sort : "tvl",
+        sort: isCensusSortKey(sort) ? sort : "tvl",
         dir: params.get("dir") === "asc" ? "asc" : "desc",
       },
     };

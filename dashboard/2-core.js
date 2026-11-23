@@ -132,7 +132,12 @@ d",reason:`The protocol records a token via ${fields} without a positive market 
 protocol);if(reason!==null)return{status:"excluded",reason};return{status:"pre-token",reason:"The pr\
 otocol records no token."}}function buildCensus(protocols,families=groupFamilies(protocols)){const marketCaps=new Map(
 families.map(({key,mcap_usd})=>[key,mcap_usd]));return protocols.map(protocol=>{const key=familyKey(
-protocol);return{protocol,familyKey:key,...classify(protocol,marketCaps.get(key)??null)}})}function boardEntries(census,watchlist){const watchlisted=new Set(watchlist);const entries=[];for(const entry of census){
+protocol);return{protocol,familyKey:key,...classify(protocol,marketCaps.get(key)??null)}})}function houseRuleMembership({
+protocols,floor_usd,watchlist}){const watchlisted=new Set(watchlist);const matches=new Set(protocols.
+filter(protocol=>protocol.tvl_usd>=floor_usd&&tokenFields(protocol)===null&&exclusionReason(protocol)===
+null).map(({slug})=>slug).sort(compareText));const truePositives=[];const falsePositives=[];for(const slug of matches){
+(watchlisted.has(slug)?truePositives:falsePositives).push(slug)}const falseNegatives=[...watchlisted].
+filter(slug=>!matches.has(slug)).sort(compareText);return{truePositives,falsePositives,falseNegatives}}function boardEntries(census,watchlist){const watchlisted=new Set(watchlist);const entries=[];for(const entry of census){
 const boardReasons=[];if(entry.status==="pre-token")boardReasons.push("pre-token");if(watchlisted.has(
 entry.protocol.slug))boardReasons.push("watchlist");if(boardReasons.length>0)entries.push({...entry,
 boardReasons})}return entries}function clamp(value,min,max){return Math.min(max,Math.max(min,value))}function median(observations){
@@ -227,6 +232,6 @@ age);const plan=makeFarmPlan(protocol,tables);const economics=estimateFarmEconom
 protocol.tvl_usd,p12);return{...row,plan,economics,farm_steps:[...plan.steps.map(renderFarmStep),renderEconomics(
 economics)]}});return{entries,model,board}}function recomputeRadar(snapshot,lambda,launchClock,tables){const inputs=radarInputs(snapshot);const{
 model,board}=rankRadar(snapshot,inputs,lambda,launchClock,tables);return{model,board,families:inputs.
-families}}function readPublishedSnapshot({meta,protocols,watchlist}){if(!Array.isArray(protocols)||!Array.isArray(
+families,houseRule:houseRuleMembership(snapshot)}}function readPublishedSnapshot({meta,protocols,watchlist}){if(!Array.isArray(protocols)||!Array.isArray(
 watchlist)||protocols.length!==meta?.protocolCount){return null}const{as_of,floor_usd,source}=meta;return{
 as_of,floor_usd,source,protocols,watchlist}}return __toCommonJS(browser_api_exports);})();

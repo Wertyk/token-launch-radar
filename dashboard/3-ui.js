@@ -26,14 +26,15 @@ h no token",cost:"12-mo fees",time:"Plan time",watchlist:"Watchlist"};var slider
 rate:250,yield:50,carry:50};var statusLabels={traded:"Token trades","token-unpriced":"Records an unp\
 riced token","pre-token":"Records no token",excluded:"Excluded by the house rule"};var defaultCensus={
 status:"",sort:"tvl",dir:"desc"};var defaultState={sort:"rank",dir:"asc",cat:"",chain:"",wl:false,q:""};
-function isSortKey(value){return value!==void 0&&Object.hasOwn(columns,value)}function limit(value,fallback){
+function isSortKey(value){return value!==void 0&&Object.hasOwn(columns,value)}function isCensusSortKey(value){
+return value==="tvl"||value==="name"||value==="status"||value==="reason"}function limit(value,fallback){
 const number=Number(value);return value?.trim()&&Number.isFinite(number)&&number>=0?number:fallback}
 function parseRoute(hash){const[path,query]=hash.slice(1).split(/\?(.*)/s,2);const params=new URLSearchParams(
 query);if(path==="/method")return{page:"method"};if(path==="/census"){const status=params.get("statu\
 s");const sort2=params.get("sort");return{page:"census",state:{status:status&&Object.hasOwn(statusLabels,
-status)?status:"",sort:sort2==="name"||sort2==="status"?sort2:"tvl",dir:params.get("dir")==="asc"?"a\
-sc":"desc"}}}if(path==="/plan"){const list=/(?:^|&)chains=([^&]*)/.exec(query??"")?.[1]??"";const chains=list.
-split(",").map(part=>new URLSearchParams(`c=${part}`).get("c")??"");const sliders={};for(const key of Object.
+status)?status:"",sort:isCensusSortKey(sort2)?sort2:"tvl",dir:params.get("dir")==="asc"?"asc":"desc"}}}
+if(path==="/plan"){const list=/(?:^|&)chains=([^&]*)/.exec(query??"")?.[1]??"";const chains=list.split(
+",").map(part=>new URLSearchParams(`c=${part}`).get("c")??"");const sliders={};for(const key of Object.
 keys(sliderLimits)){const value=limit(params.get(key),-1);if(value>=0&&value<=sliderLimits[key])sliders[key]=
 value}return{page:"plan",state:{budgetUsd:limit(params.get("budget"),5e3),hoursPerWeek:limit(params.
 get("hours"),3),chains:[...new Set(chains.filter(Boolean))],sliders}}}const sort=params.get("sort")??
@@ -78,10 +79,11 @@ trong>${usd(row.value)}</strong>
         ${svg(100,8,`<rect width="${scale(row.value).toFixed(2)}" height="3"></rect>${band}`)}</div>`,
 usd(row.tvl),growthText(row.growth),formatInteger(row.age),usd(row.cost),`${formatInteger(row.time)}\
  min`,row.watchlist?chip("Watchlist","badge"):"—"]}),Object.keys(columns).length,{linked:true,empty:"\
-No protocols match these filters."})}function selectCensus(rows,{status,sort,dir}){const direction=dir==="asc"?1:-1;return rows.filter(row=>!status||
-row.status===status).sort((a,b)=>{const order=sort==="tvl"?a.tvl_usd-b.tvl_usd:compareText(a[sort].toLowerCase(),
-b[sort].toLowerCase());return direction*order||compareText(a.slug,b.slug)})}function censusView(rows,state,usd){
-const selected=selectCensus(rows,state);return`<h2>Protocol census</h2>
+No protocols match these filters."})}function selectCensus(rows,{status,sort,dir}){const direction=dir==="asc"?1:-1;const label=(row,key)=>key===
+"status"?statusLabels[row.status]:row[key].toLowerCase();return rows.filter(row=>!status||row.status===
+status).sort((a,b)=>{const order=sort==="tvl"?a.tvl_usd-b.tvl_usd:compareText(label(a,sort),label(b,
+sort));return direction*order||compareText(a.slug,b.slug)})}function censusView(rows,state,usd){const selected=selectCensus(
+rows,state);return`<h2>Protocol census</h2>
     <div class="filters">
       <label class="field">Status <select name="status"><option value="">All statuses</option>${Object.
 entries(statusLabels).map(([key,label])=>`<option value="${key}"${state.status===key?" selected":""}\
@@ -89,30 +91,39 @@ entries(statusLabels).map(([key,label])=>`<option value="${key}"${state.status==
       <output id="results">${formatInteger(selected.length)} of ${formatInteger(rows.length)} protoc\
 ols</output>
     </div>
-    ${table([["name","Protocol"],["status","Status"],"Reason",["tvl","TVL"]],selected.map(({name,status,
-reason,tvl_usd})=>[escapeHtml(name),statusLabels[status],escapeHtml(reason),usd(tvl_usd)]),{...state,
-className:"ranking census",empty:"No matching protocols."})}`}function countBoardMismatches(computed,published){let count=Math.abs(computed.length-published.length);
-for(const[index,row]of computed.entries()){const other=published[index];if(other&&(row.slug!==other.
-slug||row.rank!==other.rank||row.implied_value_usd!==other.implied_value_usd||row.farm_steps.length!==
-other.farm_steps.length||row.farm_steps.some((step,i)=>step!==other.farm_steps[i]))){count++}}return count}function integrityChecks(computed,published,watchlist,{houseRule,intervalCounts,loo}){const mismatches=countBoardMismatches(
+    ${table([["name","Protocol"],["status","Status"],["reason","Reason"],["tvl","TVL"]],selected.map(
+({name,status,reason,tvl_usd})=>[escapeHtml(name),statusLabels[status],escapeHtml(reason),usd(tvl_usd)]),
+{...state,className:"ranking census",empty:"No matching protocols."})}`}function countBoardMismatches(computed,published){let count=Math.abs(computed.length-published.length);
+for(const[index,row]of computed.entries()){const other=published[index];const farm=other?.farm_economics;
+const{airdropYieldApr,launchProbability12:p12,breakEvenDepositUsd,deposits}=row.economics;if(other&&
+(row.protocol.slug!==other.slug||row.rank!==other.rank||row.implied_value_usd!==other.implied_value_usd||
+row.farm_steps.length!==other.farm_steps.length||row.farm_steps.some((step,i)=>step!==other.farm_steps[i])||
+airdropYieldApr!==other.airdrop_yield_apr||p12!==other.launch_p12||p12!==farm?.launchProbability12||
+breakEvenDepositUsd!==farm.breakEvenDepositUsd||deposits.length!==farm.deposits?.length||deposits.some(
+({depositUsd,verdict},i)=>depositUsd!==farm.deposits[i]?.depositUsd||verdict!==farm.deposits[i]?.verdict))){
+count++}}return count}function integrityChecks(computed,published,watchlist,{fitted,houseRule,intervalCounts,loo}){const mismatches=countBoardMismatches(
 computed,published);const slugs=new Set(published.map(({slug})=>slug));const unique=[...new Set(watchlist)];
 const covered=unique.filter(slug=>slugs.has(slug)).length;const{missLow,covered:inside,missHigh}=intervalCounts??
-{missLow:0,covered:0,missHigh:0};const samples=missLow+inside+missHigh;const extra=houseRule.falsePositives.
-length;const model=loo.model.medianMultiplier;const flat=loo.flatMultiple.medianMultiplier;return[{pass:mismatches===
-0,label:mismatches?`Page recompute · ${mismatches} mismatch${mismatches===1?"":"es"}`:`Page recompu\
-te = board.json (${published.length} rows)`},{pass:covered===unique.length,label:`Watchlist ${covered}\
-/${unique.length} on board`},{pass:houseRule.recall===1&&houseRule.falseNegatives.length===0,label:`\
-House rule ${(houseRule.recall*100).toFixed(0)}% recall${extra?` · ${extra} extra explained by pare\
-ntProtocol`:""}`},{pass:samples>0&&inside/samples>=.8,label:samples?`${inside}/${samples} inside P10\
-–P90`:"P10–P90 coverage unavailable"},{pass:model!==null&&flat!==null&&model<flat,label:`LOO med\
-ian error ${multiplier(model)} vs ${multiplier(flat)} flat`}]}function multiplier(value){return value===
-null?"—":`×${value.toFixed(2)}`}function methodView({model,houseRule,intervalCounts,launchClock},farm,usd){const{coefficients,validation,
-ablation}=model;const{intercept,lnTvl,lnAge}=coefficients;const{leaveOneFamilyOut,seededFiveFold,walkForward}=validation;
-const{full,withoutTvl,withoutAge,withoutMomentum,withCategory,ols}=ablation;const score=({medianMultiplier,
-spearman})=>[multiplier(medianMultiplier),spearman?.toFixed(3)??"—"];const section=(title,headers,rows,note="")=>`\
-<section class="panel"><h3>${title}</h3>${table(headers,rows)}${note?`<p class="caption">${note}</p>`:
-""}</section>`;const{truePositives,falsePositives,falseNegatives}=houseRule;const pct=value=>`${(value*
-100).toFixed(1)}%`;return`<h2>Method</h2><div class="method compact">
+{missLow:0,covered:0,missHigh:0};const samples=missLow+inside+missHigh;const matches=houseRule.truePositives.
+length;const extra=houseRule.falsePositives.length;const{model,flatMultiple:flat}=loo;const samePopulation=model.
+n===fitted&&flat.n===fitted;return[{pass:mismatches===0,label:`Recompute ${mismatches?"≠":"="} boa\
+rd.json: values, ranks, plans, economics (${mismatches?`${mismatches} mismatched`:published.length})`},
+{pass:covered===unique.length,label:`Watchlist ${covered}/${unique.length} on board`},{pass:matches===
+unique.length&&unique.length>0,label:`House rule ${matches}/${unique.length} recall${extra?` · ${extra}\
+ extra explained by parentProtocol`:""}`},{pass:samples===fitted&&inside/samples>=.8,label:`${inside}\
+/${samples} inside P10–P90${samples===fitted?"":` · ${samples}/${fitted} families`}`},{pass:samePopulation&&
+model.medianMultiplier!==null&&flat.medianMultiplier!==null&&model.medianMultiplier<flat.medianMultiplier,
+label:`LOO median error ${multiplier(model.medianMultiplier)} vs ${multiplier(flat.medianMultiplier)}\
+ flat${samePopulation?"":` · model n=${model.n}/${fitted}, flat n=${flat.n}/${fitted}`}`}]}function multiplier(value){
+return value===null?"—":`×${value.toFixed(2)}`}function relativeScore(variant,full){if(variant===null||full===null)return"unavailable";return variant===
+full?"unchanged":variant<full?"lower":"higher"}function methodView({model,houseRule,intervalCounts,launchClock},farm,usd){
+const{coefficients,validation,ablation}=model;const{intercept,lnTvl,lnAge}=coefficients;const{leaveOneFamilyOut,
+seededFiveFold,walkForward}=validation;const{full,withoutTvl,withoutAge,withoutMomentum,withCategory,
+ols}=ablation;const score=({medianMultiplier,spearman})=>[multiplier(medianMultiplier),spearman?.toFixed(
+3)??"—"];const section=(title,headers,rows,note="")=>`<section class="panel"><h3>${title}</h3>${table(
+headers,rows)}${note?`<p class="caption">${note}</p>`:""}</section>`;const{truePositives,falsePositives,
+falseNegatives}=houseRule;const pct=value=>`${(value*100).toFixed(1)}%`;return`<h2>Method</h2><div c\
+lass="method compact">
     ${section("Value model",["Term in ln V","Coefficient"],[["Intercept",intercept.toFixed(6)],["ln(\
 TVL·(1+g₇))",lnTvl.toFixed(6)],["ln(age)",lnAge.toFixed(6)],["Ridge penalty λ",String(model.lambda)]],
 `Huber ridge on ${model.n} traded families.`)}
@@ -122,8 +133,9 @@ t",leaveOneFamilyOut],["Seeded five-fold",seededFiveFold],["Walk-forward",walkFo
 s=>score(s).join(" · "))]),"Cells show median error ×k and Spearman ρ.")}
     ${section("Leave-one-family-out ablation",["Variant","Median error","Spearman ρ"],[["Full",full],
 ["−TVL",withoutTvl],["−Age",withoutAge],["−Momentum",withoutMomentum],["+Category",withCategory],
-["OLS",ols]].map(([label,metrics])=>[label,...score(metrics)]),"Category was tested and rejected. Wi\
-thout age, both scores improve slightly.")}
+["OLS",ols]].map(([label,metrics])=>[label,...score(metrics)]),`Without age, median error is ${relativeScore(
+withoutAge.medianMultiplier,full.medianMultiplier)} and Spearman is ${relativeScore(withoutAge.spearman,
+full.spearman)}.`)}
     ${section("Held-out P10–P90 coverage",["Below P10","Inside","Above P90"],intervalCounts?[[intervalCounts.
 missLow,intervalCounts.covered,intervalCounts.missHigh].map(String)]:[],"Jackknife+ bands.")}
     ${section("Launch clock F(t)",["Mean age (days)","Fitted token share","Count"],launchClock.points.
@@ -157,8 +169,9 @@ quired></label>
 chains)}</select></label>
       </div>
       <fieldset class="sliders"><legend>Farm assumptions</legend>
-        ${Object.entries(sliderLimits).map(([key,max])=>`<label>${sliderLabels[key]} <output></outpu\
-t><input type="range" name="${key}" min="0" max="${max}" step="any"></label>`).join("")}
+        ${Object.entries(sliderLimits).map(([key,max])=>`<label for="${key}">${sliderLabels[key]} <o\
+utput aria-hidden="true"></output><input type="range" id="${key}" name="${key}" min="0" max="${max}"\
+ step="any"></label>`).join("")}
         <button type="button" data-reset>Reset to defaults</button>
       </fieldset>
     </form>
@@ -205,13 +218,12 @@ interval_p90_usd)}`:"—";const influence=diagnostics?.influence;const comparabl
 get(influence.slug)?.representative.name;const influenceLine=influence?.rank_delta===0?"No single co\
 mparable moves this rank":influence&&comparable?`Without ${escapeHtml(comparable)}, rank moves by ${Math.
 abs(influence.rank_delta)}`:"";const clockAge=Math.max(0,age??launchClock.medianAgeDays??0);const{points}=launchClock;
-const p12=diagnostics?.launch_p12??economics.launchProbability12;const twins=(diagnostics?.twins??[]).
-map(slug=>{const family=families.get(slug);return[escapeHtml(family?.representative.name??slug),family?.
-mcap_usd?usd(family.mcap_usd):"—"]});const steps=table(["Action","Est. fee","Minutes","Cadence"],plan.
-steps.map(step=>[escapeHtml(step.action)+(step.exitCondition?`<small>${escapeHtml(step.exitCondition)}\
-</small>`:""),usd(step.costUsd),formatInteger(step.minutes),step.cadence]),{total:["Total planned",usd(
-plan.totalCostUsd),formatInteger(plan.totalMinutes),"All"]});return`<a class="back" href="${escapeHtml(
-back)}">← Back to board</a>
+const p12=economics.launchProbability12;const twins=(diagnostics?.twins??[]).map(slug=>{const family=families.
+get(slug);return[escapeHtml(family?.representative.name??slug),family?.mcap_usd?usd(family.mcap_usd):
+"—"]});const steps=table(["Action","Est. fee","Minutes","Cadence"],plan.steps.map(step=>[escapeHtml(
+step.action)+(step.exitCondition?`<small>${escapeHtml(step.exitCondition)}</small>`:""),usd(step.costUsd),
+formatInteger(step.minutes),step.cadence]),{total:["Total planned",usd(plan.totalCostUsd),formatInteger(
+plan.totalMinutes),"All"]});return`<a class="back" href="${escapeHtml(back)}">← Back to board</a>
     <header class="protocol-heading"><div><h2>${escapeHtml(protocol.name)}</h2>
       <div class="chips">${chip(protocol.category??"Unlisted category")}${protocol.chains.map(chain=>chip(
 chain)).join("")}</div>
@@ -271,31 +283,33 @@ lnAge}=coefficients;return`
 <section class="model" aria-label="Value model">
 <p class="equation">ln V = ${intercept.toFixed(3)} ${signedTerm(lnTvl)}·ln(TVL·(1+g₇)) ${signedTerm(
 lnAge)}·ln(age)</p>
-<p class="caption">Age is days since listing, minimum 1. g₇ is 7-day TVL growth clipped to −50%…+100\
-%.</p>
+<p class="caption">Implied value is conditional market cap at launch if the record stays as it is. L\
+aunch odds are separate.
+Age is days since listing (min 1). g₇ is 7-day TVL growth clipped to −50%…+100%.</p>
 <ul class="integrity">${checks.map(({pass,label})=>`<li class="${pass?"check":"check-failed"}">${pass?
 "✓":"✗"} ${escapeHtml(label)}</li>`).join("")}</ul>
 </section>`}function mountBoard(main2,rows,maxLogValue,usd){main2.innerHTML=boardView(rows);const search=element(
 '[name="q"]',main2);const category=element('[name="cat"]',main2);const chain=element('[name="chain"]',
 main2);const watchlist=element('[name="wl"]',main2);const results=element("#results",main2);const body=element(
 "tbody",main2);const buttons=main2.querySelectorAll("button[data-sort]");function setSelect(select,value){
-select.value=value;if(select.selectedIndex<0)select.add(new Option(value,value,false,true))}return state=>{
-if(search.value!==state.q)search.value=state.q;setSelect(category,state.cat);setSelect(chain,state.chain);
-watchlist.checked=state.wl;for(const button of buttons){const th=button.parentElement;if(th)th.ariaSort=
-button.dataset.sort!==state.sort?null:state.dir==="asc"?"ascending":"descending"}const selected=selectRows(
-rows,state);results.textContent=`${formatInteger(selected.length)} of ${formatInteger(rows.length)} \
-protocols`;body.innerHTML=boardRows(selected,state,maxLogValue,usd)}}function start(main2,snapshot2,data2,api2){
-const{buildRadar,daysBetween,farmAssumptions,formatUsd}=api2;const{launchClock,meta}=data2;const radar=buildRadar(
-snapshot2,data2.model.lambda,launchClock,meta);const published=data2.board.rows;const computed=radar.
-board.map(row=>({...row,slug:row.protocol.slug}));const families=new Map(radar.families.map(family=>[
-family.representative.slug,family]));const evidence=new Map(published.map(row=>[row.slug,row]));const checks=integrityChecks(
-computed,published,snapshot2.watchlist,{...data2,loo:data2.model.validation.leaveOneFamilyOut});const watchlisted=new Set(
-snapshot2.watchlist);const protocols=new Map(radar.board.map(row=>[row.protocol.slug,row]));const age=({
-listed_at})=>listed_at===null?null:daysBetween(listed_at,snapshot2.as_of);const rows=radar.board.map(
-({protocol,rank,status,implied_value_usd,plan})=>{const{slug,name,tvl_usd,change_7d,category,chains}=protocol;
-const diagnostics=evidence.get(slug);return{slug,name,rank,category,chains,value:implied_value_usd,tvl:tvl_usd,
-growth:change_7d,interval:diagnostics?[diagnostics.interval_p10_usd,diagnostics.interval_p90_usd]:null,
-age:status==="traded"||status==="token-unpriced"?null:age(protocol),cost:plan.totalCostUsd,time:plan.
+select.querySelector("[data-temporary]")?.remove();select.value=value;if(select.selectedIndex<0){const option=new Option(
+value,value,false,true);option.dataset.temporary="";select.add(option)}}return state=>{if(search.value!==
+state.q)search.value=state.q;setSelect(category,state.cat);setSelect(chain,state.chain);watchlist.checked=
+state.wl;for(const button of buttons){const th=button.parentElement;if(th)th.ariaSort=button.dataset.
+sort!==state.sort?null:state.dir==="asc"?"ascending":"descending"}const selected=selectRows(rows,state);
+results.textContent=`${formatInteger(selected.length)} of ${formatInteger(rows.length)} protocols`;body.
+innerHTML=boardRows(selected,state,maxLogValue,usd)}}function start(main2,snapshot2,data2,api2){const{
+buildRadar,daysBetween,farmAssumptions,formatUsd}=api2;const{launchClock,meta}=data2;const radar=buildRadar(
+snapshot2,data2.model.lambda,launchClock,meta);const published=data2.board.rows;const families=new Map(
+radar.families.map(family=>[family.representative.slug,family]));const evidence=new Map(published.map(
+row=>[row.slug,row]));const checks=integrityChecks(radar.board,published,snapshot2.watchlist,{fitted:radar.
+model.n,houseRule:radar.houseRule,intervalCounts:data2.intervalCounts,loo:data2.model.validation.leaveOneFamilyOut});
+const watchlisted=new Set(snapshot2.watchlist);const protocols=new Map(radar.board.map(row=>[row.protocol.
+slug,row]));const age=({listed_at})=>listed_at===null?null:daysBetween(listed_at,snapshot2.as_of);const rows=radar.
+board.map(({protocol,rank,status,implied_value_usd,plan})=>{const{slug,name,tvl_usd,change_7d,category,
+chains}=protocol;const diagnostics=evidence.get(slug);return{slug,name,rank,category,chains,value:implied_value_usd,
+tvl:tvl_usd,growth:change_7d,interval:diagnostics?[diagnostics.interval_p10_usd,diagnostics.interval_p90_usd]:
+null,age:status==="traded"||status==="token-unpriced"?null:age(protocol),cost:plan.totalCostUsd,time:plan.
 totalMinutes,watchlist:watchlisted.has(slug)}});const maxLogValue=Math.log1p(Math.max(1,...rows.map(
 row=>Math.max(row.value,row.interval?.[1]??0))));element("#snapshot-date").textContent=`Snapshot · ${snapshot2.
 as_of}`;element("#summary").innerHTML=header([["Protocols scanned",formatInteger(snapshot2.protocols.
@@ -326,20 +340,20 @@ lastPage!==page;lastPage=page;if(route.page!=="board")updateBoard=void 0;if(rout
 void 0;if(route.page==="board"){updateBoard??=mountBoard(main2,rows,maxLogValue,formatUsd);updateBoard(
 route.state)}else if(route.page==="plan"){updatePlan??=mountPlanner();updatePlan(route.state)}else if(route.
 page==="census"){main2.innerHTML=censusView(data2.census,route.state,formatUsd)}else if(route.page===
-"method"){main2.innerHTML=methodView(data2,farmAssumptions,formatUsd)}else{const back=boardHash(route.
-state);const detail=route.page==="protocol"?protocols.get(route.slug):void 0;main2.innerHTML=detail?
-protocolView(detail,{age:age(detail.protocol),back,usd:formatUsd,farm:farmAssumptions,diagnostics:evidence.
-get(detail.protocol.slug),families,launchClock,clockShareAt:api2.clockShareAt}):`<h2>Page unavailabl\
-e</h2><a href="${escapeHtml(back)}">Back to board</a>`}if(changedPage){window.scrollTo(0,0);main2.focus(
-{preventScroll:true})}main2.dataset.ready=""}main2.addEventListener("click",event=>{if(!(event.target instanceof
-Element))return;const sort=event.target.closest("button[data-sort]")?.dataset.sort;const route=parseRoute(
-location.hash);if(route.page==="board"&&isSortKey(sort)){const{state}=route;const dir=state.sort===sort&&
-state.dir==="asc"?"desc":"asc";location.hash=boardHash({...state,sort,dir})}else if(route.page==="ce\
-nsus"&&(sort==="name"||sort==="status"||sort==="tvl")){const{state}=route;const dir=state.sort===sort&&
-state.dir==="asc"?"desc":"asc";location.hash=censusHash({...state,sort,dir})}else if(!event.target.closest(
-"a")&&!event.metaKey&&!event.ctrlKey&&!event.shiftKey&&!event.altKey){const link=event.target.closest(
-"tr[data-protocol]")?.querySelector("a");if(link)location.hash=link.hash}});main2.addEventListener("\
-submit",event=>event.preventDefault());main2.addEventListener("input",({target})=>{if(!(target instanceof
+"method"){main2.innerHTML=methodView({...data2,houseRule:radar.houseRule},farmAssumptions,formatUsd)}else{
+const back=boardHash(route.state);const detail=route.page==="protocol"?protocols.get(route.slug):void 0;
+main2.innerHTML=detail?protocolView(detail,{age:age(detail.protocol),back,usd:formatUsd,farm:farmAssumptions,
+diagnostics:evidence.get(detail.protocol.slug),families,launchClock,clockShareAt:api2.clockShareAt}):
+`<h2>Page unavailable</h2><a href="${escapeHtml(back)}">Back to board</a>`}if(changedPage){window.scrollTo(
+0,0);main2.focus({preventScroll:true})}main2.dataset.ready=""}main2.addEventListener("click",event=>{
+if(!(event.target instanceof Element))return;const sort=event.target.closest("button[data-sort]")?.dataset.
+sort;const route=parseRoute(location.hash);if(route.page==="board"&&isSortKey(sort)){const{state}=route;
+const dir=state.sort===sort&&state.dir==="asc"?"desc":"asc";location.hash=boardHash({...state,sort,dir})}else if(route.
+page==="census"&&isCensusSortKey(sort)){const{state}=route;const dir=state.sort===sort&&state.dir===
+"asc"?"desc":"asc";location.hash=censusHash({...state,sort,dir})}else if(!event.target.closest("a")&&
+!event.metaKey&&!event.ctrlKey&&!event.shiftKey&&!event.altKey){const link=event.target.closest("tr[\
+data-protocol]")?.querySelector("a");if(link)location.hash=link.hash}});main2.addEventListener("subm\
+it",event=>event.preventDefault());main2.addEventListener("input",({target})=>{if(!(target instanceof
 HTMLInputElement)||target.name!=="q")return;const route=parseRoute(location.hash);if(route.page!=="b\
 oard")return;history.replaceState(null,"",boardHash({...route.state,q:target.value}));draw()});main2.
 addEventListener("change",event=>{const target=event.target;const route=parseRoute(location.hash);if(route.

@@ -7,13 +7,13 @@ import { statusLabels } from "./state.ts";
 
 export function selectCensus(rows: readonly CensusRecord[], { status, sort, dir }: CensusState) {
   const direction = dir === "asc" ? 1 : -1;
+  const label = (row: CensusRecord, key: Exclude<CensusState["sort"], "tvl">) =>
+    key === "status" ? statusLabels[row.status] : row[key].toLowerCase();
   return rows
     .filter((row) => !status || row.status === status)
     .sort((a, b) => {
       const order =
-        sort === "tvl"
-          ? a.tvl_usd - b.tvl_usd
-          : compareText(a[sort].toLowerCase(), b[sort].toLowerCase());
+        sort === "tvl" ? a.tvl_usd - b.tvl_usd : compareText(label(a, sort), label(b, sort));
       return direction * order || compareText(a.slug, b.slug);
     });
 }
@@ -37,7 +37,12 @@ export function censusView(
       <output id="results">${formatInteger(selected.length)} of ${formatInteger(rows.length)} protocols</output>
     </div>
     ${table(
-      [["name", "Protocol"], ["status", "Status"], "Reason", ["tvl", "TVL"]],
+      [
+        ["name", "Protocol"],
+        ["status", "Status"],
+        ["reason", "Reason"],
+        ["tvl", "TVL"],
+      ],
       selected.map(({ name, status, reason, tvl_usd }) => [
         esc(name),
         statusLabels[status],

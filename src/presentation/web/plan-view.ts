@@ -46,7 +46,7 @@ export function plannerForm(chains: readonly string[]): string {
         ${Object.entries(sliderLimits)
           .map(
             ([key, max]) =>
-              `<label>${sliderLabels[key as keyof Sliders]} <output></output><input type="range" name="${key}" min="0" max="${max}" step="any"></label>`,
+              `<label for="${key}">${sliderLabels[key as keyof Sliders]} <output aria-hidden="true"></output><input type="range" id="${key}" name="${key}" min="0" max="${max}" step="any"></label>`,
           )
           .join("")}
         <button type="button" data-reset>Reset to defaults</button>

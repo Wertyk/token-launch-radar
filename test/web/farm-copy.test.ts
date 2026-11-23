@@ -44,20 +44,22 @@ test("renders the labor rate and farmer haircut beside the protocol verdicts", (
       interval_p90_usd: 1000,
       influence: { slug: "tracked", family_key: "gecko:tracked", rank_delta: -2 },
       twins: ["tracked"],
-      launch_p12: 0.25,
     },
     families: new Map([["tracked", { representative: tracked, mcap_usd: 8_000_000 }]]),
     launchClock: { points: [{ ageDays: 100, share: 0.4, count: 2 }], medianAgeDays: 80 },
     clockShareAt,
   };
-  const html = protocolView(row, card);
+  const html = protocolView(
+    { ...row, economics: { ...row.economics, launchProbability12: 0.625 } },
+    { ...card, diagnostics: { ...card.diagnostics, ...{ launch_p12: 0.25 } } },
+  );
   expect(html).toMatch(/\$10,000 SKIP<\/span><\/div>\s*<p[^>]*>\$25\/h[^<]*50%[^<]*haircut/);
   expect(html).toContain("P10–P90");
   expect(html).toContain("$100–$1,000");
   expect(html).toContain("Without Traded &amp; Co, rank moves by 2");
   expect(html).not.toContain("gecko:tracked");
   expect(html).toContain("$8,000,000");
-  expect(html).toContain("25.0%");
+  expect(html).toContain("P12 · 62.5%");
   expect(html).toContain("80 days");
   expect(html).not.toContain("xmlns");
 
@@ -106,7 +108,33 @@ test("shows the published validation, ablation, coverage and dated assumptions i
     ],
   };
   const data = buildRadar(snapshot);
-  const html = methodView(data, farmAssumptions, formatUsd);
+  const score = (medianMultiplier: number, spearman: number) => ({
+    n: 8,
+    medianMultiplier,
+    spearman,
+  });
+  const validation = (
+    model: ReturnType<typeof score>,
+    flatMultiple: ReturnType<typeof score>,
+    categoryMultiple: ReturnType<typeof score>,
+  ) => ({ model, flatMultiple, categoryMultiple });
+  const model = {
+    ...data.model,
+    validation: {
+      leaveOneFamilyOut: validation(score(2.11, 0.711), score(2.22, 0.322), score(2.33, 0.533)),
+      seededFiveFold: validation(score(3.11, 0.611), score(3.22, 0.422), score(3.33, 0.233)),
+      walkForward: validation(score(4.11, 0.511), score(4.22, 0.222), score(4.33, 0.433)),
+    },
+    ablation: {
+      full: score(2.11, 0.711),
+      withoutTvl: score(5.12, -0.312),
+      withoutAge: score(2.43, 0.603),
+      withoutMomentum: score(4.14, 0.514),
+      withCategory: score(3.15, 0.815),
+      ols: score(2.16, 0.696),
+    },
+  };
+  const html = methodView({ ...data, model }, farmAssumptions, formatUsd);
   for (const text of [
     "λ",
     "Leave one family out",
@@ -126,4 +154,27 @@ test("shows the published validation, ablation, coverage and dated assumptions i
     expect(html).toContain(text);
   }
   expect(html.match(/<table/g)).toHaveLength(7);
+  const tableRows = (rows: string[][]) =>
+    `<tbody>${rows.map((cells) => `<tr><td>${cells.join("</td><td>")}</td></tr>`).join("")}</tbody>`;
+  expect(html).toContain(
+    tableRows([
+      ["Leave one family out", "×2.11 · 0.711", "×2.22 · 0.322", "×2.33 · 0.533"],
+      ["Seeded five-fold", "×3.11 · 0.611", "×3.22 · 0.422", "×3.33 · 0.233"],
+      ["Walk-forward", "×4.11 · 0.511", "×4.22 · 0.222", "×4.33 · 0.433"],
+    ]),
+  );
+  expect(html).toContain(
+    tableRows([
+      ["Full", "×2.11", "0.711"],
+      ["−TVL", "×5.12", "-0.312"],
+      ["−Age", "×2.43", "0.603"],
+      ["−Momentum", "×4.14", "0.514"],
+      ["+Category", "×3.15", "0.815"],
+      ["OLS", "×2.16", "0.696"],
+    ]),
+  );
+  expect(html).toContain("Without age, median error is higher and Spearman is lower.");
+  expect(methodView(data, farmAssumptions, formatUsd)).toContain(
+    "Without age, median error is unavailable and Spearman is unavailable.",
+  );
 });

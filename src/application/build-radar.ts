@@ -1,5 +1,10 @@
 import type { CensusRecord, HouseRuleCheck } from "../domain/census/census.ts";
-import { boardEntries, buildCensus, checkHouseRule } from "../domain/census/census.ts";
+import {
+  boardEntries,
+  buildCensus,
+  checkHouseRule,
+  houseRuleMembership,
+} from "../domain/census/census.ts";
 import { groupFamilies } from "../domain/census/families.ts";
 import type { FarmEconomics } from "../domain/farming/economics.ts";
 import { estimateFarmEconomics, renderEconomics } from "../domain/farming/economics.ts";
@@ -118,5 +123,5 @@ export function recomputeRadar(
 ) {
   const inputs = radarInputs(snapshot);
   const { model, board } = rankRadar(snapshot, inputs, lambda, launchClock, tables);
-  return { model, board, families: inputs.families };
+  return { model, board, families: inputs.families, houseRule: houseRuleMembership(snapshot) };
 }
