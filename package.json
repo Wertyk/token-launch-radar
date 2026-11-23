@@ -12,7 +12,7 @@
     "arch": "node .dependency-cruiser.cjs",
     "test": "vitest run",
     "build:web": "node -e 'console.error(\"build:web will be added in task-9.\"); process.exitCode = 1'",
-    "radar": "node -e 'console.error(\"radar will be added in task-8.\"); process.exitCode = 1'",
+    "radar": "node main.ts --input ../token-radar-kit/token-radar-01-kit/input/snapshot.json --output out",
     "shots": "node -e 'console.error(\"shots will be added in task-10.\"); process.exitCode = 1'",
     "gate": "node -e 'console.error(\"gate will be added in task-10.\"); process.exitCode = 1'",
     "sandbox": "node -e 'console.error(\"sandbox will be added in task-10.\"); process.exitCode = 1'",
