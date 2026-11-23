@@ -2,9 +2,7 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "types": [],
-    "resolveJsonModule": true
+    "types": []
   },
-  "files": ["tsconfig.base.json"],
   "include": ["src/presentation/web/**/*.ts"]
 }
