@@ -25,36 +25,40 @@ test.each([
 });
 
 test.each([
-  "Bridge",
-  "Canonical Bridge",
-  "Liquid Staking",
-  "Liquid Restaking",
-  "Restaked BTC",
-  "CEX",
-])("excludes a protocol recording no token in category %s", (category) => {
-  expect(classify(protocol({ category }))).toEqual({
+  ["Bridge", "A bridged or wrapped product of a traded token"],
+  ["Canonical Bridge", "A bridged or wrapped product of a traded token"],
+  ["Liquid Staking", "A staked product of a traded token"],
+  ["Liquid Restaking", "A staked product of a traded token"],
+  ["Restaked BTC", "A staked product of a traded token"],
+  ["CEX", "An exchange custody product"],
+])("explains the excluded product in category %s", (category, product) => {
+  const result = classify(protocol({ category }));
+  expect(result).toEqual({
     status: "excluded",
-    reason: expect.stringContaining(`Category ${category}`),
+    reason: `${product} (category ${category}).`,
   });
+  expect(result.reason.length).toBeLessThan(90);
 });
 
 test.each([
-  ["Foo V2", /version marker/i],
+  ["Foo V2", /version marker.*existing protocol/i],
   ["Pool\u00a0V2", /version marker/i],
   ["Pool\tV2", /version marker/i],
   ["Foo v3", /version marker/i],
   ["Foo 2.0", /version marker/i],
   ["Foo 3.1", /version marker/i],
-  ["Wrapped Bar", /wrapped/i],
-  ["Staked Baz", /staked/i],
-  ["Bar (STAKING)", /staking/i],
-  ["Binance Qux", /exchange name/i],
+  ["Wrapped Bar", /“Wrapped”.*wrapped product/i],
+  ["Staked Baz", /“Staked”.*staked product/i],
+  ["Bar (STAKING)", /“STAKING”.*staked product/],
+  ["Binance Qux", /exchange name.*exchange product/i],
   ["kRaKeN-Test", /exchange name/i],
 ] as const)("excludes %s and explains the matching rule", (name, reason) => {
-  expect(classify(protocol({ name }))).toEqual({
+  const result = classify(protocol({ name }));
+  expect(result).toEqual({
     status: "excluded",
     reason: expect.stringMatching(reason),
   });
+  expect(result.reason.length).toBeLessThan(90);
 });
 
 test.each([

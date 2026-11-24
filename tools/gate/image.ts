@@ -5,6 +5,12 @@ export interface Dimensions {
 
 export const screenshotLimit = 512 * 1024;
 export const screenshotTarget = 350_000;
+export const shotNames = {
+  board: "1-board",
+  detail: "2-detail",
+  filtered: "3-filtered",
+  method: "4-method",
+} as const;
 
 const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const pngHeaderChunk = Buffer.from("IHDR");

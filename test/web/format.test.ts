@@ -1,5 +1,20 @@
 import { expect, test } from "vitest";
-import { escapeHtml, formatInteger, formatPercent } from "../../src/presentation/web/format.ts";
+import {
+  escapeHtml,
+  formatCompactUsd,
+  formatInteger,
+  formatPercent,
+} from "../../src/presentation/web/format.ts";
+
+test.each([
+  [22_590_871, "$22.59M"],
+  [2_757_585_593, "$2.76B"],
+  [1_250, "$1.25K"],
+  [500, "$500"],
+  [0.00001, "$0.00001"],
+])("formats equation TVL %s as %s", (value, label) => {
+  expect(formatCompactUsd(value)).toBe(label);
+});
 
 test("groups whole numbers independently of locale and marks missing values", () => {
   expect(formatInteger(1200300)).toBe("1,200,300");

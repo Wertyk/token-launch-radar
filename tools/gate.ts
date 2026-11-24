@@ -18,7 +18,7 @@ import {
   readSnapshotSlugs,
   textLimit,
 } from "./gate/checks.ts";
-import { screenshotLimit, screenshotTarget } from "./gate/image.ts";
+import { screenshotLimit, screenshotTarget, shotNames } from "./gate/image.ts";
 import { dossierReport, dossierSize } from "./gate/report.ts";
 
 function readRegular(path: string, limit: number, label: string): Buffer {
@@ -118,6 +118,12 @@ function run(out: string, input: string): void {
   const size = lstatSync(dossierPath, { throwIfNoEntry: false });
   if (size?.isFile()) console.log(dossierSize(size.size));
   if ("value" in screenshots) {
+    const missing = Object.values(shotNames).filter(
+      (name) =>
+        !screenshots.value.some(({ path }) => path === `${name}.png` || path === `${name}.jpg`),
+    );
+    if (missing.length)
+      console.log(`WARN missing screenshots ${missing.join(", ")}. Run pnpm shots.`);
     for (const { path, size } of screenshots.value) {
       if (size > screenshotTarget)
         console.log(`WARN screenshots/${oneLine(path)} exceeds 350 KB (${size} bytes)`);

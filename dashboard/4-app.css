@@ -165,6 +165,25 @@ body:has(main .portfolio) nav a[href="#/plan"] {
   font-size: var(--font-small);
 }
 
+body:has(main .census) #summary {
+  display: none;
+}
+
+.census-summary {
+  margin-bottom: var(--s3);
+  font-size: 13px;
+}
+
+.value-equation {
+  padding: var(--s2);
+  border-radius: var(--s1);
+  background: var(--teal-light);
+  color: var(--teal);
+  font-size: var(--font-small);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
 .loss {
   color: var(--negative);
 }

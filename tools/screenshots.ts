@@ -14,14 +14,18 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { LaunchOptions, Page } from "playwright";
 import { chromium } from "playwright";
 import type { BoardRows } from "../src/application/board-rows.ts";
+import type { CensusRecord } from "../src/domain/census/census.ts";
+import { formatUsd } from "../src/domain/shared/money.ts";
+import { compareText } from "../src/domain/shared/order.ts";
 import {
   boardHash,
   censusHash,
   defaultCensus,
   defaultState,
   protocolHash,
+  statusLabels,
 } from "../src/presentation/web/state.ts";
-import { imageDimensions, screenshotTarget } from "./gate/image.ts";
+import { imageDimensions, screenshotTarget, shotNames } from "./gate/image.ts";
 
 interface Shot {
   name: string;
@@ -64,11 +68,36 @@ export function shotStates({ rows }: { rows: readonly ShotRow[] }) {
   }
   if (!detail) throw new Error("board.json has no non-SKIP verdict at $10K");
   return [
-    { name: "1-board", hash: boardHash(defaultState) },
-    { name: "2-detail", hash: protocolHash(detail.slug, defaultState) },
-    { name: "3-method", hash: "#/method" },
-    { name: "4-census", hash: censusHash(defaultCensus) },
+    { name: shotNames.board, hash: boardHash(defaultState) },
+    { name: shotNames.detail, hash: protocolHash(detail.slug, defaultState) },
+    { name: shotNames.filtered, hash: censusHash({ ...defaultCensus, status: "excluded" }) },
+    { name: shotNames.method, hash: "#/method" },
   ];
+}
+
+export function assertExcludedRows(census: readonly CensusRecord[], visible: readonly string[][]) {
+  if (!visible.length) throw new Error(`${shotNames.filtered} has no visible rows`);
+  const expected = census
+    .filter(({ status }) => status === "excluded")
+    .sort((a, b) => b.tvl_usd - a.tvl_usd || compareText(a.slug, b.slug));
+  for (const [index, cells] of visible.entries()) {
+    const row = expected[index];
+    const expectedCells = row && [
+      row.name,
+      statusLabels.excluded,
+      row.reason,
+      formatUsd(row.tvl_usd),
+    ];
+    if (
+      !expectedCells ||
+      cells.length !== expectedCells.length ||
+      expectedCells.some((cell, column) => cell !== cells[column])
+    ) {
+      throw new Error(
+        `${shotNames.filtered} must show excluded rows in descending TVL order (row ${index + 1})`,
+      );
+    }
+  }
 }
 
 async function capture(page: Page, name: string): Promise<Shot> {
@@ -122,26 +151,52 @@ async function takeShots(
       try {
         await page.goto(url.href);
         await page.locator("main[data-ready]").waitFor({ state: "visible" });
-        if (name === "2-detail") {
+        if (name === shotNames.detail) {
           const evidence = [
             page.getByText(/^P10–P90 · /),
             page.locator(".waterfall"),
+            page.locator(".value-equation"),
             page.locator(".farm .chips"),
           ];
           for (const item of evidence) {
             const box = await item.boundingBox();
             if (!box || box.y < 0 || box.y + box.height > viewport.height) {
               throw new Error(
-                "2-detail must show the range, value breakdown and verdicts above the fold",
+                `${name} must show the range, value breakdown, equation and verdicts above the fold`,
               );
             }
           }
         }
-        if (
-          name === "4-census" &&
-          (await page.locator('th[aria-sort="descending"] button[data-sort="tvl"]').count()) !== 1
-        ) {
-          throw new Error("4-census must be sorted by descending TVL");
+        if (name === shotNames.filtered) {
+          const status = page.locator('select[name="status"]');
+          for (const item of [page.locator("main .census-summary"), status]) {
+            const box = await item.boundingBox();
+            if (!box || box.y < 0 || box.y + box.height > viewport.height) {
+              throw new Error(`${name} must show the census summary and status filter`);
+            }
+          }
+          if (
+            (await status.inputValue()) !== "excluded" ||
+            (await page.locator('th[aria-sort="descending"] button[data-sort="tvl"]').count()) !== 1
+          ) {
+            throw new Error(`${name} must filter to excluded and sort by descending TVL`);
+          }
+          const { census, visible } = await page
+            .locator(".census tbody tr")
+            .evaluateAll((rows) => ({
+              census: (window as Window & { RADAR_DATA?: { census: CensusRecord[] } }).RADAR_DATA
+                ?.census,
+              visible: rows
+                .filter((row) => {
+                  const { top, bottom } = row.getBoundingClientRect();
+                  return top < innerHeight && bottom > 0;
+                })
+                .map((row) =>
+                  Array.from(row.querySelectorAll("td"), (cell) => cell.textContent ?? ""),
+                ),
+            }));
+          if (!census) throw new Error(`${name} needs the published census`);
+          assertExcludedRows(census, visible);
         }
         shots.push(await capture(page, name));
       } catch (error) {

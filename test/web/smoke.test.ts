@@ -63,6 +63,13 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
     expect(
       await page.getByText(/^Implied value is conditional market cap at launch/).isVisible(),
     ).toBe(true);
+    await ready.getByRole("link", { name: "144 excluded", exact: true }).click();
+    await heading("Protocol census");
+    expect(await ready.locator(".census-summary").textContent()).toBe(
+      "758 protocols = 198 pre-token (ranked) + 128 traded + 288 token, unpriced + 144 excluded",
+    );
+    expect(await ready.getByRole("combobox", { name: "Status" }).inputValue()).toBe("excluded");
+    await goTo("#/?cat=Unknown&chain=Unknown");
     const category = ready.getByRole("combobox", { name: "Category" });
     const chain = ready.getByRole("combobox", { name: "Chain" });
     for (const select of [category, chain]) {
@@ -86,6 +93,7 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
     await firstLink.click();
     await heading(protocol);
     expect(await ready.getByText(/^P10–P90 · /).isVisible()).toBe(true);
+    expect(await ready.locator(".value-equation").isVisible()).toBe(true);
 
     const nav = page.getByRole("navigation", { name: "Radar pages" });
     await nav.getByRole("link", { name: "Method", exact: true }).click();

@@ -144,6 +144,21 @@ test("passes all seven checks and reports what the judge sees", () => {
   expect(stdout).toContain("b.jpg 23 bytes, 800×1440");
   expect(stdout).toMatch(/dossier\.json: \d+ \/ 1572864 bytes/);
   expect(stdout).toMatch(/WARN.*a\.png.*350 KB/);
+  expect(stdout).toMatch(/WARN.*3-filtered.*pnpm shots/);
+});
+
+test("recognizes the new screenshot set and flags obsolete names", () => {
+  for (const name of ["a.png", "b.jpg", "c.jpg"]) rmSync(join(out, "screenshots", name));
+  for (const name of ["1-board", "2-detail", "3-filtered", "4-method"]) {
+    writeFileSync(join(out, "screenshots", `${name}.png`), png(1440, 900));
+  }
+  saveDossier();
+  expect(runGate()).not.toMatch(/WARN.*pnpm shots/);
+
+  rmSync(join(out, "screenshots", "4-method.png"));
+  writeFileSync(join(out, "screenshots", "3-method.png"), png(1440, 900));
+  saveDossier();
+  expect(runGate()).toMatch(/WARN.*4-method.*pnpm shots/);
 });
 
 test("accepts a bare board array and checks order by rank", () => {

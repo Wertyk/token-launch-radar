@@ -1,13 +1,14 @@
 import type * as BrowserApi from "../../application/browser-api.ts";
 import type { RadarResult } from "../../application/build-radar.ts";
+import type { CensusRecord } from "../../domain/census/census.ts";
 import type { FarmTables } from "../../domain/farming/playbook-data.ts";
 import type { Protocol, Snapshot } from "../../domain/snapshot.ts";
 import type { ValueDiagnostics } from "../../domain/valuation/diagnostics.ts";
 import type { BoardRow } from "./board.ts";
 import { selectRows } from "./board.ts";
 import { boardRows, boardView } from "./board-view.ts";
-import { censusView } from "./census-view.ts";
-import { escapeHtml as esc, formatInteger } from "./format.ts";
+import { censusSummary, censusView } from "./census-view.ts";
+import { escapeHtml as esc, formatInteger, signedTerm } from "./format.ts";
 import { integrityChecks } from "./integrity.ts";
 import { methodView } from "./method-view.ts";
 import { plannerForm, plannerResults, plannerSettings, sliderValues } from "./plan-view.ts";
@@ -45,10 +46,6 @@ function element<T extends HTMLElement>(selector: string, root: ParentNode = doc
   return found;
 }
 
-function signedTerm(value: number): string {
-  return `${value < 0 ? "−" : "+"} ${Math.abs(value).toFixed(3)}`;
-}
-
 function header(
   counts: readonly (readonly [string, string])[],
   coefficients: ReturnType<typeof BrowserApi.buildRadar>["model"]["coefficients"],
@@ -73,10 +70,11 @@ Age is days since listing (min 1). g₇ is 7-day TVL growth clipped to −50%…
 function mountBoard(
   main: HTMLElement,
   rows: readonly BoardRow[],
+  census: readonly CensusRecord[],
   maxLogValue: number,
   usd: typeof BrowserApi.formatUsd,
 ) {
-  main.innerHTML = boardView(rows);
+  main.innerHTML = censusSummary(census, true) + boardView(rows);
   const search = element<HTMLInputElement>('[name="q"]', main);
   const category = element<HTMLSelectElement>('[name="cat"]', main);
   const chain = element<HTMLSelectElement>('[name="chain"]', main);
@@ -265,7 +263,7 @@ function start(
     if (route.page !== "board") updateBoard = undefined;
     if (route.page !== "plan") updatePlan = undefined;
     if (route.page === "board") {
-      updateBoard ??= mountBoard(main, rows, maxLogValue, formatUsd);
+      updateBoard ??= mountBoard(main, rows, data.census, maxLogValue, formatUsd);
       updateBoard(route.state);
     } else if (route.page === "plan") {
       updatePlan ??= mountPlanner();
@@ -284,6 +282,8 @@ function start(
       main.innerHTML = detail
         ? protocolView(detail, {
             age: age(detail.protocol),
+            coefficients: data.model.coefficients,
+            lnValue: api.logValue(detail.features, data.model),
             back,
             usd: formatUsd,
             farm: farmAssumptions,

@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import { clockShareAt, farmAssumptions, formatUsd } from "../../src/application/browser-api.ts";
+import {
+  clockShareAt,
+  farmAssumptions,
+  formatUsd,
+  logValue,
+} from "../../src/application/browser-api.ts";
 import { buildRadar, recomputeRadar } from "../../src/application/build-radar.ts";
 import { farmTables } from "../../src/domain/farming/playbook-data.ts";
 import type { BoardRow } from "../../src/presentation/web/board.ts";
@@ -20,7 +25,7 @@ test("renders the labor rate and farmer haircut beside the protocol verdicts", (
     mcap_usd: 8_000_000,
     gecko_id: "tracked",
   });
-  const { board } = recomputeRadar(
+  const { board, model } = recomputeRadar(
     {
       protocols: [tracked, protocol()],
       as_of: "2026-11-14",
@@ -36,6 +41,8 @@ test("renders the labor rate and farmer haircut beside the protocol verdicts", (
   if (!row) throw new Error("Expected a ranked protocol.");
   const card = {
     age: null,
+    coefficients: model.coefficients,
+    lnValue: logValue(row.features, model),
     back: "#/",
     usd: formatUsd,
     farm: farmAssumptions,

@@ -5,6 +5,17 @@ import { table } from "./render.ts";
 import type { CensusState } from "./state.ts";
 import { statusLabels } from "./state.ts";
 
+export function censusSummary(rows: readonly CensusRecord[], board = false): string {
+  const counts = { "pre-token": 0, traded: 0, "token-unpriced": 0, excluded: 0 };
+  for (const { status } of rows) counts[status]++;
+  if (Object.values(counts).reduce((sum, count) => sum + count, 0) !== rows.length)
+    throw new Error("Census counts do not add up");
+  const link = (status: keyof typeof counts, label: string = status) =>
+    `<a href="#/census?status=${status}">${formatInteger(counts[status])} ${label}</a>`;
+  const parts = [link("traded"), link("token-unpriced", "token, unpriced"), link("excluded")];
+  return `<p class="census-summary">${board ? `Not ranked: ${parts.join(" · ")} (wrapped, staked, bridged, exchange)` : `${formatInteger(rows.length)} protocols = ${link("pre-token", "pre-token (ranked)")} + ${parts.join(" + ")}`}</p>`;
+}
+
 export function selectCensus(rows: readonly CensusRecord[], { status, sort, dir }: CensusState) {
   const direction = dir === "asc" ? 1 : -1;
   const label = (row: CensusRecord, key: Exclude<CensusState["sort"], "tvl">) =>
@@ -24,7 +35,7 @@ export function censusView(
   usd: (value: number) => string,
 ) {
   const selected = selectCensus(rows, state);
-  return `<h2>Protocol census</h2>
+  return `<h2>Protocol census</h2>${censusSummary(rows)}
     <div class="filters">
       <label class="field">Status <select name="status"><option value="">All statuses</option>${Object.entries(
         statusLabels,

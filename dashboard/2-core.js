@@ -3,7 +3,7 @@ var __copyProps=(to,from,except,desc)=>{if(from&&typeof from==="object"||typeof 
 from))if(!__hasOwnProp.call(to,key)&&key!==except)__defProp(to,key,{get:()=>from[key],enumerable:!(desc=
 __getOwnPropDesc(from,key))||desc.enumerable})}return to};var __toCommonJS=mod=>__copyProps(__defProp({},"__esModule",{value:true}),mod);var browser_api_exports={};__export(browser_api_exports,{buildRadar:()=>recomputeRadar,clockShareAt:()=>shareAt,
 daysBetween:()=>daysBetween,estimateFarmEconomics:()=>estimateFarmEconomics,farmAssumptions:()=>FARM_ASSUMPTIONS,
-formatUsd:()=>formatUsd,planPortfolio:()=>planPortfolio,readPublishedSnapshot:()=>readPublishedSnapshot});var ASSUMPTIONS_AS_OF="2026-11-14";var FARM_ASSUMPTIONS={asOf:ASSUMPTIONS_AS_OF,airdropShareOfLaunchCap:.25,
+formatUsd:()=>formatUsd,logValue:()=>logValue,planPortfolio:()=>planPortfolio,readPublishedSnapshot:()=>readPublishedSnapshot});var ASSUMPTIONS_AS_OF="2026-11-14";var FARM_ASSUMPTIONS={asOf:ASSUMPTIONS_AS_OF,airdropShareOfLaunchCap:.25,
 farmerHaircut:.5,hourlyRateUsd:25,capitalApr:{yieldBearing:.02,nonYielding:.05},horizonMonths:12,monthsPerYear:12,
 weeksPerYear:52,minutesPerHour:60,farmThreshold:1.5,thinThreshold:.75,depositsUsd:[1e3,1e4],tradeVolumeUsd:200,
 tradingFeeRate:6e-4,setupMinutes:5,bridgeMinutes:10};function formatUsd(value){const[whole="0",cents]=Math.abs(value).toFixed(2).split(".");const grouped=whole.
@@ -116,16 +116,19 @@ const families=new Map;for(const protocol of[...protocols].sort((a,b)=>compareTe
 const{tvl_usd,mcap_usd}=protocol;const key=familyKey(protocol);const marketCap=mcap_usd!==null&&mcap_usd>
 0?mcap_usd:null;const family=families.get(key);if(family){family.members.push(protocol);family.tvl_usd+=
 tvl_usd;family.mcap_usd??=marketCap}else{families.set(key,{key,representative:protocol,members:[protocol],
-tvl_usd,mcap_usd:marketCap})}}return[...families.values()]}var EXCLUDED_CATEGORIES=new Set(["Bridge","Canonical Bridge","Liquid Staking","Liquid Restaking","Re\
-staked BTC","CEX"]);var VERSION_SUFFIX=/\s(?:v\d+(?:\.\d+)*|\d+(?:\.\d+)+)$/i;var PRODUCT_WORD=/(?<![\p{L}\p{M}\p{N}_])(?:wrapped|staked|staking)(?![\p{L}\p{M}\p{N}_])/iu;
-var EXCHANGE_NAME=/^(?:Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gemini)(?![\p{L}\p{M}\p{N}_])/iu;
+tvl_usd,mcap_usd:marketCap})}}return[...families.values()]}var BRIDGE_PRODUCT="A bridged or wrapped product of a traded token";var STAKED_PRODUCT="A staked pro\
+duct of a traded token";var EXCLUDED_CATEGORIES=new Map([["Bridge",BRIDGE_PRODUCT],["Canonical Bridg\
+e",BRIDGE_PRODUCT],["Liquid Staking",STAKED_PRODUCT],["Liquid Restaking",STAKED_PRODUCT],["Restaked \
+BTC",STAKED_PRODUCT],["CEX","An exchange custody product"]]);var VERSION_SUFFIX=/\s(?:v\d+(?:\.\d+)*|\d+(?:\.\d+)+)$/i;
+var PRODUCT_WORD=/(?<![\p{L}\p{M}\p{N}_])(?:wrapped|staked|staking)(?![\p{L}\p{M}\p{N}_])/iu;var EXCHANGE_NAME=/^(?:Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gemini)(?![\p{L}\p{M}\p{N}_])/iu;
 function tokenFields({gecko_id,symbol}){if(gecko_id!==null)return symbol===null?"gecko_id":"gecko_id\
  and symbol";return symbol===null?null:"symbol"}function exclusionReason(protocol){const{category}=protocol;
-if(category!==null&&EXCLUDED_CATEGORIES.has(category)){return`Category ${category} is excluded by th\
-e house rule.`}const name=protocol.name.trim();if(VERSION_SUFFIX.test(name)){return"Name ends in a v\
-ersion marker."}const productWord=name.match(PRODUCT_WORD)?.[0];if(productWord!==void 0){return`Name\
- contains the word “${productWord}”.`}const exchange=name.match(EXCHANGE_NAME)?.[0];return exchange===
-void 0?null:`Name begins with an exchange name, “${exchange}”.`}function classify(protocol,marketCap=protocol.
+const product=category===null?void 0:EXCLUDED_CATEGORIES.get(category);if(product)return`${product} \
+(category ${category}).`;const name=protocol.name.trim();if(VERSION_SUFFIX.test(name)){return"Versio\
+n marker for an existing protocol."}const productWord=name.match(PRODUCT_WORD)?.[0];if(productWord!==
+void 0){const kind=productWord.toLowerCase()==="wrapped"?"wrapped":"staked";return`“${productWord}\
+” marks a ${kind} product of a traded token.`}const exchange=name.match(EXCHANGE_NAME)?.[0];return exchange===
+void 0?null:`Starts with exchange name “${exchange}” (exchange product).`}function classify(protocol,marketCap=protocol.
 mcap_usd){if(marketCap!==null&&marketCap>0){return{status:"traded",reason:"The family records a posi\
 tive market cap."}}const fields=tokenFields(protocol);if(fields!==null){return{status:"token-unprice\
 d",reason:`The protocol records a token via ${fields} without a positive market cap.`}}const reason=exclusionReason(

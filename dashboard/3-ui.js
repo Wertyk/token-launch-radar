@@ -5,10 +5,12 @@ first)-Number(second))}function selectRows(rows,state){const{sort,dir,cat,chain,
 q.trim().toLowerCase();const direction=dir==="asc"?1:-1;return rows.filter(row=>(!cat||row.category===
 cat)&&(!chain||row.chains.includes(chain))&&(!wl||row.watchlist)&&(!query||row.name.toLowerCase().includes(
 query))).sort((a,b)=>compareRows(a,b,sort,direction)||compareText(a.slug,b.slug))}function formatInteger(value){return value===null?"—":value.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,
-",")}function formatPercent(value){if(value===null)return"—";const magnitude=Math.abs(value).toFixed(
-1);const sign=magnitude==="0.0"?"":value<0?"−":"+";return`${sign}${magnitude}%`}function escapeHtml(value){
-return value.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&\
-quot;").replaceAll("'","&#39;")}function tableBody(rows,columns2,options2={}){if(!rows.length&&options2.empty){return`<tr><td colspa\
+",")}function formatCompactUsd(value){const scale=Math.min(4,Math.floor(Math.log10(value)/3));return scale<
+1?`$${value}`:`$${(value/1e3**scale).toFixed(2)}${" KMBT"[scale]}`}function signedTerm(value,decimals=3){
+return`${value<0?"−":"+"} ${Math.abs(value).toFixed(decimals)}`}function formatPercent(value){if(value===
+null)return"—";const magnitude=Math.abs(value).toFixed(1);const sign=magnitude==="0.0"?"":value<0?
+"−":"+";return`${sign}${magnitude}%`}function escapeHtml(value){return value.replaceAll("&","&amp;").
+replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;")}function tableBody(rows,columns2,options2={}){if(!rows.length&&options2.empty){return`<tr><td colspa\
 n="${columns2}" class="empty">${escapeHtml(options2.empty)}</td></tr>`}return rows.map(row=>`<tr${options2.
 linked?" data-protocol":""}><td>${row.join("</td><td>")}</td></tr>`).join("")}function table(headers,rows,options2={}){
 const head=headers.map(header2=>{if(typeof header2==="string")return`<th scope="col">${escapeHtml(header2)}\
@@ -79,11 +81,18 @@ trong>${usd(row.value)}</strong>
         ${svg(100,8,`<rect width="${scale(row.value).toFixed(2)}" height="3"></rect>${band}`)}</div>`,
 usd(row.tvl),growthText(row.growth),formatInteger(row.age),usd(row.cost),`${formatInteger(row.time)}\
  min`,row.watchlist?chip("Watchlist","badge"):"—"]}),Object.keys(columns).length,{linked:true,empty:"\
-No protocols match these filters."})}function selectCensus(rows,{status,sort,dir}){const direction=dir==="asc"?1:-1;const label=(row,key)=>key===
-"status"?statusLabels[row.status]:row[key].toLowerCase();return rows.filter(row=>!status||row.status===
-status).sort((a,b)=>{const order=sort==="tvl"?a.tvl_usd-b.tvl_usd:compareText(label(a,sort),label(b,
-sort));return direction*order||compareText(a.slug,b.slug)})}function censusView(rows,state,usd){const selected=selectCensus(
-rows,state);return`<h2>Protocol census</h2>
+No protocols match these filters."})}function censusSummary(rows,board=false){const counts={"pre-token":0,traded:0,"token-unpriced":0,excluded:0};
+for(const{status}of rows)counts[status]++;if(Object.values(counts).reduce((sum,count)=>sum+count,0)!==
+rows.length)throw new Error("Census counts do not add up");const link=(status,label=status)=>`<a hre\
+f="#/census?status=${status}">${formatInteger(counts[status])} ${label}</a>`;const parts=[link("trad\
+ed"),link("token-unpriced","token, unpriced"),link("excluded")];return`<p class="census-summary">${board?
+`Not ranked: ${parts.join(" · ")} (wrapped, staked, bridged, exchange)`:`${formatInteger(rows.length)}\
+ protocols = ${link("pre-token","pre-token (ranked)")} + ${parts.join(" + ")}`}</p>`}function selectCensus(rows,{
+status,sort,dir}){const direction=dir==="asc"?1:-1;const label=(row,key)=>key==="status"?statusLabels[row.
+status]:row[key].toLowerCase();return rows.filter(row=>!status||row.status===status).sort((a,b)=>{const order=sort===
+"tvl"?a.tvl_usd-b.tvl_usd:compareText(label(a,sort),label(b,sort));return direction*order||compareText(
+a.slug,b.slug)})}function censusView(rows,state,usd){const selected=selectCensus(rows,state);return`\
+<h2>Protocol census</h2>${censusSummary(rows)}
     <div class="filters">
       <label class="field">Status <select name="status"><option value="">All statuses</option>${Object.
 entries(statusLabels).map(([key,label])=>`<option value="${key}"${state.status===key?" selected":""}\
@@ -208,22 +217,28 @@ const largest=Math.max(1,...stages.map(({value})=>Number.isFinite(value)?value:0
 "waterfall">${stages.map(({label,factor,value})=>{const finite=Number.isFinite(value);const width=finite?
 (value/largest*100).toFixed(2):"0";return`<li><span>${label}</span><span>${factor===void 0?"":`×${factor.
 toPrecision(4)}`}</span>${svg(100,6,`<rect width="${width}" height="6"></rect>`)}<strong>${finite?usd(
-Math.round(value)):"—"}</strong></li>`}).join("")}</ol>`}function protocolView(row,{age,back,usd,farm,
-diagnostics,families,launchClock,clockShareAt}){const{protocol,plan,economics,status}=row;const{hourlyRateUsd,
-farmerHaircut}=farm;const{airdropYieldApr,breakEvenDepositUsd}=economics;const facts=[["TVL",usd(protocol.
-tvl_usd)],["7d TVL change",growthText(protocol.change_7d)],["Listed",escapeHtml(protocol.listed_at??
-"Unlisted")],[status==="traded"||status==="token-unpriced"?"Days since listing":"Days with no token",
-formatInteger(age)]];const interval=diagnostics?`${usd(diagnostics.interval_p10_usd)}–${usd(diagnostics.
-interval_p90_usd)}`:"—";const influence=diagnostics?.influence;const comparable=influence&&families.
-get(influence.slug)?.representative.name;const influenceLine=influence?.rank_delta===0?"No single co\
-mparable moves this rank":influence&&comparable?`Without ${escapeHtml(comparable)}, rank moves by ${Math.
-abs(influence.rank_delta)}`:"";const clockAge=Math.max(0,age??launchClock.medianAgeDays??0);const{points}=launchClock;
-const p12=economics.launchProbability12;const twins=(diagnostics?.twins??[]).map(slug=>{const family=families.
-get(slug);return[escapeHtml(family?.representative.name??slug),family?.mcap_usd?usd(family.mcap_usd):
-"—"]});const steps=table(["Action","Est. fee","Minutes","Cadence"],plan.steps.map(step=>[escapeHtml(
-step.action)+(step.exitCondition?`<small>${escapeHtml(step.exitCondition)}</small>`:""),usd(step.costUsd),
-formatInteger(step.minutes),step.cadence]),{total:["Total planned",usd(plan.totalCostUsd),formatInteger(
-plan.totalMinutes),"All"]});return`<a class="back" href="${escapeHtml(back)}">← Back to board</a>
+Math.round(value)):"—"}</strong></li>`}).join("")}</ol>`}function valueEquation(row,{intercept,lnTvl,
+lnAge},lnValue,usd){const growth=Math.exp(row.features.growth).toFixed(3);const days=Math.exp(row.features.
+lnAge).toFixed(0);const limit2=Math.round(row.valueUsd)===row.implied_value_usd?"":" (board limit)";
+return`<p class="value-equation">ln V ≈ ${intercept.toFixed(4)} ${signedTerm(lnTvl,4)} × ln(${formatCompactUsd(
+row.protocol.tvl_usd)} × ${growth}) ${signedTerm(lnAge,4)} × ln(${days} d) ≈ ${lnValue.toFixed(3)}${limit2}\
+ → ${usd(row.implied_value_usd)}</p>`}function protocolView(row,{age,coefficients,lnValue,back,usd,
+farm,diagnostics,families,launchClock,clockShareAt}){const{protocol,plan,economics,status}=row;const{
+hourlyRateUsd,farmerHaircut}=farm;const{airdropYieldApr,breakEvenDepositUsd}=economics;const facts=[
+["TVL",usd(protocol.tvl_usd)],["7d TVL change",growthText(protocol.change_7d)],["Listed",escapeHtml(
+protocol.listed_at??"Unlisted")],[status==="traded"||status==="token-unpriced"?"Days since listing":
+"Days with no token",formatInteger(age)]];const interval=diagnostics?`${usd(diagnostics.interval_p10_usd)}\
+–${usd(diagnostics.interval_p90_usd)}`:"—";const influence=diagnostics?.influence;const comparable=influence&&
+families.get(influence.slug)?.representative.name;const influenceLine=influence?.rank_delta===0?"No \
+single comparable moves this rank":influence&&comparable?`Without ${escapeHtml(comparable)}, rank mo\
+ves by ${Math.abs(influence.rank_delta)}`:"";const clockAge=Math.max(0,age??launchClock.medianAgeDays??
+0);const{points}=launchClock;const p12=economics.launchProbability12;const twins=(diagnostics?.twins??
+[]).map(slug=>{const family=families.get(slug);return[escapeHtml(family?.representative.name??slug),
+family?.mcap_usd?usd(family.mcap_usd):"—"]});const steps=table(["Action","Est. fee","Minutes","Cad\
+ence"],plan.steps.map(step=>[escapeHtml(step.action)+(step.exitCondition?`<small>${escapeHtml(step.exitCondition)}\
+</small>`:""),usd(step.costUsd),formatInteger(step.minutes),step.cadence]),{total:["Total planned",usd(
+plan.totalCostUsd),formatInteger(plan.totalMinutes),"All"]});return`<a class="back" href="${escapeHtml(
+back)}">← Back to board</a>
     <header class="protocol-heading"><div><h2>${escapeHtml(protocol.name)}</h2>
       <div class="chips">${chip(protocol.category??"Unlisted category")}${protocol.chains.map(chain=>chip(
 chain)).join("")}</div>
@@ -233,8 +248,8 @@ chain)).join("")}</div>
         <section class="panel"><h3>Conditional value at launch</h3>
           <p class="figure">${usd(row.implied_value_usd)}</p>
           <p>P10–P90 · ${interval}</p>
-          <p class="caption">If the protocol’s record stays as it is.</p>
           ${decomposition(row,usd)}
+          ${valueEquation(row,coefficients,lnValue,usd)}
           ${influenceLine?`<p class="caption">${influenceLine}</p>`:""}
         </section>
         <section class="panel"><h3>Protocol record</h3>
@@ -275,9 +290,8 @@ flags.length?" · fallback fees":""}.</p>
         </section>
       </div>
     </div>`}function element(selector,root=document){const found=root.querySelector(selector);if(!found)throw new Error(
-`Missing dashboard element ${selector}`);return found}function signedTerm(value){return`${value<0?"−":
-"+"} ${Math.abs(value).toFixed(3)}`}function header(counts,coefficients,checks){const{intercept,lnTvl,
-lnAge}=coefficients;return`
+`Missing dashboard element ${selector}`);return found}function header(counts,coefficients,checks){const{
+intercept,lnTvl,lnAge}=coefficients;return`
 <dl class="kpis">${counts.map(([label,value])=>`<div><dt>${label}</dt><dd>${value}</dd></div>`).join(
 "")}</dl>
 <section class="model" aria-label="Value model">
@@ -288,80 +302,81 @@ aunch odds are separate.
 Age is days since listing (min 1). g₇ is 7-day TVL growth clipped to −50%…+100%.</p>
 <ul class="integrity">${checks.map(({pass,label})=>`<li class="${pass?"check":"check-failed"}">${pass?
 "✓":"✗"} ${escapeHtml(label)}</li>`).join("")}</ul>
-</section>`}function mountBoard(main2,rows,maxLogValue,usd){main2.innerHTML=boardView(rows);const search=element(
-'[name="q"]',main2);const category=element('[name="cat"]',main2);const chain=element('[name="chain"]',
-main2);const watchlist=element('[name="wl"]',main2);const results=element("#results",main2);const body=element(
-"tbody",main2);const buttons=main2.querySelectorAll("button[data-sort]");function setSelect(select,value){
-select.querySelector("[data-temporary]")?.remove();select.value=value;if(select.selectedIndex<0){const option=new Option(
-value,value,false,true);option.dataset.temporary="";select.add(option)}}return state=>{if(search.value!==
-state.q)search.value=state.q;setSelect(category,state.cat);setSelect(chain,state.chain);watchlist.checked=
-state.wl;for(const button of buttons){const th=button.parentElement;if(th)th.ariaSort=button.dataset.
-sort!==state.sort?null:state.dir==="asc"?"ascending":"descending"}const selected=selectRows(rows,state);
-results.textContent=`${formatInteger(selected.length)} of ${formatInteger(rows.length)} protocols`;body.
-innerHTML=boardRows(selected,state,maxLogValue,usd)}}function start(main2,snapshot2,data2,api2){const{
-buildRadar,daysBetween,farmAssumptions,formatUsd}=api2;const{launchClock,meta}=data2;const radar=buildRadar(
-snapshot2,data2.model.lambda,launchClock,meta);const published=data2.board.rows;const families=new Map(
-radar.families.map(family=>[family.representative.slug,family]));const evidence=new Map(published.map(
-row=>[row.slug,row]));const checks=integrityChecks(radar.board,published,snapshot2.watchlist,{fitted:radar.
-model.n,houseRule:radar.houseRule,intervalCounts:data2.intervalCounts,loo:data2.model.validation.leaveOneFamilyOut});
-const watchlisted=new Set(snapshot2.watchlist);const protocols=new Map(radar.board.map(row=>[row.protocol.
-slug,row]));const age=({listed_at})=>listed_at===null?null:daysBetween(listed_at,snapshot2.as_of);const rows=radar.
-board.map(({protocol,rank,status,implied_value_usd,plan})=>{const{slug,name,tvl_usd,change_7d,category,
-chains}=protocol;const diagnostics=evidence.get(slug);return{slug,name,rank,category,chains,value:implied_value_usd,
-tvl:tvl_usd,growth:change_7d,interval:diagnostics?[diagnostics.interval_p10_usd,diagnostics.interval_p90_usd]:
-null,age:status==="traded"||status==="token-unpriced"?null:age(protocol),cost:plan.totalCostUsd,time:plan.
-totalMinutes,watchlist:watchlisted.has(slug)}});const maxLogValue=Math.log1p(Math.max(1,...rows.map(
-row=>Math.max(row.value,row.interval?.[1]??0))));element("#snapshot-date").textContent=`Snapshot · ${snapshot2.
-as_of}`;element("#summary").innerHTML=header([["Protocols scanned",formatInteger(snapshot2.protocols.
-length)],["Traded comparables",formatInteger(radar.model.n)],["Board rows",formatInteger(rows.length)]],
-radar.model.coefficients,checks);let updateBoard;let updatePlan;let lastPage;function mountPlanner(){
-main2.innerHTML=plannerForm(rows.flatMap(row=>row.chains));const form=element("form",main2);const budget=element(
-'[name="budget"]',form);const hours=element('[name="hours"]',form);const select=element('[name="chai\
-ns"]',form);const results=element("#portfolio-results",main2);const sliders=form.querySelectorAll('i\
-nput[type="range"]');let state;const save=()=>{if(!form.checkValidity())return;location.hash=planHash(
-{budgetUsd:budget.valueAsNumber,hoursPerWeek:hours.valueAsNumber,chains:Array.from(select.selectedOptions,
-option=>option.value),sliders:state.sliders})};form.onchange=save;form.onsubmit=event=>{event.preventDefault();
-save()};const setSliders=sliders2=>{const next={...state,sliders:sliders2};history.replaceState(null,
-"",planHash(next));update(next)};form.oninput=({target})=>{if(target instanceof HTMLInputElement&&target.
-type==="range"){setSliders({...state.sliders,[target.name]:target.valueAsNumber})}};element("[data-r\
-eset]",form).onclick=()=>setSliders({});function update(next){state=next;budget.value=String(state.budgetUsd);
-hours.value=String(state.hoursPerWeek);for(const chain of state.chains){if(![...select.options].some(
-option=>option.value===chain)){select.add(new Option(chain,chain))}}for(const option of select.options)
-option.selected=state.chains.includes(option.value);const{budgetUsd,hoursPerWeek}=state;const values={
-...sliderValues(farmAssumptions),...state.sliders};for(const slider of sliders){slider.value=String(
-values[slider.name]);const output=slider.previousElementSibling;output.value=slider.value}const assumptions={
-...plannerSettings(farmAssumptions,state.sliders),tables:meta};const economics=radar.board.map(row=>api2.
-estimateFarmEconomics(row.plan,row.implied_value_usd,row.protocol.tvl_usd,row.economics.launchProbability12,
-assumptions));const result=api2.planPortfolio(radar.board,{budgetUsd,hoursPerWeek,assumptions,...state.
-chains.length?{chains:state.chains}:{}});results.innerHTML=plannerResults(result,economics,slug=>protocols.
-get(slug)?.protocol.name??slug,formatUsd)}return update}function draw(){delete main2.dataset.ready;const route=parseRoute(
-location.hash);const page=route.page==="protocol"?`protocol/${route.slug}`:route.page;const changedPage=lastPage&&
-lastPage!==page;lastPage=page;if(route.page!=="board")updateBoard=void 0;if(route.page!=="plan")updatePlan=
-void 0;if(route.page==="board"){updateBoard??=mountBoard(main2,rows,maxLogValue,formatUsd);updateBoard(
-route.state)}else if(route.page==="plan"){updatePlan??=mountPlanner();updatePlan(route.state)}else if(route.
-page==="census"){main2.innerHTML=censusView(data2.census,route.state,formatUsd)}else if(route.page===
-"method"){main2.innerHTML=methodView({...data2,houseRule:radar.houseRule},farmAssumptions,formatUsd)}else{
-const back=boardHash(route.state);const detail=route.page==="protocol"?protocols.get(route.slug):void 0;
-main2.innerHTML=detail?protocolView(detail,{age:age(detail.protocol),back,usd:formatUsd,farm:farmAssumptions,
-diagnostics:evidence.get(detail.protocol.slug),families,launchClock,clockShareAt:api2.clockShareAt}):
-`<h2>Page unavailable</h2><a href="${escapeHtml(back)}">Back to board</a>`}if(changedPage){window.scrollTo(
-0,0);main2.focus({preventScroll:true})}main2.dataset.ready=""}main2.addEventListener("click",event=>{
-if(!(event.target instanceof Element))return;const sort=event.target.closest("button[data-sort]")?.dataset.
-sort;const route=parseRoute(location.hash);if(route.page==="board"&&isSortKey(sort)){const{state}=route;
-const dir=state.sort===sort&&state.dir==="asc"?"desc":"asc";location.hash=boardHash({...state,sort,dir})}else if(route.
-page==="census"&&isCensusSortKey(sort)){const{state}=route;const dir=state.sort===sort&&state.dir===
-"asc"?"desc":"asc";location.hash=censusHash({...state,sort,dir})}else if(!event.target.closest("a")&&
-!event.metaKey&&!event.ctrlKey&&!event.shiftKey&&!event.altKey){const link=event.target.closest("tr[\
-data-protocol]")?.querySelector("a");if(link)location.hash=link.hash}});main2.addEventListener("subm\
-it",event=>event.preventDefault());main2.addEventListener("input",({target})=>{if(!(target instanceof
-HTMLInputElement)||target.name!=="q")return;const route=parseRoute(location.hash);if(route.page!=="b\
-oard")return;history.replaceState(null,"",boardHash({...route.state,q:target.value}));draw()});main2.
-addEventListener("change",event=>{const target=event.target;const route=parseRoute(location.hash);if(route.
-page==="census"&&target instanceof HTMLSelectElement&&target.name==="status"){location.hash=censusHash(
-{...route.state,status:target.value});return}if(route.page!=="board")return;const{state}=route;if(target instanceof
-HTMLSelectElement&&(target.name==="cat"||target.name==="chain")){location.hash=boardHash({...state,[target.
-name]:target.value})}else if(target instanceof HTMLInputElement&&target.name==="wl"){location.hash=boardHash(
-{...state,wl:target.checked})}});window.addEventListener("hashchange",draw);draw()}var main=element(
-"main");var{RADAR_DATA:data,Radar:api}=window;var snapshot=data&&api.readPublishedSnapshot(data);if(data&&
-snapshot){start(main,snapshot,data,api)}else{main.innerHTML="<h2>Snapshot data unavailable</h2><p>Ge\
-nerate it with <code>pnpm radar</code>.</p>"}})();
+</section>`}function mountBoard(main2,rows,census,maxLogValue,usd){main2.innerHTML=censusSummary(census,
+true)+boardView(rows);const search=element('[name="q"]',main2);const category=element('[name="cat"]',
+main2);const chain=element('[name="chain"]',main2);const watchlist=element('[name="wl"]',main2);const results=element(
+"#results",main2);const body=element("tbody",main2);const buttons=main2.querySelectorAll("button[dat\
+a-sort]");function setSelect(select,value){select.querySelector("[data-temporary]")?.remove();select.
+value=value;if(select.selectedIndex<0){const option=new Option(value,value,false,true);option.dataset.
+temporary="";select.add(option)}}return state=>{if(search.value!==state.q)search.value=state.q;setSelect(
+category,state.cat);setSelect(chain,state.chain);watchlist.checked=state.wl;for(const button of buttons){
+const th=button.parentElement;if(th)th.ariaSort=button.dataset.sort!==state.sort?null:state.dir==="a\
+sc"?"ascending":"descending"}const selected=selectRows(rows,state);results.textContent=`${formatInteger(
+selected.length)} of ${formatInteger(rows.length)} protocols`;body.innerHTML=boardRows(selected,state,
+maxLogValue,usd)}}function start(main2,snapshot2,data2,api2){const{buildRadar,daysBetween,farmAssumptions,
+formatUsd}=api2;const{launchClock,meta}=data2;const radar=buildRadar(snapshot2,data2.model.lambda,launchClock,
+meta);const published=data2.board.rows;const families=new Map(radar.families.map(family=>[family.representative.
+slug,family]));const evidence=new Map(published.map(row=>[row.slug,row]));const checks=integrityChecks(
+radar.board,published,snapshot2.watchlist,{fitted:radar.model.n,houseRule:radar.houseRule,intervalCounts:data2.
+intervalCounts,loo:data2.model.validation.leaveOneFamilyOut});const watchlisted=new Set(snapshot2.watchlist);
+const protocols=new Map(radar.board.map(row=>[row.protocol.slug,row]));const age=({listed_at})=>listed_at===
+null?null:daysBetween(listed_at,snapshot2.as_of);const rows=radar.board.map(({protocol,rank,status,implied_value_usd,
+plan})=>{const{slug,name,tvl_usd,change_7d,category,chains}=protocol;const diagnostics=evidence.get(
+slug);return{slug,name,rank,category,chains,value:implied_value_usd,tvl:tvl_usd,growth:change_7d,interval:diagnostics?
+[diagnostics.interval_p10_usd,diagnostics.interval_p90_usd]:null,age:status==="traded"||status==="to\
+ken-unpriced"?null:age(protocol),cost:plan.totalCostUsd,time:plan.totalMinutes,watchlist:watchlisted.
+has(slug)}});const maxLogValue=Math.log1p(Math.max(1,...rows.map(row=>Math.max(row.value,row.interval?.[1]??
+0))));element("#snapshot-date").textContent=`Snapshot · ${snapshot2.as_of}`;element("#summary").innerHTML=
+header([["Protocols scanned",formatInteger(snapshot2.protocols.length)],["Traded comparables",formatInteger(
+radar.model.n)],["Board rows",formatInteger(rows.length)]],radar.model.coefficients,checks);let updateBoard;
+let updatePlan;let lastPage;function mountPlanner(){main2.innerHTML=plannerForm(rows.flatMap(row=>row.
+chains));const form=element("form",main2);const budget=element('[name="budget"]',form);const hours=element(
+'[name="hours"]',form);const select=element('[name="chains"]',form);const results=element("#portfoli\
+o-results",main2);const sliders=form.querySelectorAll('input[type="range"]');let state;const save=()=>{
+if(!form.checkValidity())return;location.hash=planHash({budgetUsd:budget.valueAsNumber,hoursPerWeek:hours.
+valueAsNumber,chains:Array.from(select.selectedOptions,option=>option.value),sliders:state.sliders})};
+form.onchange=save;form.onsubmit=event=>{event.preventDefault();save()};const setSliders=sliders2=>{
+const next={...state,sliders:sliders2};history.replaceState(null,"",planHash(next));update(next)};form.
+oninput=({target})=>{if(target instanceof HTMLInputElement&&target.type==="range"){setSliders({...state.
+sliders,[target.name]:target.valueAsNumber})}};element("[data-reset]",form).onclick=()=>setSliders({});
+function update(next){state=next;budget.value=String(state.budgetUsd);hours.value=String(state.hoursPerWeek);
+for(const chain of state.chains){if(![...select.options].some(option=>option.value===chain)){select.
+add(new Option(chain,chain))}}for(const option of select.options)option.selected=state.chains.includes(
+option.value);const{budgetUsd,hoursPerWeek}=state;const values={...sliderValues(farmAssumptions),...state.
+sliders};for(const slider of sliders){slider.value=String(values[slider.name]);const output=slider.previousElementSibling;
+output.value=slider.value}const assumptions={...plannerSettings(farmAssumptions,state.sliders),tables:meta};
+const economics=radar.board.map(row=>api2.estimateFarmEconomics(row.plan,row.implied_value_usd,row.protocol.
+tvl_usd,row.economics.launchProbability12,assumptions));const result=api2.planPortfolio(radar.board,
+{budgetUsd,hoursPerWeek,assumptions,...state.chains.length?{chains:state.chains}:{}});results.innerHTML=
+plannerResults(result,economics,slug=>protocols.get(slug)?.protocol.name??slug,formatUsd)}return update}
+function draw(){delete main2.dataset.ready;const route=parseRoute(location.hash);const page=route.page===
+"protocol"?`protocol/${route.slug}`:route.page;const changedPage=lastPage&&lastPage!==page;lastPage=
+page;if(route.page!=="board")updateBoard=void 0;if(route.page!=="plan")updatePlan=void 0;if(route.page===
+"board"){updateBoard??=mountBoard(main2,rows,data2.census,maxLogValue,formatUsd);updateBoard(route.state)}else if(route.
+page==="plan"){updatePlan??=mountPlanner();updatePlan(route.state)}else if(route.page==="census"){main2.
+innerHTML=censusView(data2.census,route.state,formatUsd)}else if(route.page==="method"){main2.innerHTML=
+methodView({...data2,houseRule:radar.houseRule},farmAssumptions,formatUsd)}else{const back=boardHash(
+route.state);const detail=route.page==="protocol"?protocols.get(route.slug):void 0;main2.innerHTML=detail?
+protocolView(detail,{age:age(detail.protocol),coefficients:data2.model.coefficients,lnValue:api2.logValue(
+detail.features,data2.model),back,usd:formatUsd,farm:farmAssumptions,diagnostics:evidence.get(detail.
+protocol.slug),families,launchClock,clockShareAt:api2.clockShareAt}):`<h2>Page unavailable</h2><a hr\
+ef="${escapeHtml(back)}">Back to board</a>`}if(changedPage){window.scrollTo(0,0);main2.focus({preventScroll:true})}
+main2.dataset.ready=""}main2.addEventListener("click",event=>{if(!(event.target instanceof Element))
+return;const sort=event.target.closest("button[data-sort]")?.dataset.sort;const route=parseRoute(location.
+hash);if(route.page==="board"&&isSortKey(sort)){const{state}=route;const dir=state.sort===sort&&state.
+dir==="asc"?"desc":"asc";location.hash=boardHash({...state,sort,dir})}else if(route.page==="census"&&
+isCensusSortKey(sort)){const{state}=route;const dir=state.sort===sort&&state.dir==="asc"?"desc":"asc";
+location.hash=censusHash({...state,sort,dir})}else if(!event.target.closest("a")&&!event.metaKey&&!event.
+ctrlKey&&!event.shiftKey&&!event.altKey){const link=event.target.closest("tr[data-protocol]")?.querySelector(
+"a");if(link)location.hash=link.hash}});main2.addEventListener("submit",event=>event.preventDefault());
+main2.addEventListener("input",({target})=>{if(!(target instanceof HTMLInputElement)||target.name!==
+"q")return;const route=parseRoute(location.hash);if(route.page!=="board")return;history.replaceState(
+null,"",boardHash({...route.state,q:target.value}));draw()});main2.addEventListener("change",event=>{
+const target=event.target;const route=parseRoute(location.hash);if(route.page==="census"&&target instanceof
+HTMLSelectElement&&target.name==="status"){location.hash=censusHash({...route.state,status:target.value});
+return}if(route.page!=="board")return;const{state}=route;if(target instanceof HTMLSelectElement&&(target.
+name==="cat"||target.name==="chain")){location.hash=boardHash({...state,[target.name]:target.value})}else if(target instanceof
+HTMLInputElement&&target.name==="wl"){location.hash=boardHash({...state,wl:target.checked})}});window.
+addEventListener("hashchange",draw);draw()}var main=element("main");var{RADAR_DATA:data,Radar:api}=window;
+var snapshot=data&&api.readPublishedSnapshot(data);if(data&&snapshot){start(main,snapshot,data,api)}else{
+main.innerHTML="<h2>Snapshot data unavailable</h2><p>Generate it with <code>pnpm radar</code>.</p>"}})();

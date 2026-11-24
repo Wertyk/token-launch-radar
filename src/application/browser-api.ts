@@ -6,6 +6,7 @@ export { planPortfolio } from "../domain/farming/portfolio.ts";
 export { shareAt as clockShareAt } from "../domain/launch-clock/clock.ts";
 export { formatUsd } from "../domain/shared/money.ts";
 export { daysBetween } from "../domain/snapshot.ts";
+export { logValue } from "../domain/valuation/model.ts";
 export type { BoardRows } from "./board-rows.ts";
 export type { RadarRow } from "./build-radar.ts";
 export { recomputeRadar as buildRadar } from "./build-radar.ts";

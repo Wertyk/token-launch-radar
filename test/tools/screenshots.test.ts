@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import type { BoardRows } from "../../src/application/board-rows.ts";
-import { shotStates } from "../../tools/screenshots.ts";
+import type { CensusRecord } from "../../src/domain/census/census.ts";
+import { assertExcludedRows, shotStates } from "../../tools/screenshots.ts";
 
 type ShotRow = Pick<BoardRows["rows"][number], "slug" | "rank" | "farm_economics">;
 
@@ -24,9 +25,35 @@ test("chooses the highest-ranked $10K non-SKIP plan, independent of input order"
   expect(shotStates({ rows: [row(5, "FARM"), row(1, "SKIP"), row(2, "THIN")] })).toEqual([
     { name: "1-board", hash: "#/" },
     { name: "2-detail", hash: "#/p/row-2" },
-    { name: "3-method", hash: "#/method" },
-    { name: "4-census", hash: "#/census" },
+    { name: "3-filtered", hash: "#/census?status=excluded" },
+    { name: "4-method", hash: "#/method" },
   ]);
+});
+
+test("validates the visible rows against the excluded census in descending TVL order", () => {
+  const record = (slug: string, tvl_usd: number, status: CensusRecord["status"]): CensusRecord => ({
+    slug,
+    name: slug,
+    tvl_usd,
+    status,
+    category: null,
+    familyKey: `slug:${slug}`,
+    reason: "Product reason.",
+  });
+  const census = [
+    record("b", 50, "excluded"),
+    record("c", 200, "traded"),
+    record("m", 100, "excluded"),
+    record("a", 50, "excluded"),
+  ];
+  const high = ["m", "Excluded by the house rule", "Product reason.", "$100"];
+  const low = ["a", "Excluded by the house rule", "Product reason.", "$50"];
+  expect(() => assertExcludedRows(census, [high, low])).not.toThrow();
+  expect(() => assertExcludedRows(census, [])).toThrow(/visible rows/i);
+  expect(() => assertExcludedRows(census, [low, high])).toThrow(/descending TVL/i);
+  expect(() =>
+    assertExcludedRows(census, [["c", "Token trades", "Product reason.", "$200"]]),
+  ).toThrow(/excluded/i);
 });
 
 test("reports when no $10K non-SKIP plan can be shown", () => {

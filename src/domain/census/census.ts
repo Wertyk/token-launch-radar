@@ -3,13 +3,15 @@ import type { Protocol, Snapshot } from "../snapshot.ts";
 import type { ProtocolFamily } from "./families.ts";
 import { familyKey, groupFamilies } from "./families.ts";
 
-const EXCLUDED_CATEGORIES = new Set([
-  "Bridge",
-  "Canonical Bridge",
-  "Liquid Staking",
-  "Liquid Restaking",
-  "Restaked BTC",
-  "CEX",
+const BRIDGE_PRODUCT = "A bridged or wrapped product of a traded token";
+const STAKED_PRODUCT = "A staked product of a traded token";
+const EXCLUDED_CATEGORIES = new Map([
+  ["Bridge", BRIDGE_PRODUCT],
+  ["Canonical Bridge", BRIDGE_PRODUCT],
+  ["Liquid Staking", STAKED_PRODUCT],
+  ["Liquid Restaking", STAKED_PRODUCT],
+  ["Restaked BTC", STAKED_PRODUCT],
+  ["CEX", "An exchange custody product"],
 ]);
 const VERSION_SUFFIX = /\s(?:v\d+(?:\.\d+)*|\d+(?:\.\d+)+)$/i;
 const PRODUCT_WORD = /(?<![\p{L}\p{M}\p{N}_])(?:wrapped|staked|staking)(?![\p{L}\p{M}\p{N}_])/iu;
@@ -55,19 +57,21 @@ function tokenFields({ gecko_id, symbol }: Protocol): string | null {
 
 function exclusionReason(protocol: Protocol): string | null {
   const { category } = protocol;
-  if (category !== null && EXCLUDED_CATEGORIES.has(category)) {
-    return `Category ${category} is excluded by the house rule.`;
-  }
+  const product = category === null ? undefined : EXCLUDED_CATEGORIES.get(category);
+  if (product) return `${product} (category ${category}).`;
   const name = protocol.name.trim();
   if (VERSION_SUFFIX.test(name)) {
-    return "Name ends in a version marker.";
+    return "Version marker for an existing protocol.";
   }
   const productWord = name.match(PRODUCT_WORD)?.[0];
   if (productWord !== undefined) {
-    return `Name contains the word “${productWord}”.`;
+    const kind = productWord.toLowerCase() === "wrapped" ? "wrapped" : "staked";
+    return `“${productWord}” marks a ${kind} product of a traded token.`;
   }
   const exchange = name.match(EXCHANGE_NAME)?.[0];
-  return exchange === undefined ? null : `Name begins with an exchange name, “${exchange}”.`;
+  return exchange === undefined
+    ? null
+    : `Starts with exchange name “${exchange}” (exchange product).`;
 }
 
 export function classify(protocol: Protocol, marketCap = protocol.mcap_usd): Classification {

@@ -3,9 +3,10 @@ import type { ProtocolFamily } from "../../domain/census/families.ts";
 import type { EconomicsAssumptions } from "../../domain/farming/economics.ts";
 import type { LaunchClock } from "../../domain/launch-clock/clock.ts";
 import type { ValueDiagnostics } from "../../domain/valuation/diagnostics.ts";
+import type { ValueModel } from "../../domain/valuation/model.ts";
 import { chip, growthText } from "./board-view.ts";
 import { ageSparkline } from "./clock-view.ts";
-import { escapeHtml as esc, formatInteger } from "./format.ts";
+import { escapeHtml as esc, formatCompactUsd, formatInteger, signedTerm } from "./format.ts";
 import { svg, table } from "./render.ts";
 
 import { statusLabels } from "./state.ts";
@@ -46,6 +47,8 @@ function decomposition(row: RadarRow, usd: FormatUsd): string {
 
 interface CardOptions {
   age: number | null;
+  coefficients: ValueModel["coefficients"];
+  lnValue: number;
   back: string;
   usd: FormatUsd;
   farm: Pick<EconomicsAssumptions, "hourlyRateUsd" | "farmerHaircut">;
@@ -55,9 +58,32 @@ interface CardOptions {
   clockShareAt: typeof clockShareAt;
 }
 
+function valueEquation(
+  row: RadarRow,
+  { intercept, lnTvl, lnAge }: ValueModel["coefficients"],
+  lnValue: number,
+  usd: FormatUsd,
+): string {
+  const growth = Math.exp(row.features.growth).toFixed(3);
+  const days = Math.exp(row.features.lnAge).toFixed(0);
+  const limit = Math.round(row.valueUsd) === row.implied_value_usd ? "" : " (board limit)";
+  return `<p class="value-equation">ln V ≈ ${intercept.toFixed(4)} ${signedTerm(lnTvl, 4)} × ln(${formatCompactUsd(row.protocol.tvl_usd)} × ${growth}) ${signedTerm(lnAge, 4)} × ln(${days} d) ≈ ${lnValue.toFixed(3)}${limit} → ${usd(row.implied_value_usd)}</p>`;
+}
+
 export function protocolView(
   row: RadarRow,
-  { age, back, usd, farm, diagnostics, families, launchClock, clockShareAt }: CardOptions,
+  {
+    age,
+    coefficients,
+    lnValue,
+    back,
+    usd,
+    farm,
+    diagnostics,
+    families,
+    launchClock,
+    clockShareAt,
+  }: CardOptions,
 ): string {
   const { protocol, plan, economics, status } = row;
   const { hourlyRateUsd, farmerHaircut } = farm;
@@ -113,8 +139,8 @@ export function protocolView(
         <section class="panel"><h3>Conditional value at launch</h3>
           <p class="figure">${usd(row.implied_value_usd)}</p>
           <p>P10–P90 · ${interval}</p>
-          <p class="caption">If the protocol’s record stays as it is.</p>
           ${decomposition(row, usd)}
+          ${valueEquation(row, coefficients, lnValue, usd)}
           ${influenceLine ? `<p class="caption">${influenceLine}</p>` : ""}
         </section>
         <section class="panel"><h3>Protocol record</h3>

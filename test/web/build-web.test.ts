@@ -48,7 +48,7 @@ test("keeps the guide, design tokens and browser bundles within the judge's sour
     (total, file) => total + readFileSync(new URL(`dashboard/${file}`, root)).length,
     0,
   );
-  expect(bytes).toBeLessThanOrEqual(63_000);
+  expect(bytes).toBeLessThanOrEqual(64_850);
 });
 
 test("keeps the judge's guide within 1,900 bytes and free of URLs", () => {

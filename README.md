@@ -17,7 +17,7 @@ This offline radar scans a sealed DefiLlama snapshot of 758 protocols. It identi
 
 Farm plans use category playbooks and choose the cheapest listed chain for the plan using gas assumptions dated 2026-11-14. Each step shows an estimated dollar cost and duration in minutes.
 
-The dashboard works from `file://` without network access. It has a sortable, filterable board and a protocol card. On load, it recomputes the board from the embedded snapshot and reports whether the slugs, ranks, values and farm steps match the published `board.json` rows in the page data.
+The dashboard works from `file://` without network access. It has a sortable, filterable board, a protocol card with its value equation, and a census with linked status counts. On load, it recomputes the board from the embedded snapshot and reports whether the slugs, ranks, values and farm steps match the published `board.json` rows in the page data.
 
 ## Architecture and checks
 
@@ -48,6 +48,8 @@ For development, run `pnpm install` and `pnpm verify`. The verification scripts 
 ![Ranked protocol board](screenshots/1-board.png)
 
 ![Protocol card with valuation breakdown and farm plan](screenshots/2-detail.png)
+
+`pnpm shots` captures `1-board`, `2-detail`, `3-filtered` (excluded census rows by descending TVL), and `4-method`. It writes PNGs or falls back to JPEGs to fit the size limit.
 
 ---
 
