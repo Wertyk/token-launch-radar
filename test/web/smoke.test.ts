@@ -90,7 +90,7 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
     await ready.getByRole("checkbox", { name: "Watchlist only" }).check();
     await expect.poll(() => rows.count()).toBeLessThan(originalCount);
     expect(await rows.count()).toBeGreaterThan(0);
-    await ready.getByRole("button", { name: "Odds 12m", exact: true }).click();
+    await ready.locator('button[data-sort="odds"]').click();
     await expect.poll(() => new URL(page.url()).hash).toBe("#/?sort=odds&dir=asc&wl=1");
 
     const firstLink = rows.first().getByRole("link");
