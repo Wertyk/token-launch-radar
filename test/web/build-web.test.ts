@@ -138,6 +138,8 @@ test("shows each validation result and the fitted clock in separate Criterion 2 
     expect(value).toContain(result);
   }
   for (const result of [
+    "`fitLaunchClock` fits PAVA by listing age (proxy)",
+    "`launchProbability12` gives board odds",
     "645 listed protocols",
     "32.5% at 171 days",
     "79.7% at 1,841 days",
@@ -154,8 +156,9 @@ test("asks the judge to check the other board in Criterion 1", () => {
   expect(criterion).toContain(
     "Does the other board rank WBTC, Binance staked ETH, Coinbase Bridge or USDT0 as pre-token?",
   );
-  expect(criterion).toContain("House rules exclude all four (3-filtered)");
-  expect(criterion).toContain("wrapped, liquid-staked or bridged products of traded tokens");
+  expect(criterion).toContain(
+    "Our census excludes all four by their Bridge or Liquid Staking category (3-filtered).",
+  );
 });
 
 test("keeps the handwritten design tokens within 1.5 KB", () => {
