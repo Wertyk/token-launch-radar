@@ -1,8 +1,8 @@
-- **Criterion 1 (1-board).** 758 accounted for. `buildRadar` ranks 198. `integrityChecks` matches board.json values, odds, ranks, plans and economics. Watchlist 40/40.
-- **Criterion 2 (2-detail, 3-filtered, 4-method).** Implied value = launch value × 12-month launch odds.
-  - **Launch value.** `fitValueModel` fits 128 traded families. ln V = 6.536 + 0.551 ln(TVL·(1+g₇)) − 0.010 ln(age). Current traded-family caps proxy for V. Median error ×3.46 vs ×5.07 flat leave-one-family-out, ×3.95 vs ×4.98 seeded five-fold, ×3.30 vs ×4.86 walk-forward. Ablation has −TVL ×3.83, −momentum ×3.58, −age ×3.35. P10–P90 holds 104/128 held-out traded caps.
-  - **Launch odds.** `launchProbability12` uses PAVA by age on 645 listed protocols’ token records. Shares 32.5% at 171 days, 79.7% at 1,841 days. Board odds 2.1%–50.5%. Listing age is a proxy. The cross-section cannot validate future odds.
-  - **Separation.** `buildCensus` splits 758 = 198 pre-token + 128 traded + 288 unpriced + 144 excluded. WBTC, Binance staked ETH, Coinbase Bridge and USDT0 are excluded by house rules (bridge, liquid staking).
-- **Criterion 3 (2-detail).** `makeFarmPlan` lists fees, time and cadence. `estimateFarmEconomics` gives break-even and FARM/THIN/SKIP. $1K 198 SKIP. $10K 13 THIN, 185 SKIP.
-- **Criterion 4 (1-board, 3-filtered, 2-detail).** `selectRows` and `selectCensus` sort and filter.
-- **Criterion 5 (1-board, 2-detail).** `boardTable` and `protocolView` use `1-tokens.css`.
+- **Criterion 1 (1-board).** 758 accounted for, `buildRadar` ranks 198 (40/40 watchlist). `integrityChecks` matches board.json values, odds, ranks, plans, economics. Does the other board rank WBTC, Binance staked ETH, Coinbase Bridge or USDT0 as pre-token? House rules exclude all four (3-filtered) as wrapped, liquid-staked or bridged products of traded tokens.
+- **Criterion 2 (2-detail, 4-method).** Implied value = launch value × 12-month launch odds.
+  - **Launch value.** `fitValueModel` fits 128 traded families. ln V = 6.536 + 0.551 ln(TVL·(1+g₇)) − 0.010 ln(age). Current traded-family caps proxy for V. Median error vs flat (×3.46/×5.07 family LOO, ×3.95/×4.98 seeded 5-fold, ×3.30/×4.86 walk-forward). Ablation −TVL ×3.83, −momentum ×3.58, −age ×3.35. P10–P90 holds 104/128 held-out traded caps.
+  - **Launch odds.** `launchProbability12` fits PAVA by listing age (proxy) to 645 listed protocols’ token records (32.5% at 171 days, 79.7% at 1,841 days). Board odds 2.1%–50.5%. Snapshot can't test future odds.
+  - **Separation.** `buildCensus` splits 758 = 198 pre-token + 128 traded + 288 unpriced + 144 excluded.
+- **Criterion 3 (2-detail).** `makeFarmPlan` lists fees/time/cadence. `estimateFarmEconomics` gives break-even, FARM/THIN/SKIP ($1K 198 SKIP, $10K 13 THIN, 185 SKIP).
+- **Criterion 4 (1-board, 3-filtered, 2-detail).** `selectRows`, `selectCensus` sort/filter.
+- **Criterion 5 (1-board, 2-detail).** `boardTable`, `protocolView` use `1-tokens.css`.

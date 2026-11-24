@@ -127,9 +127,9 @@ test("shows each validation result and the fitted clock in separate Criterion 2 
   ]);
   const [value, odds, separation] = evidence.map((bullet) => bullet[2]);
   for (const result of [
-    "×3.46 vs ×5.07",
-    "×3.95 vs ×4.98",
-    "×3.30 vs ×4.86",
+    "×3.46/×5.07 family LOO",
+    "×3.95/×4.98 seeded 5-fold",
+    "×3.30/×4.86 walk-forward",
     "−TVL ×3.83",
     "−momentum ×3.58",
     "−age ×3.35",
@@ -148,11 +148,14 @@ test("shows each validation result and the fitted clock in separate Criterion 2 
   expect(separation).toContain("758 = 198 pre-token + 128 traded + 288 unpriced + 144 excluded");
 });
 
-test("attributes the examples in the guide to their house-rule categories", () => {
+test("asks the judge to check the other board in Criterion 1", () => {
   const guide = readFileSync(new URL("dashboard/0-guide.md", root), "utf8");
-  expect(guide).toMatch(
-    /WBTC, Binance staked ETH, Coinbase Bridge and USDT0 are excluded by house rules \(bridge, liquid staking\)/,
+  const [criterion] = guide.split(/\n(?=- )/);
+  expect(criterion).toContain(
+    "Does the other board rank WBTC, Binance staked ETH, Coinbase Bridge or USDT0 as pre-token?",
   );
+  expect(criterion).toContain("House rules exclude all four (3-filtered)");
+  expect(criterion).toContain("wrapped, liquid-staked or bridged products of traded tokens");
 });
 
 test("keeps the handwritten design tokens within 1.5 KB", () => {
