@@ -1,8 +1,8 @@
 import type { ProtocolFamily } from "../census/families.ts";
 import type { Comparable } from "./comparables.ts";
 
-// Same category groups as the farm playbooks, including the distinct bridge group.
-// All remaining or missing labels share the other group.
+// Valuation keeps bridges distinct and groups missing or unlisted labels as other.
+// Risk Curators and Onchain Capital Allocator use yield farm playbooks and map to other here.
 const categories = {
   dex: ["dex", "dexs", "liquidity manager"],
   lending: ["lending", "uncollateralized lending", "cdp", "cdp manager", "collateral markets"],

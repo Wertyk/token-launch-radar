@@ -9,6 +9,8 @@ import { farmTables } from "../../src/domain/farming/playbook-data.ts";
 import { parseSnapshot } from "../../src/domain/snapshot.ts";
 import type { ValueDiagnostics } from "../../src/domain/valuation/diagnostics.ts";
 import { integrityChecks } from "../../src/presentation/web/integrity.ts";
+import { boardMismatches } from "../../src/presentation/web/recompute.ts";
+import { scatterCoverage } from "../../src/presentation/web/scatter-view.ts";
 import { protocol } from "../domain/protocol-fixture.ts";
 import { readKitSnapshot } from "../radar-fixtures.ts";
 
@@ -126,12 +128,17 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     ValueDiagnostics & {
       launch_p12: number;
     })[];
-  expect(data.intervalCounts).toEqual({ missLow: 12, covered: 104, missHigh: 12 });
+  for (const unused of ["houseRule", "intervalCoverage", "intervalCounts"]) {
+    expect(data).not.toHaveProperty(unused);
+  }
   expect(data.looScatter).toHaveLength(128);
   expect(new Set(data.looScatter.map((point: { slug: string }) => point.slug)).size).toBe(128);
-  expect(data.looScatter.filter((point: { inside: boolean }) => point.inside)).toHaveLength(104);
-  expect(data.intervalCoverage).toBeGreaterThan(0);
-  expect(data.intervalCoverage).toBeLessThanOrEqual(1);
+  for (const point of data.looScatter) {
+    expect(Number.isFinite(point.p10)).toBe(true);
+    expect(Number.isFinite(point.p90)).toBe(true);
+    expect(point.p10).toBeLessThanOrEqual(point.p90);
+    expect(point).not.toHaveProperty("inside");
+  }
   expect(data.launchClock.points).toHaveLength(6);
   expect(
     data.launchClock.points.reduce((sum: number, point: { count: number }) => sum + point.count, 0),
@@ -161,8 +168,8 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     protocols: snapshot.protocols,
     watchlist: snapshot.watchlist,
     census: radar.census,
-    houseRule: radar.houseRule,
     model: radar.model,
+    looScatter: radar.looScatter,
   });
   expect(
     publishedRows.map(
@@ -209,12 +216,21 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   expect(rows.every((row) => !("category" in row.decomposition.multipliers))).toBe(true);
   expect(browserRadar.model).not.toHaveProperty("validation");
   expect(radarApi).not.toHaveProperty("validateModel");
-  const checks = integrityChecks(browserRadar.board, publishedRows, browserSnapshot.watchlist, {
-    fitted: browserRadar.model.n,
-    houseRule: browserRadar.houseRule,
-    intervalCounts: radar.intervalCounts,
-    loo: data.model.validation.leaveOneFamilyOut,
-  });
+  expect(browserRadar).not.toHaveProperty("heldOutBands");
+  const scatter = scatterCoverage(data.looScatter);
+  expect(scatter.counts).toEqual({ missLow: 12, covered: 104, missHigh: 12 });
+  const checks = integrityChecks(
+    boardMismatches(browserRadar.board, publishedRows),
+    publishedRows,
+    browserSnapshot.watchlist,
+    {
+      fitted: browserRadar.model.n,
+      houseRule: browserRadar.houseRule,
+      intervalCounts: scatter.counts,
+      invalidPoints: scatter.invalidPoints,
+      loo: data.model.validation.leaveOneFamilyOut,
+    },
+  );
   expect(checks.filter(({ pass }) => !pass)).toEqual([]);
 
   expect(() =>
@@ -337,8 +353,7 @@ test("fits a traded family once using its summed TVL, market cap and representat
     watchlist: [],
   });
   expect(radar.model.n).toBe(1);
-  expect(radar.intervalCoverage).toBeNull();
-  expect(radar.intervalCounts).toBeNull();
+  expect(radar.looScatter).toEqual([]);
   expect(radar.model.featureMeans).toEqual({ lnTvl: Math.log(50), lnAge: Math.log(16) });
   expect(radar.model.coefficients.intercept).toBeCloseTo(Math.log(100), 12);
   expect(radar.census[1]).toEqual({

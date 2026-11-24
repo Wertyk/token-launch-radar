@@ -1,7 +1,33 @@
 import { expect, test } from "vitest";
-import { estimateFarmEconomics, renderEconomics } from "../../../src/domain/farming/economics.ts";
+import {
+  estimateFarmEconomics,
+  farmEconomicsTerms,
+  renderEconomics,
+} from "../../../src/domain/farming/economics.ts";
 
 const plan = { totalCostUsd: 10, totalMinutes: 120, capitalApr: 0.02 };
+
+test("derives fixed costs, capital carry and EV per deposit dollar", () => {
+  const settings = {
+    horizonMonths: 6,
+    monthsPerYear: 12,
+    minutesPerHour: 60,
+    hourlyRateUsd: 30,
+    airdropShareOfLaunchCap: 0.25,
+    farmerHaircut: 0.5,
+    capitalApr: { yieldBearing: 0.125, nonYielding: 0.25 },
+  };
+  // $10 + 2 × $30; half a year of 12.5% carry; $4M × ¼ × ½ × ¼ / $2M.
+  expect(farmEconomicsTerms(plan, 4_000_000, 2_000_000, 0.25, settings)).toEqual({
+    fixedCosts: 70,
+    horizonYears: 0.5,
+    capitalCarry: 0.0625,
+    k: 0.0625,
+  });
+  expect(
+    farmEconomicsTerms({ ...plan, capitalApr: 0.5 }, 4_000_000, 2_000_000, 0, settings),
+  ).toEqual({ fixedCosts: 70, horizonYears: 0.5, capitalCarry: 0.25, k: 0 });
+});
 
 test("uses a quarter of circulating launch cap and the playbook's net capital rate", () => {
   // k = $1.2M × 25% × 50% × 50% / $2M = 0.0375. Fixed costs are $10 + 2 × $25.

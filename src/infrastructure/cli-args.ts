@@ -1,4 +1,4 @@
-export interface CliArgs {
+interface CliArgs {
   input: string;
   output: string;
   assets: string;

@@ -5,7 +5,7 @@ import { buildRadar } from "./build-radar.ts";
 import { renderDataScript } from "./data-script.ts";
 import type { DossierBuilder, OutputSink, SnapshotSource } from "./ports.ts";
 
-export interface RadarSummary {
+interface RadarSummary {
   rowCount: number;
   watchlistCovered: number;
   files: string[];

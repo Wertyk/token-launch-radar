@@ -52,11 +52,10 @@ export function jackknifePlusBand(samples: readonly JackknifeSample[]) {
   };
 }
 
-export function jackknifePlusCoverage(rows: readonly Comparable[]) {
-  if (rows.length < 3) return null;
+export function jackknifePlusBands(rows: readonly Comparable[]) {
+  const bands = new Map<string, ReturnType<typeof jackknifePlusBand>>();
+  if (rows.length < 3) return bands;
 
-  const counts = { missLow: 0, covered: 0, missHigh: 0 };
-  const coveredSlugs = new Set<string>();
   for (const heldOut of rows) {
     const train = rows.filter((row) => row !== heldOut);
     // Select the penalty without the scored family and reuse it in every band refit.
@@ -66,7 +65,21 @@ export function jackknifePlusCoverage(rows: readonly Comparable[]) {
       prediction: predictComparable(heldOut, model),
       residual,
     }));
-    const { p10, p90 } = jackknifePlusBand(samples);
+    bands.set(heldOut.slug, jackknifePlusBand(samples));
+  }
+  return bands;
+}
+
+export function jackknifePlusCoverage(rows: readonly Comparable[]) {
+  const bands = jackknifePlusBands(rows);
+  if (!bands.size) return null;
+
+  const counts = { missLow: 0, covered: 0, missHigh: 0 };
+  const coveredSlugs = new Set<string>();
+  for (const heldOut of rows) {
+    const band = bands.get(heldOut.slug);
+    if (!band) continue;
+    const { p10, p90 } = band;
     if (heldOut.target < p10) counts.missLow++;
     else if (heldOut.target > p90) counts.missHigh++;
     else coveredSlugs.add(heldOut.slug);

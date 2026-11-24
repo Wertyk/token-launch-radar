@@ -5,8 +5,10 @@ import { buildRadar, recomputeRadar } from "../../src/application/build-radar.ts
 import { ASSUMPTIONS_AS_OF, FARM_ASSUMPTIONS } from "../../src/domain/farming/assumptions.ts";
 import { farmTables } from "../../src/domain/farming/playbook-data.ts";
 import { planPortfolio } from "../../src/domain/farming/portfolio.ts";
+import { launchProbability12 } from "../../src/domain/launch-clock/clock.ts";
 import type { Snapshot } from "../../src/domain/snapshot.ts";
 import { parseSnapshot } from "../../src/domain/snapshot.ts";
+import { valueFeatures } from "../../src/domain/valuation/model.ts";
 import { parsePlanState } from "../../src/presentation/web/plan-state.ts";
 
 const snapshotPath =
@@ -134,6 +136,31 @@ test("the parent flag still matches the house-rule audit on the published kit bo
       .map(({ slug }) => slug)
       .sort(),
   ).toEqual(result.houseRule.falsePositives.map(({ slug }) => slug));
+});
+
+test("documents the age inputs computed for undated rows in the sealed snapshot", () => {
+  const readme = readFileSync(new URL("../../README.md", import.meta.url), "utf8");
+  const { model, launchClock } = result;
+  const modelAge = Math.round(Math.exp(model.medianLnAge));
+  expect(modelAge).toBe(1000);
+  expect(launchClock.medianAgeDays).toBe(677);
+  const readmeModelAge = readme.match(
+    /median log age among dated fit families \(equivalent to ([\d,]+) days/,
+  )?.[1];
+  expect(Number(readmeModelAge?.replaceAll(",", ""))).toBe(modelAge);
+  expect(readme).toContain(
+    `median age across its dated protocols (${launchClock.medianAgeDays} days`,
+  );
+  expect(readme).toContain("one-day floor");
+  expect(readme).toContain("cannot validate future launch odds");
+  const row = result.board.find(({ protocol }) => protocol.listed_at === null);
+  if (!row) throw new Error("Expected an undated board row");
+  expect(row.features.lnAge).toBe(model.medianLnAge);
+  expect(row.launchProbability12).toBe(launchProbability12(launchClock.points, 677));
+  expect(
+    valueFeatures({ ...row.protocol, listed_at: snapshot.as_of }, snapshot.as_of, model.medianLnAge)
+      .features.lnAge,
+  ).toBe(0);
 });
 
 test("the nested kit LOO model matches or improves on the flat multiple", () => {

@@ -13,6 +13,7 @@ import {
   signedTerm,
 } from "./format.ts";
 import type { ProtocolExtras } from "./protocol-extras.ts";
+import { boardInterval } from "./recompute.ts";
 import { svg, table } from "./render.ts";
 
 type FormatUsd = (value: number) => string;
@@ -85,14 +86,12 @@ export function protocolView(
     launchClock,
     launchProbability12,
   }: CardOptions,
-  { nearestComparables, protocolClock, protocolFacts }: ProtocolExtras,
+  { nearestComparables, protocolClock, protocolFacts }: Partial<ProtocolExtras>,
 ): string {
   const { protocol, plan, economics } = row;
   const { hourlyRateUsd, farmerHaircut } = farm;
   const { airdropYieldApr, breakEvenDepositUsd } = economics;
-  const interval = diagnostics
-    ? `${usd(diagnostics.interval_p10_usd)}–${usd(diagnostics.interval_p90_usd)}`
-    : "—";
+  const interval = boardInterval(diagnostics)?.map(usd).join("–") ?? "—";
   const influence = diagnostics?.influence;
   const comparable = influence && families.get(influence.slug)?.representative.name;
   const influenceLine =
@@ -125,10 +124,14 @@ export function protocolView(
           ${valueEquation(row, coefficients, lnValue, clockAge, usd)}
           ${influenceLine ? `<p class="caption">${influenceLine}</p>` : ""}
         </section>
-        <section class="panel"><h3>Protocol record</h3>
+        ${
+          protocolFacts
+            ? `<section class="panel"><h3>Protocol record</h3>
           ${protocolFacts(row, age, usd)}
-        </section>
-        ${protocolClock(launchClock.points, clockAge, row.launchProbability12, age === null, launchProbability12)}
+        </section>`
+            : ""
+        }
+        ${protocolClock?.(launchClock.points, clockAge, row.launchProbability12, age === null, launchProbability12) ?? ""}
       </div>
       <div class="detail-facts">
         <section class="panel farm"><h3>Farm plan</h3>
@@ -140,7 +143,7 @@ export function protocolView(
           ${steps}
           <p class="caption">Per-occurrence minutes and fees. Assumptions ${plan.assumptionsAsOf}${plan.flags.length ? " · fallback fees" : ""}.</p>
         </section>
-        ${nearestComparables(diagnostics?.twins ?? [], families, usd)}
+        ${nearestComparables?.(diagnostics?.twins ?? [], families, usd) ?? ""}
       </div>
     </div>`;
 }

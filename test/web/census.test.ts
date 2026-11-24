@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import { formatUsd } from "../../src/application/browser-api.ts";
 import type { CensusRecord } from "../../src/domain/census/census.ts";
 import { boardEntries, buildCensus } from "../../src/domain/census/census.ts";
+import { compareText } from "../../src/domain/shared/order.ts";
 import { censusSummary, censusView, selectCensus } from "../../src/presentation/web/census-view.ts";
 import { censusHash, defaultCensus, parseRoute } from "../../src/presentation/web/state.ts";
 import { protocol } from "../domain/protocol-fixture.ts";
@@ -20,18 +21,29 @@ const third: CensusRecord = { ...first, slug: "c", name: "Excluded", status: "ex
 const rows = [third, second, first];
 
 test("sorts Census by TVL, name and status and uses the slug for ties", () => {
-  expect(selectCensus(rows, defaultCensus).map(({ slug }) => slug)).toEqual(["b", "a", "c"]);
+  expect(selectCensus(rows, defaultCensus, compareText).map(({ slug }) => slug)).toEqual([
+    "b",
+    "a",
+    "c",
+  ]);
   expect(
-    selectCensus(rows, { ...defaultCensus, sort: "name", dir: "asc" }).map(({ slug }) => slug),
+    selectCensus(rows, { ...defaultCensus, sort: "name", dir: "asc" }, compareText).map(
+      ({ slug }) => slug,
+    ),
   ).toEqual(["a", "b", "c"]);
   expect(
-    selectCensus(rows, { ...defaultCensus, sort: "status", dir: "asc" }).map(({ slug }) => slug),
+    selectCensus(rows, { ...defaultCensus, sort: "status", dir: "asc" }, compareText).map(
+      ({ slug }) => slug,
+    ),
   ).toEqual(["c", "a", "b"]);
-  expect(selectCensus(rows, { ...defaultCensus, status: "traded" })).toEqual([second, first]);
+  expect(selectCensus(rows, { ...defaultCensus, status: "traded" }, compareText)).toEqual([
+    second,
+    first,
+  ]);
 });
 
 test("renders all filtered rows, with reason and TVL escaped or formatted", () => {
-  const html = censusView(rows, { ...defaultCensus, status: "traded" }, formatUsd);
+  const html = censusView(rows, { ...defaultCensus, status: "traded" }, formatUsd, compareText);
   expect(html).toContain('value="traded" selected');
   expect(html).toContain("2 of 3");
   expect(html.indexOf(censusSummary(rows))).toBeGreaterThan(0);
@@ -89,8 +101,10 @@ test("board counts and links exclude two protocols ranked by a watchlist overrid
     const route = parseRoute(hash);
     if (route.page !== "census") throw new Error(`Bad census link ${hash}`);
     expect(censusHash(route.state)).toBe(hash);
-    expect(selectCensus(census, route.state, board).map((row) => row.slug)).toEqual([slug]);
-    const html = censusView(census, route.state, formatUsd, board);
+    expect(selectCensus(census, route.state, compareText, board).map((row) => row.slug)).toEqual([
+      slug,
+    ]);
+    const html = censusView(census, route.state, formatUsd, compareText, board);
     expect(html.replace(/<[^>]+>/g, "")).toContain(
       "6 protocols = 1 pre-token (ranked) + 2 traded + 1 token, unpriced + 2 excluded",
     );
@@ -105,12 +119,12 @@ test("sorts by displayed status and reason, with ascending slug ties in both dir
     { ...first, status: "pre-token", reason: "Alpha" },
   ];
   const slugs = (sort: "status" | "reason", dir: "asc" | "desc") =>
-    selectCensus(records, { ...defaultCensus, sort, dir }).map(({ slug }) => slug);
+    selectCensus(records, { ...defaultCensus, sort, dir }, compareText).map(({ slug }) => slug);
   expect(slugs("status", "asc")).toEqual(["c", "a", "b"]);
   expect(slugs("status", "desc")).toEqual(["a", "b", "c"]);
   expect(slugs("reason", "asc")).toEqual(["a", "b", "c"]);
   expect(slugs("reason", "desc")).toEqual(["c", "a", "b"]);
-  expect(censusView(records, { ...defaultCensus, sort: "reason" }, formatUsd)).toContain(
-    `aria-sort="descending"><button type="button" data-sort="reason">Reason</button>`,
-  );
+  expect(
+    censusView(records, { ...defaultCensus, sort: "reason" }, formatUsd, compareText),
+  ).toContain(`aria-sort="descending"><button type="button" data-sort="reason">Reason</button>`);
 });

@@ -99,7 +99,11 @@ test("the card reconstructs launch and implied values within 2%, including fille
     expect(html, slug).toMatch(
       /<span>Launch value<\/span>.*<span>× launch odds 12m<\/span>.*<span>Implied value<\/span>/,
     );
-    expect(html.indexOf('<ol class="waterfall">')).toBeLessThan(html.indexOf(equation ?? ""));
+    const waterfall = html.indexOf('<ol class="waterfall">');
+    const equationStart = html.indexOf('<p class="value-equation">');
+    expect(waterfall, slug).toBeGreaterThanOrEqual(0);
+    expect(equationStart, slug).toBeGreaterThanOrEqual(0);
+    expect(waterfall, slug).toBeLessThan(equationStart);
     if (change_7d === null) {
       expect(growth).toBe("1.000");
       expect(html).toContain("Missing TVL change. The model uses zero growth.");

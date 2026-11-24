@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { FARM_ASSUMPTIONS } from "../../../src/domain/farming/assumptions.ts";
-import { makeFarmPlan } from "../../../src/domain/farming/plans.ts";
+import { makeFarmPlan, scheduleFarmMinutes } from "../../../src/domain/farming/plans.ts";
 import { farmTables } from "../../../src/domain/farming/playbook-data.ts";
 import { planPortfolio } from "../../../src/domain/farming/portfolio.ts";
 import { mulberry32 } from "../../../src/domain/shared/prng.ts";
@@ -203,4 +203,27 @@ test("keeps seeded portfolios within cash and weekly hours and selects each prot
     expect(new Set(positions.map(({ slug }) => slug)).size).toBe(positions.length);
     expect(positions.every(({ netUsd }) => netUsd > 0)).toBe(true);
   }
+});
+
+test("selects multiple seeded offers while limiting the busiest week", () => {
+  const random = mulberry32(18);
+  const rows = Array.from({ length: 5 }, (_, i) =>
+    row(String(i), i + 1, 8_000_000 + 1_000_000 * random()),
+  );
+  const hoursPerWeek = 0.75;
+  const { positions } = planPortfolio(rows, { budgetUsd: 60_000, hoursPerWeek, assumptions });
+  expect(positions.length).toBeGreaterThanOrEqual(2);
+  const selected = rows.filter(({ protocol }) =>
+    positions.some(({ slug }) => slug === protocol.slug),
+  );
+  const weeklyMinutes = Array<number>(assumptions.weeksPerYear).fill(0);
+  for (const [i, { plan }] of selected.entries()) {
+    for (const [week, minutes] of scheduleFarmMinutes(plan).entries()) {
+      const waived = i > 0 && week === 0 ? (plan.fundingStep?.minutes ?? 0) : 0;
+      weeklyMinutes[week] = (weeklyMinutes[week] ?? 0) + minutes - waived;
+    }
+  }
+  const busiestWeek = Math.max(...weeklyMinutes);
+  expect(busiestWeek).toBe(44);
+  expect(busiestWeek / assumptions.minutesPerHour).toBeLessThanOrEqual(hoursPerWeek);
 });

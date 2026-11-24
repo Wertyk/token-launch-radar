@@ -14,13 +14,13 @@ interface FittedFeatures {
   lnAge: number;
 }
 
-export interface ValueFeatures extends FittedFeatures {
+interface ValueFeatures extends FittedFeatures {
   growth: number;
 }
 
-export type FeatureFlag = "growth-missing" | "age-missing" | "outside-comps-range";
+type FeatureFlag = "growth-missing" | "age-missing" | "outside-comps-range";
 
-export interface FeatureRow {
+interface FeatureRow {
   features: ValueFeatures;
   flags: FeatureFlag[];
 }
@@ -35,7 +35,7 @@ export interface ValueModel {
   coefficients: FittedFeatures & { intercept: number };
 }
 
-export interface Valuation extends FeatureRow {
+interface Valuation extends FeatureRow {
   valueUsd: number;
   launch_value_usd: number;
   decomposition: {

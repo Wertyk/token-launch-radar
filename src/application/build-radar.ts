@@ -20,7 +20,7 @@ import { groupComparableCategories } from "../domain/valuation/categories.ts";
 import { comparablesFromFamilies } from "../domain/valuation/comparables.ts";
 import type { ValueDiagnostics } from "../domain/valuation/diagnostics.ts";
 import { describeBoardValues } from "../domain/valuation/diagnostics.ts";
-import { jackknifePlusCoverage, leaveOneFamilyOut } from "../domain/valuation/jackknife.ts";
+import { jackknifePlusBands, leaveOneFamilyOut } from "../domain/valuation/jackknife.ts";
 import type { Prediction } from "../domain/valuation/metrics.ts";
 import type { RankedRow, ValueModel } from "../domain/valuation/model.ts";
 import { fitValueModel, rankBoard } from "../domain/valuation/model.ts";
@@ -40,9 +40,7 @@ export interface RadarResult {
   board: RadarRow[];
   model: ValueModel & ModelValidation;
   rowDiagnostics: ReadonlyMap<string, ValueDiagnostics>;
-  intervalCoverage: number | null;
-  intervalCounts: NonNullable<ReturnType<typeof jackknifePlusCoverage>>["counts"] | null;
-  looScatter: (Prediction & { inside: boolean })[];
+  looScatter: (Prediction & { p10: number | null; p90: number | null })[];
   launchClock: LaunchClock;
 }
 
@@ -100,7 +98,7 @@ export function buildRadar(snapshot: Snapshot, tables = farmTables()): RadarResu
   const validationRows = groupComparableCategories(inputs.comparables, inputs.families);
   const refits = leaveOneFamilyOut(inputs.comparables, model.lambda);
   const boardValues = describeBoardValues(board, inputs.comparables, refits, as_of);
-  const coverage = jackknifePlusCoverage(inputs.comparables);
+  const bands = jackknifePlusBands(inputs.comparables);
   const { looPredictions, ...validation } = validateModel(validationRows);
   const rowDiagnostics = new Map(
     boardValues.map(({ protocol: { slug }, diagnostics }) => [slug, diagnostics]),
@@ -117,11 +115,17 @@ export function buildRadar(snapshot: Snapshot, tables = farmTables()): RadarResu
     board,
     model: { ...model, ...validation },
     rowDiagnostics,
-    intervalCounts: coverage?.counts ?? null,
-    intervalCoverage: coverage ? coverage.counts.covered / inputs.comparables.length : null,
-    looScatter: coverage
-      ? looPredictions.map((point) => ({ ...point, inside: coverage.coveredSlugs.has(point.slug) }))
-      : [],
+    looScatter: looPredictions.flatMap((point) => {
+      const band = bands.get(point.slug);
+      if (!band) return [];
+      return [
+        {
+          ...point,
+          p10: Number.isFinite(band.p10) ? band.p10 : null,
+          p90: Number.isFinite(band.p90) ? band.p90 : null,
+        },
+      ];
+    }),
     launchClock,
   };
 }
@@ -134,5 +138,10 @@ export function recomputeRadar(
 ) {
   const inputs = radarInputs(snapshot);
   const { model, board } = rankRadar(snapshot, inputs, lambda, launchClock, tables);
-  return { model, board, families: inputs.families, houseRule: houseRuleMembership(snapshot) };
+  return {
+    model,
+    board,
+    families: inputs.families,
+    houseRule: houseRuleMembership(snapshot),
+  };
 }

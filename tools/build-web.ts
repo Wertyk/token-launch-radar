@@ -26,7 +26,9 @@ const config = fileURLToPath(new URL("../biome.json", import.meta.url));
 
 function formatBundle(source: string): Buffer {
   // The generated module headers add paths to the dossier without affecting the script.
-  const script = source.replace(/^\/\/ (?:src\/[\w./-]+\.ts|<stdin>)\n/gm, "");
+  const script = source
+    .replace(/^\/\/ (?:src\/[\w./-]+\.ts|<stdin>)\n/gm, "")
+    .replaceAll("/* @__PURE__ */ ", "");
   const formatted = execFileSync(
     process.execPath,
     [

@@ -8,24 +8,11 @@ export function renderDataScript(
   board: BoardRows,
   {
     census,
-    houseRule,
     model,
     rowDiagnostics,
-    intervalCoverage,
-    intervalCounts,
     looScatter,
     launchClock,
-  }: Pick<
-    RadarResult,
-    | "census"
-    | "houseRule"
-    | "model"
-    | "rowDiagnostics"
-    | "intervalCoverage"
-    | "intervalCounts"
-    | "looScatter"
-    | "launchClock"
-  >,
+  }: Pick<RadarResult, "census" | "model" | "rowDiagnostics" | "looScatter" | "launchClock">,
   tables: FarmTables,
 ): string {
   const { as_of, floor_usd, source, protocols, watchlist } = snapshot;
@@ -41,10 +28,7 @@ export function renderDataScript(
     protocols,
     watchlist,
     census,
-    houseRule,
     model,
-    intervalCoverage,
-    intervalCounts,
     looScatter,
     launchClock,
     board: {

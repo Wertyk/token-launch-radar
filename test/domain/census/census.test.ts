@@ -4,8 +4,31 @@ import {
   buildCensus,
   checkHouseRule,
   classify,
+  houseRuleMembership,
 } from "../../../src/domain/census/census.ts";
 import { protocol } from "../protocol-fixture.ts";
+
+test("reports sorted membership, respecting the TVL floor, token fields and exclusions", () => {
+  expect(
+    houseRuleMembership({
+      floor_usd: 100,
+      watchlist: ["z-token", "z-hit", "q-absent", "b-bridge", "a-hit", "a-low"],
+      protocols: [
+        protocol({ slug: "z-hit", tvl_usd: 101 }),
+        protocol({ slug: "z-extra", tvl_usd: 101 }),
+        protocol({ slug: "z-token", tvl_usd: 101, symbol: "FIX" }),
+        protocol({ slug: "b-bridge", tvl_usd: 101, category: "Bridge" }),
+        protocol({ slug: "a-hit", tvl_usd: 100 }),
+        protocol({ slug: "a-extra", tvl_usd: 101 }),
+        protocol({ slug: "a-low", tvl_usd: 99 }),
+      ],
+    }),
+  ).toEqual({
+    truePositives: ["a-hit", "z-hit"],
+    falsePositives: ["a-extra", "z-extra"],
+    falseNegatives: ["a-low", "b-bridge", "q-absent", "z-token"],
+  });
+});
 
 test.each([
   [{ mcap_usd: 10 }, "traded", /positive market cap/],

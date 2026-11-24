@@ -3,6 +3,7 @@ import { estimateFarmEconomics } from "../domain/farming/economics.ts";
 import { planPortfolio } from "../domain/farming/portfolio.ts";
 import { launchProbability12 } from "../domain/launch-clock/clock.ts";
 import { formatUsd } from "../domain/shared/money.ts";
+import { compareText } from "../domain/shared/order.ts";
 import type { Snapshot } from "../domain/snapshot.ts";
 import { daysBetween } from "../domain/snapshot.ts";
 import { logValue } from "../domain/valuation/model.ts";
@@ -47,6 +48,7 @@ export const browserApi = {
   planPortfolio,
   launchProbability12,
   formatUsd,
+  compareText,
   daysBetween,
   logValue,
   buildRadar,

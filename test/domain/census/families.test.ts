@@ -1,6 +1,15 @@
 import { expect, test } from "vitest";
-import { groupFamilies } from "../../../src/domain/census/families.ts";
+import { familyKey, groupFamilies } from "../../../src/domain/census/families.ts";
 import { protocol } from "../protocol-fixture.ts";
+
+test("keys Gecko families and slug singletons separately, regardless of symbol", () => {
+  expect(familyKey(protocol({ slug: "own", gecko_id: "shared", symbol: "FIX" }))).toBe(
+    "gecko:shared",
+  );
+  expect(familyKey(protocol({ slug: "shared", gecko_id: null, symbol: "FIX" }))).toBe(
+    "slug:shared",
+  );
+});
 
 test("groups by Gecko ID, retains singletons, and chooses the lowest slug", () => {
   const representative = protocol({ slug: "a-market", gecko_id: "shared", tvl_usd: 20 });

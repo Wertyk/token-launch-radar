@@ -21,12 +21,12 @@ const EXCHANGE_NAME =
 
 export type TokenStatus = "traded" | "token-unpriced" | "pre-token" | "excluded";
 
-export interface Classification {
+interface Classification {
   status: TokenStatus;
   reason: string;
 }
 
-export interface CensusEntry extends Classification {
+interface CensusEntry extends Classification {
   protocol: Protocol;
   familyKey: string;
 }
@@ -45,7 +45,7 @@ export interface HouseRuleCheck {
   precision: number;
 }
 
-export type BoardReason = "pre-token" | "watchlist";
+type BoardReason = "pre-token" | "watchlist";
 
 export interface BoardEntry extends CensusEntry {
   boardReasons: BoardReason[];

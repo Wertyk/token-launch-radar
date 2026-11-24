@@ -4,12 +4,9 @@ import type { Protocol } from "../snapshot.ts";
 import { FARM_ASSUMPTIONS as assumptions } from "./assumptions.ts";
 import type { FarmTables } from "./playbook-data.ts";
 
-export { ASSUMPTIONS_AS_OF } from "./assumptions.ts";
-export const DEFAULT_DEPOSIT_USD = assumptions.depositsUsd[0];
-
 type Cadence = "once" | "weekly" | "monthly";
 
-export interface FarmStep {
+interface FarmStep {
   action: string;
   chain: string | null;
   costUsd: number;
@@ -85,7 +82,7 @@ function roundUsd(value: number): number {
 export function makeFarmPlan(
   protocol: Pick<Protocol, "category" | "chains" | "name">,
   { playbooks, gas, funding, uncollateralized }: FarmTables,
-  depositUsd: number = DEFAULT_DEPOSIT_USD,
+  depositUsd: number = assumptions.depositsUsd[0],
 ): FarmPlan {
   if (!Number.isFinite(depositUsd) || depositUsd <= 0) {
     throw new Error("The farm plan needs a positive, finite deposit size.");

@@ -1,6 +1,9 @@
 import { expect, test } from "vitest";
 import { groupFamilies } from "../../../src/domain/census/families.ts";
+import { makeFarmPlan } from "../../../src/domain/farming/plans.ts";
+import { farmTables } from "../../../src/domain/farming/playbook-data.ts";
 import type { Protocol } from "../../../src/domain/snapshot.ts";
+import { ablateLoo } from "../../../src/domain/valuation/ablation.ts";
 import { fitMultiples } from "../../../src/domain/valuation/baselines.ts";
 import { groupComparableCategories } from "../../../src/domain/valuation/categories.ts";
 import {
@@ -9,8 +12,12 @@ import {
 } from "../../../src/domain/valuation/category-model.ts";
 import { comparablesFromFamilies } from "../../../src/domain/valuation/comparables.ts";
 import { seededFolds, splitFolds, walkForwardSplit } from "../../../src/domain/valuation/folds.ts";
-import { scorePredictions } from "../../../src/domain/valuation/metrics.ts";
-import { selectLambda } from "../../../src/domain/valuation/selection.ts";
+import { medianLogError, scorePredictions } from "../../../src/domain/valuation/metrics.ts";
+import {
+  innerFolds,
+  selectByMedianError,
+  selectLambda,
+} from "../../../src/domain/valuation/selection.ts";
 import { fitOuterFold, validateModel } from "../../../src/domain/valuation/validation.ts";
 import { protocol } from "../protocol-fixture.ts";
 
@@ -31,6 +38,85 @@ function validationRows(protocols: readonly Protocol[]) {
 }
 
 const rows = validationRows(fixtureRows);
+
+test.each(["Risk Curators", "Onchain Capital Allocator"])(
+  "treats %s as other for valuation and yield for farming",
+  (category) => {
+    const example = protocol({ category, mcap_usd: 100 });
+    expect(validationRows([example])[0]?.category).toBe("other");
+    const tables = farmTables();
+    const plan = makeFarmPlan(example, tables);
+    expect(plan).toEqual(makeFarmPlan({ ...example, category: "Yield" }, tables));
+    expect(plan).not.toEqual(makeFarmPlan({ ...example, category: null }, tables));
+  },
+);
+
+test("inner folds remove empty splits and keep members of a family together", () => {
+  const [a, b] = rows;
+  if (!a || !b) throw new Error("Expected two comparables");
+  const twin = { ...a, slug: "twin" };
+  expect(innerFolds([a, twin])).toEqual([]);
+  const folds = innerFolds([twin, b, a]);
+  expect(folds).toHaveLength(2);
+  expect(folds).toContainEqual({ train: [b], test: [a, twin] });
+  expect(folds).toContainEqual({ train: [a, twin], test: [b] });
+  expect(innerFolds([a, b, twin])).toEqual(folds);
+});
+
+test("selects the lowest median log error and keeps ties in candidate order", () => {
+  const [a, b, c] = rows;
+  if (!a || !b || !c) throw new Error("Expected three comparables");
+  const folds = [
+    { train: [a], test: [b, c] },
+    { train: [b, c], test: [a] },
+  ];
+  const candidates = [
+    [3, 3, 0],
+    [1, 1, 99],
+    [-1, -1, 99],
+  ] as const;
+  const fallback = [0, 0, 0] as const;
+  const predict = ({ test }: (typeof folds)[number], offsets: readonly number[]) =>
+    test.map((row) => ({
+      slug: row.slug,
+      actual: 0,
+      predicted: offsets[[a, b, c].indexOf(row)] ?? 0,
+    }));
+  expect(selectByMedianError(folds, candidates, fallback, predict)).toBe(candidates[1]);
+  expect(selectByMedianError([], candidates, fallback, predict)).toBe(fallback);
+});
+
+test("takes the median of absolute natural-log errors", () => {
+  expect(
+    medianLogError([
+      { slug: "a", actual: 1, predicted: 9 },
+      { slug: "b", actual: 0, predicted: -4 },
+      { slug: "c", actual: 2, predicted: 1 },
+      { slug: "d", actual: 4, predicted: 2 },
+    ]),
+  ).toBe(3);
+  expect(medianLogError([])).toBeUndefined();
+});
+
+test("ablation scores holdouts against the full reference and skips folds with no training rows", () => {
+  const [a, b] = rows;
+  if (!a || !b) throw new Error("Expected two comparables");
+  const train = [{ ...a, lnTvl: 0, lnAge: 0, growth: 0, target: 4 }];
+  const test = [{ ...b, lnTvl: 0, lnAge: 0, growth: 0, target: 4 + Math.LN2 }];
+  const full = { n: 1, medianMultiplier: 1.5, spearman: null };
+  const { full: reference, ...variants } = ablateLoo(
+    [
+      { train, test },
+      { train: [], test },
+    ],
+    full,
+  );
+  expect(reference).toEqual(full);
+  expect(Object.values(variants)).toHaveLength(5);
+  for (const score of Object.values(variants)) {
+    expect(score).toEqual({ n: 1, medianMultiplier: 2, spearman: null });
+  }
+});
 
 test("assigns families to five balanced, deterministic folds independent of input order", () => {
   const shared = rows[0];

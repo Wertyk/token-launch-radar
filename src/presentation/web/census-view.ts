@@ -1,5 +1,5 @@
+import type { browserApi } from "../../application/browser-api.ts";
 import type { CensusRecord } from "../../domain/census/census.ts";
-import { compareText } from "./board.ts";
 import { escapeHtml as esc, formatInteger } from "./format.ts";
 import { table } from "./render.ts";
 import type { CensusState } from "./state.ts";
@@ -25,6 +25,7 @@ export function censusSummary(rows: readonly CensusRecord[], ranked?: BoardMembe
 export function selectCensus(
   rows: readonly CensusRecord[],
   { status, sort, dir, unranked }: CensusState,
+  compareText: typeof browserApi.compareText,
   ranked?: BoardMembership,
 ) {
   const direction = dir === "asc" ? 1 : -1;
@@ -43,9 +44,10 @@ export function censusView(
   rows: readonly CensusRecord[],
   state: CensusState,
   usd: (value: number) => string,
+  compareText: typeof browserApi.compareText,
   ranked?: BoardMembership,
 ) {
-  const selected = selectCensus(rows, state, ranked);
+  const selected = selectCensus(rows, state, compareText, ranked);
   return `<h2>Protocol census</h2>${censusSummary(rows)}
     <div class="filters">
       <label class="field">Status <select name="status"><option value="">All statuses</option>${Object.entries(

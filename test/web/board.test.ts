@@ -1,8 +1,12 @@
 import { expect, test } from "vitest";
+import { compareText } from "../../src/domain/shared/order.ts";
 import type { BoardRow } from "../../src/presentation/web/board.ts";
-import { selectRows } from "../../src/presentation/web/board.ts";
-import type { SortKey } from "../../src/presentation/web/state.ts";
+import { selectRows as select } from "../../src/presentation/web/board.ts";
+import type { BoardState, SortKey } from "../../src/presentation/web/state.ts";
 import { defaultState } from "../../src/presentation/web/state.ts";
+
+const selectRows = (rows: readonly BoardRow[], state: BoardState) =>
+  select(rows, state, compareText);
 
 const alpha: BoardRow = {
   slug: "a",

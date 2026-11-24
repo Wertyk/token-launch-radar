@@ -65,7 +65,6 @@ function compareText(first, second) {
 	return 0
 }
 
-var DEFAULT_DEPOSIT_USD = defaults.depositsUsd[0]
 var horizonYears = defaults.horizonMonths / defaults.monthsPerYear
 var occurrences = {
 	once: 1,
@@ -96,7 +95,7 @@ function shorten(text, max) {
 function roundUsd(value) {
 	return Math.round(value * 100) / 100
 }
-function makeFarmPlan(protocol, {playbooks, gas, funding, uncollateralized}, depositUsd = DEFAULT_DEPOSIT_USD) {
+function makeFarmPlan(protocol, {playbooks, gas, funding, uncollateralized}, depositUsd = defaults.depositsUsd[0]) {
 	if (!Number.isFinite(depositUsd) || depositUsd <= 0) {
 		throw new Error("The farm plan needs a positive, finite deposit size.")
 	}
@@ -200,8 +199,8 @@ function planPortfolio(rows, {budgetUsd, hoursPerWeek, chains, assumptions}) {
 			probability: economics.launchProbability12
 		}
 	})
-	const funded = /* @__PURE__ */ new Set()
-	const selected = /* @__PURE__ */ new Set()
+	const funded = new Set()
+	const selected = new Set()
 	const positions = []
 	let feesCents = 0
 	const totals = {
@@ -312,7 +311,7 @@ function familyKey({slug, gecko_id}) {
 	return gecko_id === null ? `slug:${slug}` : `gecko:${gecko_id}`
 }
 function groupFamilies(protocols) {
-	const families = /* @__PURE__ */ new Map()
+	const families = new Map()
 	for (const protocol of [...protocols].sort((a, b) => compareText(a.slug, b.slug))) {
 		const {tvl_usd, mcap_usd} = protocol
 		const key = familyKey(protocol)
@@ -338,7 +337,7 @@ function groupFamilies(protocols) {
 var BRIDGE_PRODUCT = "wrapped and bridged products are"
 var STAKED_PRODUCT = "staked products are"
 var HOUSE_RULE = " (house rule)."
-var EXCLUDED_CATEGORIES = /* @__PURE__ */ new Map([
+var EXCLUDED_CATEGORIES = new Map([
 	["Bridge", BRIDGE_PRODUCT],
 	["Canonical Bridge", BRIDGE_PRODUCT],
 	["Liquid Staking", STAKED_PRODUCT],
@@ -811,7 +810,12 @@ function rankRadar(snapshot, {families, comparables}, lambda, launchClock, table
 function recomputeRadar(snapshot, lambda, launchClock, tables) {
 	const inputs = radarInputs(snapshot)
 	const {model, board} = rankRadar(snapshot, inputs, lambda, launchClock, tables)
-	return {model, board, families: inputs.families, houseRule: houseRuleMembership(snapshot)}
+	return {
+		model,
+		board,
+		families: inputs.families,
+		houseRule: houseRuleMembership(snapshot)
+	}
 }
 
 function readPublishedSnapshot({meta, protocols, watchlist}) {
@@ -827,6 +831,7 @@ var browserApi = {
 	planPortfolio,
 	launchProbability12,
 	formatUsd,
+	compareText,
 	daysBetween,
 	logValue,
 	buildRadar: recomputeRadar,

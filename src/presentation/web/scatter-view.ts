@@ -1,10 +1,33 @@
 import type { RadarResult } from "../../application/build-radar.ts";
 import { formatCompactUsd } from "./format.ts";
+import type { CoverageCounts } from "./integrity.ts";
 import { multiplier } from "./integrity.ts";
 import { svg } from "./render.ts";
 
+export function scatterCoverage(points: readonly (RadarResult["looScatter"][number] | null)[]) {
+  const counts: CoverageCounts = { missLow: 0, covered: 0, missHigh: 0 };
+  const seen = new Set<string>();
+  const classified = points.flatMap((point) => {
+    if (!point) return [];
+    const { slug, actual, predicted, p10, p90 } = point;
+    if (
+      p10 === null ||
+      p90 === null ||
+      ![p10, p90, actual, predicted].every(Number.isFinite) ||
+      p10 > p90 ||
+      seen.has(slug)
+    )
+      return [];
+    seen.add(slug);
+    const result = actual < p10 ? "missLow" : actual > p90 ? "missHigh" : "covered";
+    counts[result]++;
+    return [{ actual, predicted, inside: result === "covered" }];
+  });
+  return { points: classified, counts, invalidPoints: points.length - classified.length };
+}
+
 export function launchValueScatter(
-  points: RadarResult["looScatter"],
+  { points, counts }: ReturnType<typeof scatterCoverage>,
   { model, flatMultiple }: RadarResult["model"]["validation"]["leaveOneFamilyOut"],
 ): string {
   const heading =
@@ -36,6 +59,5 @@ export function launchValueScatter(
     204,
     `${marks.join("")}<path class="identity" d="M59 178L372 8" stroke="currentColor" stroke-dasharray="4 3"></path>${circles.join("")}<text x="216" y="201" text-anchor="middle">Actual market cap (log USD)</text><text transform="translate(10 93) rotate(-90)" text-anchor="middle">Predicted (log USD)</text>`,
   );
-  const covered = points.filter(({ inside }) => inside).length;
-  return `${heading}${plot}<p class="caption">● Inside band · ○ Outside band · Dashed y = x<br>${covered}/${points.length} inside held-out P10–P90 · LOO median error ${multiplier(model.medianMultiplier)} vs ${multiplier(flatMultiple.medianMultiplier)} flat</p></section>`;
+  return `${heading}${plot}<p class="caption">● Inside band · ○ Outside band · Dashed y = x<br>${counts.covered}/${points.length} inside held-out P10–P90 · LOO median error ${multiplier(model.medianMultiplier)} vs ${multiplier(flatMultiple.medianMultiplier)} flat</p></section>`;
 }

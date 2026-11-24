@@ -1,8 +1,6 @@
-import type { RadarResult } from "../../application/build-radar.ts";
 import type { ValidationScore } from "../../domain/valuation/metrics.ts";
 import { escapeHtml as esc } from "./format.ts";
-import type { CheckRow, RecomputedRow } from "./recompute.ts";
-import { boardMismatches } from "./recompute.ts";
+import type { CheckRow } from "./recompute.ts";
 
 export interface HouseRuleEvidence {
   truePositives: readonly string[];
@@ -10,28 +8,31 @@ export interface HouseRuleEvidence {
   falseNegatives: readonly string[];
 }
 
-interface Evidence extends Pick<RadarResult, "intervalCounts"> {
+export interface CoverageCounts {
+  missLow: number;
+  covered: number;
+  missHigh: number;
+}
+
+interface Evidence {
   fitted: number;
   houseRule: HouseRuleEvidence;
+  intervalCounts: CoverageCounts;
+  invalidPoints: number;
   loo: { model: ValidationScore; flatMultiple: ValidationScore };
 }
 
 export function integrityChecks(
-  computed: readonly RecomputedRow[],
+  mismatches: readonly string[],
   published: readonly (CheckRow | null)[],
   watchlist: readonly string[],
-  { fitted, houseRule, intervalCounts, loo }: Evidence,
+  { fitted, houseRule, intervalCounts, invalidPoints, loo }: Evidence,
 ) {
-  const mismatches = boardMismatches(computed, published);
   const count = mismatches.length;
   const slugs = new Set(published.map((row) => row?.slug));
   const unique = new Set(watchlist);
   const covered = [...unique].filter((slug) => slugs.has(slug)).length;
-  const {
-    missLow,
-    covered: inside,
-    missHigh,
-  } = intervalCounts ?? { missLow: 0, covered: 0, missHigh: 0 };
+  const { missLow, covered: inside, missHigh } = intervalCounts;
   const samples = missLow + inside + missHigh;
   const matches = houseRule.truePositives.length;
   const extra = houseRule.falsePositives.length;
@@ -48,8 +49,12 @@ export function integrityChecks(
       label: `House rule ${matches}/${unique.size} recall${extra ? ` · ${extra} extra explained by parentProtocol` : ""}`,
     },
     {
-      pass: samples === fitted && inside / samples >= 0.8,
-      label: `${inside}/${samples} held-out traded caps inside P10–P90${samples === fitted ? "" : ` · ${samples}/${fitted} families`}`,
+      pass:
+        invalidPoints === 0 &&
+        Object.values(intervalCounts).every((n) => Number.isInteger(n) && n >= 0) &&
+        samples === fitted &&
+        inside / samples >= 0.8,
+      label: `${inside}/${samples} held-out traded caps inside P10–P90${samples === fitted ? "" : ` · ${samples}/${fitted} families`}${invalidPoints ? ` · ${invalidPoints} invalid` : ""}`,
     },
     {
       pass:

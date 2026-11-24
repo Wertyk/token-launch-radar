@@ -167,7 +167,7 @@ body:has(main .portfolio) nav a[href="#/plan"] {
   font-size: var(--font-small);
 }
 
-body:has(main .census) #summary {
+body:has(main .census) #summary:not(:has(.check-failed)) {
   display: none;
 }
 
@@ -666,10 +666,6 @@ button[data-sort]::after {
 
 .ranking.census th {
   padding-block: var(--s1);
-}
-
-h2 + div.filters {
-  margin-top: var(--s3);
 }
 
 .method {

@@ -1,3 +1,4 @@
+import type { browserApi } from "../../application/browser-api.ts";
 import type { BoardState, SortKey } from "./state.ts";
 
 export interface BoardRow {
@@ -18,11 +19,13 @@ export interface BoardRow {
   chains: readonly string[];
 }
 
-export function compareText(a: string, b: string): number {
-  return a < b ? -1 : Number(a > b);
-}
-
-function compareRows(a: BoardRow, b: BoardRow, sort: SortKey, direction: number): number {
+function compareRows(
+  a: BoardRow,
+  b: BoardRow,
+  sort: SortKey,
+  direction: number,
+  compareText: typeof browserApi.compareText,
+): number {
   if (sort === "name") return direction * compareText(a.name.toLowerCase(), b.name.toLowerCase());
   const first = a[sort];
   const second = b[sort];
@@ -32,7 +35,11 @@ function compareRows(a: BoardRow, b: BoardRow, sort: SortKey, direction: number)
   return direction * (Number(first) - Number(second));
 }
 
-export function selectRows(rows: readonly BoardRow[], state: BoardState): BoardRow[] {
+export function selectRows(
+  rows: readonly BoardRow[],
+  state: BoardState,
+  compareText: typeof browserApi.compareText,
+): BoardRow[] {
   const { sort, dir, cat, chain, wl } = state;
   const query = state.q.trim().toLowerCase();
   const direction = dir === "asc" ? 1 : -1;
@@ -44,5 +51,5 @@ export function selectRows(rows: readonly BoardRow[], state: BoardState): BoardR
         (!wl || row.watchlist) &&
         (!query || row.name.toLowerCase().includes(query)),
     )
-    .sort((a, b) => compareRows(a, b, sort, direction) || compareText(a.slug, b.slug));
+    .sort((a, b) => compareRows(a, b, sort, direction, compareText) || compareText(a.slug, b.slug));
 }

@@ -1,6 +1,10 @@
-import type { BoardRows, RadarRow } from "../../application/browser-api.ts";
+import type { BoardRows, buildRadar, RadarRow } from "../../application/browser-api.ts";
+import type { Protocol } from "../../domain/snapshot.ts";
+import type { ValueDiagnostics } from "../../domain/valuation/diagnostics.ts";
+import type { BoardRow } from "./board.ts";
 
 type Economics = RadarRow["economics"];
+type Interval = Pick<ValueDiagnostics, "interval_p10_usd" | "interval_p90_usd">;
 type RankedFields = Pick<
   RadarRow,
   "rank" | "launch_value_usd" | "implied_value_usd" | "farm_steps"
@@ -14,6 +18,7 @@ export type RecomputedRow = RankedFields & {
   economics: Omit<Economics, "deposits"> & { deposits: Readonly<Economics["deposits"]> };
 };
 export type CheckRow = RankedFields &
+  Interval &
   Pick<
     BoardRows["rows"][number],
     | "plan_chain"
@@ -41,6 +46,14 @@ function matchesFields(expected: unknown, actual: unknown): boolean {
   );
 }
 
+export function boardInterval(row: Interval | null | undefined) {
+  if (!row) return null;
+  const { interval_p10_usd: low, interval_p90_usd: high } = row;
+  return Number.isFinite(low) && Number.isFinite(high) && low <= high
+    ? ([low, high] as const)
+    : null;
+}
+
 export function boardMismatches(
   computed: readonly RecomputedRow[],
   published: readonly (CheckRow | null)[],
@@ -59,7 +72,7 @@ export function boardMismatches(
       farm_steps,
     } = row;
     const { airdropYieldApr: airdrop_yield_apr, ...farm_economics } = economics;
-    const expected: CheckRow = {
+    const expected: Omit<CheckRow, keyof Interval> = {
       slug,
       rank,
       launch_value_usd,
@@ -74,7 +87,64 @@ export function boardMismatches(
       plan_total_minutes: plan.totalMinutes,
       farm_economics,
     };
-    if (!matchesFields(expected, published[index])) slugs.push(slug);
+    if (!boardInterval(published[index]) || !matchesFields(expected, published[index]))
+      slugs.push(slug);
   }
   return slugs;
+}
+
+export function prepareBoard(
+  { board, families }: ReturnType<typeof buildRadar>,
+  published: readonly ((CheckRow & ValueDiagnostics) | null)[],
+  watchlist: readonly string[],
+  age: (row: Protocol) => number | null,
+) {
+  const evidence = new Map(published.flatMap((row) => (row ? [[row.slug, row]] : [])));
+  return {
+    diagnostics: evidence,
+    families: new Map(families.map((family) => [family.representative.slug, family])),
+    protocols: new Map(board.map((row) => [row.protocol.slug, row])),
+    mismatches: boardMismatches(board, published),
+    rows: boardViewRows(board, evidence, watchlist, age),
+  };
+}
+
+function boardViewRows(
+  board: readonly RadarRow[],
+  evidence: ReadonlyMap<string, Interval>,
+  watchlist: readonly string[],
+  age: (row: Protocol) => number | null,
+): BoardRow[] {
+  const watchlisted = new Set(watchlist);
+  return board.map(
+    ({
+      protocol,
+      rank,
+      status,
+      implied_value_usd: value,
+      launch_value_usd: launchValue,
+      launchProbability12: odds,
+      plan,
+    }) => {
+      const { slug, name, tvl_usd, change_7d, category, chains } = protocol;
+      const diagnostics = evidence.get(slug);
+      return {
+        slug,
+        name,
+        rank,
+        category,
+        chains,
+        value,
+        launchValue,
+        odds,
+        tvl: tvl_usd,
+        growth: change_7d,
+        interval: boardInterval(diagnostics),
+        age: status === "traded" || status === "token-unpriced" ? null : age(protocol),
+        cost: plan.totalCostUsd,
+        time: plan.totalMinutes,
+        watchlist: watchlisted.has(slug),
+      };
+    },
+  );
 }

@@ -1,37 +1,35 @@
 import type * as BrowserApi from "../../application/browser-api.ts";
-import type { RadarResult } from "../../application/build-radar.ts";
-import type { FarmTables } from "../../domain/farming/playbook-data.ts";
 import type { Protocol, Snapshot } from "../../domain/snapshot.ts";
-import type { ValueDiagnostics } from "../../domain/valuation/diagnostics.ts";
 import type { BoardRow } from "./board.ts";
 import { selectRows } from "./board.ts";
 import { boardRows, boardTable } from "./board-view.ts";
 import { censusSummary, censusView } from "./census-view.ts";
 import { clockSampleSize } from "./clock-view.ts";
+import { type bindControls, setSelect } from "./controls.ts";
 import { element } from "./dom.ts";
 import { escapeHtml as esc, formatInteger, signedTerm } from "./format.ts";
 import { integrityChecks, integrityStrip } from "./integrity.ts";
-import { methodView } from "./method-view.ts";
+import { type methodFarmAssumptions, methodView } from "./method-view.ts";
 import type { MountPlanner } from "./planner.ts";
 import type { ProtocolExtras } from "./protocol-extras.ts";
 import { protocolView } from "./protocol-view.ts";
+import { prepareBoard } from "./recompute.ts";
 import { options } from "./render.ts";
+import { scatterCoverage } from "./scatter-view.ts";
+import { boot, type RadarData } from "./startup.ts";
 import type { BoardState } from "./state.ts";
 import { boardHash, censusHash, isCensusSortKey, isSortKey, parseRoute } from "./state.ts";
 
-type PublishedRow = BrowserApi.BoardRows["rows"][number] &
-  ValueDiagnostics & { launch_p12: number };
-
-interface RadarData
-  extends BrowserApi.PublishedSnapshot,
-    Pick<RadarResult, "model" | "launchClock" | "census" | "intervalCounts" | "looScatter"> {
-  meta: BrowserApi.PublishedSnapshot["meta"] & FarmTables;
-  board: { rows: (PublishedRow | null)[] };
-}
-
 declare global {
   interface Window {
-    Radar: typeof BrowserApi.browserApi & ProtocolExtras & { mountPlanner: MountPlanner };
+    Radar: typeof BrowserApi.browserApi &
+      Partial<
+        ProtocolExtras & {
+          mountPlanner: MountPlanner;
+          bindControls: typeof bindControls;
+          methodFarmAssumptions: typeof methodFarmAssumptions;
+        }
+      >;
     RADAR_DATA?: RadarData;
   }
 }
@@ -40,7 +38,7 @@ function mountBoard(
   main: HTMLElement,
   rows: readonly BoardRow[],
   summary: string,
-  usd: typeof BrowserApi.formatUsd,
+  { formatUsd: usd, compareText }: Window["Radar"],
 ) {
   main.innerHTML =
     summary + element<HTMLTemplateElement>("#board-filters").innerHTML + boardTable();
@@ -57,16 +55,6 @@ function mountBoard(
     Math.max(1, ...rows.flatMap(({ value, interval }) => [value, interval?.[1] ?? 0])),
   );
 
-  function setSelect(select: HTMLSelectElement, value: string): void {
-    select.querySelector("[data-temporary]")?.remove();
-    select.value = value;
-    if (select.selectedIndex < 0) {
-      const option = new Option(value, value, false, true);
-      option.dataset.temporary = "";
-      select.add(option);
-    }
-  }
-
   return (state: BoardState) => {
     if (search.value !== state.q) search.value = state.q;
     setSelect(category, state.cat);
@@ -82,7 +70,7 @@ function mountBoard(
               ? "ascending"
               : "descending";
     }
-    const selected = selectRows(rows, state);
+    const selected = selectRows(rows, state, compareText);
     results.textContent = `${formatInteger(selected.length)} of ${formatInteger(rows.length)} protocols`;
     body.innerHTML = boardRows(selected, state, maxLogValue, usd);
   };
@@ -92,51 +80,25 @@ function start(main: HTMLElement, snapshot: Snapshot, data: RadarData, api: Wind
   const { buildRadar, daysBetween, farmAssumptions, formatUsd } = api;
   const { launchClock, meta } = data;
   const radar = buildRadar(snapshot, data.model.lambda, launchClock, meta);
+  const { validation, ablation } = data.model;
+  const scatter = scatterCoverage(data.looScatter);
   // These are board.json's rows. The CLI end-to-end test checks every published field.
   const published = data.board.rows;
-  const families = new Map(radar.families.map((family) => [family.representative.slug, family]));
-  const evidence = new Map(published.map((row) => [row?.slug, row ?? undefined]));
-  const checks = integrityChecks(radar.board, published, snapshot.watchlist, {
-    fitted: radar.model.n,
-    houseRule: radar.houseRule,
-    intervalCounts: data.intervalCounts,
-    loo: data.model.validation.leaveOneFamilyOut,
-  });
-  const watchlisted = new Set(snapshot.watchlist);
-  const protocols = new Map(radar.board.map((row) => [row.protocol.slug, row]));
   const age = ({ listed_at }: Protocol) =>
     listed_at === null ? null : daysBetween(listed_at, snapshot.as_of);
-  const rows: BoardRow[] = radar.board.map(
-    ({
-      protocol,
-      rank,
-      status,
-      implied_value_usd: value,
-      launch_value_usd: launchValue,
-      launchProbability12: odds,
-      plan,
-    }) => {
-      const { slug, name, tvl_usd, change_7d, category, chains } = protocol;
-      const diagnostics = evidence.get(slug);
-      return {
-        slug,
-        name,
-        rank,
-        category,
-        chains,
-        value,
-        launchValue,
-        odds,
-        tvl: tvl_usd,
-        growth: change_7d,
-        interval: diagnostics ? [diagnostics.interval_p10_usd, diagnostics.interval_p90_usd] : null,
-        age: status === "traded" || status === "token-unpriced" ? null : age(protocol),
-        cost: plan.totalCostUsd,
-        time: plan.totalMinutes,
-        watchlist: watchlisted.has(slug),
-      };
-    },
+  const { families, diagnostics, protocols, mismatches, rows } = prepareBoard(
+    radar,
+    published,
+    snapshot.watchlist,
+    age,
   );
+  const checks = integrityChecks(mismatches, published, snapshot.watchlist, {
+    fitted: radar.model.n,
+    houseRule: radar.houseRule,
+    intervalCounts: scatter.counts,
+    invalidPoints: scatter.invalidPoints,
+    loo: validation.leaveOneFamilyOut,
+  });
   element("#snapshot-date").textContent = `Snapshot · ${snapshot.as_of}`;
   const counts = [
     snapshot.protocols.length,
@@ -167,18 +129,26 @@ function start(main: HTMLElement, snapshot: Snapshot, data: RadarData, api: Wind
       updatePlan = undefined;
     }
     if (route.page === "board") {
-      updateBoard ??= mountBoard(main, rows, censusSummary(data.census, protocols), formatUsd);
+      updateBoard ??= mountBoard(main, rows, censusSummary(data.census, protocols), api);
       updateBoard(route.state);
     } else if (route.page === "plan") {
-      updatePlan ??= api.mountPlanner(main, radar.board, meta, api);
-      updatePlan(location.hash);
+      if (api.mountPlanner) {
+        updatePlan ??= api.mountPlanner(main, radar.board, meta, api);
+        updatePlan(location.hash);
+      } else {
+        main.innerHTML = "<h2>Farm planner unavailable</h2>";
+      }
     } else if (route.page === "census") {
-      main.innerHTML = censusView(data.census, route.state, formatUsd, protocols);
+      main.innerHTML = censusView(data.census, route.state, formatUsd, api.compareText, protocols);
     } else if (route.page === "method") {
       main.innerHTML = methodView(
-        { ...data, houseRule: radar.houseRule },
-        farmAssumptions,
-        formatUsd,
+        {
+          model: { ...radar.model, validation, ablation },
+          launchClock,
+          houseRule: radar.houseRule,
+          scatter,
+        },
+        api.methodFarmAssumptions?.(farmAssumptions, formatUsd),
       );
     } else {
       const back = boardHash(route.state);
@@ -188,12 +158,12 @@ function start(main: HTMLElement, snapshot: Snapshot, data: RadarData, api: Wind
             detail,
             {
               age: age(detail.protocol),
-              coefficients: data.model.coefficients,
-              lnValue: api.logValue(detail.features, data.model),
+              coefficients: radar.model.coefficients,
+              lnValue: api.logValue(detail.features, radar.model),
               back,
               usd: formatUsd,
               farm: farmAssumptions,
-              diagnostics: evidence.get(detail.protocol.slug),
+              diagnostics: diagnostics.get(detail.protocol.slug),
               families,
               launchClock,
               launchProbability12: api.launchProbability12,
@@ -209,67 +179,9 @@ function start(main: HTMLElement, snapshot: Snapshot, data: RadarData, api: Wind
     main.dataset.ready = "";
   }
 
-  main.addEventListener("click", (event) => {
-    if (!(event.target instanceof Element)) return;
-    const sort = event.target.closest<HTMLButtonElement>("button[data-sort]")?.dataset.sort;
-    const route = parseRoute(location.hash);
-    const dir =
-      "state" in route && route.state.sort === sort && route.state.dir === "asc" ? "desc" : "asc";
-    if (route.page === "board" && isSortKey(sort)) {
-      location.hash = boardHash({ ...route.state, sort, dir });
-    } else if (route.page === "census" && isCensusSortKey(sort)) {
-      location.hash = censusHash({ ...route.state, sort, dir });
-    } else if (
-      !event.target.closest("a") &&
-      !event.metaKey &&
-      !event.ctrlKey &&
-      !event.shiftKey &&
-      !event.altKey
-    ) {
-      const link = event.target.closest("tr[data-protocol]")?.querySelector("a");
-      if (link) location.hash = link.hash;
-    }
-  });
-  main.addEventListener("submit", (event) => event.preventDefault());
-  main.addEventListener("input", ({ target }) => {
-    if (!(target instanceof HTMLInputElement) || target.name !== "q") return;
-    const route = parseRoute(location.hash);
-    if (route.page !== "board") return;
-    history.replaceState(null, "", boardHash({ ...route.state, q: target.value }));
-    draw();
-  });
-  main.addEventListener("change", (event) => {
-    const target = event.target;
-    const route = parseRoute(location.hash);
-    if (
-      route.page === "census" &&
-      target instanceof HTMLSelectElement &&
-      target.name === "status"
-    ) {
-      location.hash = censusHash({
-        ...route.state,
-        status: target.value as typeof route.state.status,
-      });
-      return;
-    }
-    if (route.page !== "board") return;
-    const { state } = route;
-    if (target instanceof HTMLSelectElement && (target.name === "cat" || target.name === "chain")) {
-      location.hash = boardHash({ ...state, [target.name]: target.value });
-    } else if (target instanceof HTMLInputElement && target.name === "wl") {
-      location.hash = boardHash({ ...state, wl: target.checked });
-    }
-  });
-  window.addEventListener("hashchange", draw);
   draw();
+  window.addEventListener("hashchange", draw);
+  api.bindControls?.(main, draw, { boardHash, censusHash, isCensusSortKey, isSortKey, parseRoute });
 }
 
-const root = element("main");
-const { RADAR_DATA: publishedData, Radar: core } = window;
-const input = publishedData && core.readPublishedSnapshot(publishedData);
-if (publishedData && input) {
-  start(root, input, publishedData, core);
-} else {
-  root.innerHTML =
-    "<h2>Snapshot data unavailable</h2><p>Generate it with <code>pnpm radar</code>.</p>";
-}
+boot(start);

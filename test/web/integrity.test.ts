@@ -1,7 +1,11 @@
 import { expect, test } from "vitest";
 import { buildRadar } from "../../src/application/browser-api.ts";
 import { farmTables } from "../../src/domain/farming/playbook-data.ts";
-import { integrityChecks, integrityStrip } from "../../src/presentation/web/integrity.ts";
+import {
+  integrityChecks as checkEvidence,
+  integrityStrip,
+} from "../../src/presentation/web/integrity.ts";
+import { boardMismatches } from "../../src/presentation/web/recompute.ts";
 import { protocol } from "../domain/protocol-fixture.ts";
 
 const deposits = [
@@ -21,6 +25,8 @@ const row = {
   rank: 1,
   launch_value_usd: 48,
   implied_value_usd: 20,
+  interval_p10_usd: 8,
+  interval_p90_usd: 80,
   farm_steps: ["plan"],
   plan_chain: plan.chain,
   plan_one_time_cost_usd: plan.oneTimeCostUsd,
@@ -45,11 +51,21 @@ const data = {
     falseNegatives: [],
   },
   intervalCounts: { missLow: 12, covered: 104, missHigh: 12 },
+  invalidPoints: 0,
   loo: {
     model: { medianMultiplier: 3.4559, n: 128, spearman: 0.39 },
     flatMultiple: { medianMultiplier: 5.0696, n: 128, spearman: 0.42 },
   },
 };
+
+function integrityChecks(
+  computed: Parameters<typeof boardMismatches>[0],
+  published: Parameters<typeof boardMismatches>[1],
+  watchlist: readonly string[],
+  data: Parameters<typeof checkEvidence>[3],
+) {
+  return checkEvidence(boardMismatches(computed, published), published, watchlist, data);
+}
 
 test("reports live board equality, watchlist coverage and matching diagnostic populations", () => {
   const checks = integrityChecks([computed], [row], ["a", "a"], data);
@@ -74,9 +90,20 @@ test("marks each failed check and handles unavailable validation", () => {
   expect(checks[0]?.label).toContain("1 mismatch");
   expect(checks[1]?.label).toContain("0/1");
   expect(checks[4]?.label).toContain("—");
-  const unavailable = integrityChecks([computed], [row], ["a"], { ...data, intervalCounts: null });
+  const unavailable = integrityChecks([computed], [row], ["a"], {
+    ...data,
+    intervalCounts: { missLow: 0, covered: 0, missHigh: 0 },
+  });
   expect(unavailable[3]?.pass).toBe(false);
   expect(unavailable[3]?.label).toContain("0/128");
+});
+
+test.each([
+  { missLow: -1, covered: 129, missHigh: 0 },
+  { missLow: 11.5, covered: 104, missHigh: 12.5 },
+])("rejects impossible coverage counts even when they add up to the fit (%o)", (intervalCounts) => {
+  const checks = integrityChecks([computed], [row], ["a"], { ...data, intervalCounts });
+  expect(checks[3]?.pass).toBe(false);
 });
 
 test("flags the row whose published $10K cost increased by $1,000", () => {

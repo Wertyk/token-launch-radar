@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { appendFileSync, cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, cpSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,8 +22,10 @@ test("checks the generated bundles byte for byte without writing them", () => {
     expect(run("--check").status).toBe(0);
 
     const core = readFileSync(join(cwd, "dashboard/2-core.js"), "utf8");
+    expect(core).not.toContain("@__PURE__");
+    expect(core).not.toContain("DEFAULT_DEPOSIT_USD");
     expect(core).not.toMatch(
-      /fitCategoryModel|categoryGroup|categoryPenalty|selectLambda|fitLaunchClock|pava/,
+      /fitCategoryModel|categoryGroup|categoryPenalty|fitLaunchClock|pava|jackknifePlusBands|heldOutBands|selectLambda|leaveOneFamilyOut|seededFolds|medianLogError/,
     );
     expect(core).not.toMatch(/parseSnapshot|duplicate slug|Log the supply rate|Ethereum:\[3,8\]/);
     expect(core).toContain("function planPortfolio");
@@ -51,6 +53,7 @@ test("checks the generated bundles byte for byte without writing them", () => {
     const bundle = join(cwd, "dashboard/3-ui.js");
     const original = readFileSync(bundle, "utf8");
     expect(() => new Script(original)).not.toThrow();
+    expect(original).not.toContain("function compareText(");
     expect(original).not.toMatch(
       /function (mountPlanner|parsePlanState|ageSparkline|protocolFacts)|Farm assumptions<\/legend>|Nearest comparables/,
     );
@@ -86,6 +89,22 @@ test("ships the scatter renderer with the screenshot-visible UI", () => {
   expect(ui).toContain("LOO median error");
 });
 
+test("ships one copy of every screenshot-visible board check and row helper in the UI bundle", () => {
+  const files = ["2-core.js", "3-ui.js", "5-extras.js"];
+  const bundles = files.map((file) => readFileSync(new URL(`dashboard/${file}`, root), "utf8"));
+  for (const name of [
+    "prepareBoard",
+    "boardViewRows",
+    "boardMismatches",
+    "matchesFields",
+    "boardInterval",
+  ]) {
+    const declaration = new RegExp(`\\bfunction ${name}\\(`, "g");
+    const counts = bundles.map((bundle) => [...bundle.matchAll(declaration)].length);
+    expect(counts, name).toEqual([0, 1, 0]);
+  }
+});
+
 test("keeps the guide, design tokens and browser bundles within the judge's source budget", () => {
   const bytes = ["0-guide.md", "1-tokens.css", "2-core.js", "3-ui.js"].reduce(
     (total, file) => total + readFileSync(new URL(`dashboard/${file}`, root)).length,
@@ -117,19 +136,38 @@ test("keeps five screenshot-backed rubric bullets with their code references in 
   }
 });
 
-test("references only bundled functions for backticked identifiers in the judge's guide", () => {
-  const guide = readFileSync(new URL("dashboard/0-guide.md", root), "utf8");
-  const bundles = ["2-core.js", "3-ui.js"]
-    .map((file) => readFileSync(new URL(`dashboard/${file}`, root), "utf8"))
+const dashboard = new URL("dashboard/", root);
+
+function unresolvedGuideReferences(guide: string): string[] {
+  const files = readdirSync(dashboard, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map(({ name }) => name);
+  const bundles = files
+    .filter((file) => file.endsWith(".js"))
+    .map((file) => readFileSync(new URL(file, dashboard), "utf8"))
     .join("\n");
   const declared = new Set(
     Array.from(
-      bundles.matchAll(/^\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/gm),
+      bundles.matchAll(
+        /^\s*(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)\b/gm,
+      ),
       ([, name]) => name,
     ),
   );
-  const referenced = Array.from(guide.matchAll(/`([A-Za-z_$][\w$]*)`/g), ([, name]) => name);
-  expect(referenced.filter((name) => !declared.has(name))).toEqual([]);
+  const referenced = Array.from(guide.matchAll(/`([^`]+)`/g), ([, name]) => name ?? "");
+  return referenced.filter((name) => !declared.has(name) && !files.includes(name));
+}
+
+test("resolves every backticked guide reference to a bundled declaration or shipped filename", () => {
+  const guide = readFileSync(new URL("0-guide.md", dashboard), "utf8");
+  expect(unresolvedGuideReferences(guide)).toEqual([]);
+  expect(unresolvedGuideReferences(guide.replace("1-tokens.css", "1-tokenz.css"))).toEqual([
+    "1-tokenz.css",
+  ]);
+});
+
+test("drops the unused census filter spacing rule", () => {
+  expect(readFileSync(new URL("4-app.css", dashboard), "utf8")).not.toContain("h2 + div.filters");
 });
 
 test("shows each validation result and the fitted clock in separate Criterion 2 sub-bullets", () => {

@@ -9,13 +9,14 @@ import { buildRadar, recomputeRadar } from "../../src/application/build-radar.ts
 import { farmTables } from "../../src/domain/farming/playbook-data.ts";
 import type { BoardRow } from "../../src/presentation/web/board.ts";
 import { boardRows, boardTable } from "../../src/presentation/web/board-view.ts";
-import { methodView } from "../../src/presentation/web/method-view.ts";
+import { methodFarmAssumptions, methodView } from "../../src/presentation/web/method-view.ts";
 import {
   nearestComparables,
   protocolClock,
   protocolFacts,
 } from "../../src/presentation/web/protocol-extras.ts";
 import { protocolView } from "../../src/presentation/web/protocol-view.ts";
+import { scatterCoverage } from "../../src/presentation/web/scatter-view.ts";
 import { defaultState } from "../../src/presentation/web/state.ts";
 import { protocol } from "../domain/protocol-fixture.ts";
 
@@ -166,10 +167,14 @@ test("shows the published validation, ablation, scatter and dated assumptions in
     ],
   };
   const looScatter = [
-    { slug: "a", actual: Math.log(100), predicted: Math.log(1_000), inside: true },
-    { slug: "b", actual: Math.log(10_000), predicted: Math.log(100), inside: false },
+    { slug: "a", actual: Math.log(100), predicted: Math.log(1_000), p10: 0, p90: Math.log(500) },
+    { slug: "b", actual: Math.log(10_000), predicted: Math.log(100), p10: 0, p90: Math.log(500) },
   ];
-  const html = methodView({ ...data, model, launchClock, looScatter }, farmAssumptions, formatUsd);
+  const scatter = scatterCoverage(looScatter);
+  const html = methodView(
+    { ...data, model, launchClock, scatter },
+    methodFarmAssumptions(farmAssumptions, formatUsd),
+  );
   for (const text of [
     "λ",
     "Leave one family out",

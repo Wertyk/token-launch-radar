@@ -79,6 +79,12 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
       "758 protocols = 198 pre-token (ranked) + 128 traded + 288 token, unpriced + 144 excluded",
     );
     expect(await ready.getByRole("combobox", { name: "Status" }).inputValue()).toBe("excluded");
+    const status = ready.getByRole("combobox", { name: "Status" });
+    const censusCount = ready.locator("#results");
+    await status.selectOption({ label: "All statuses" });
+    await expect.poll(() => censusCount.textContent()).toBe("758 of 758 protocols");
+    await status.selectOption({ label: "Records no token" });
+    await expect.poll(() => censusCount.textContent()).toBe("198 of 758 protocols");
     await goTo("#/?cat=Unknown&chain=Unknown");
     const category = ready.getByRole("combobox", { name: "Category" });
     const chain = ready.getByRole("combobox", { name: "Chain" });

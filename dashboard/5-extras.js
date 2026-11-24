@@ -1,39 +1,46 @@
 (() => {
-function element(selector, root = document) {
-	const found = root.querySelector(selector)
-	if (!found) throw new Error(`Missing dashboard element ${selector}`)
-	return found
-}
-
-var sliderLimits = {share: 100, haircut: 100, rate: 250, yield: 50, carry: 50}
-function limit(value, fallback) {
-	const number = Number(value)
-	return value?.trim() && Number.isFinite(number) && number >= 0 ? number : fallback
-}
-function parsePlanState(hash) {
-	const query = hash.split(/\?(.*)/s, 2)[1]
-	const params = new URLSearchParams(query)
-	const list = /(?:^|&)chains=([^&]*)/.exec(query ?? "")?.[1] ?? ""
-	const chains = list.split(",").map(part => new URLSearchParams(`c=${part}`).get("c") ?? "")
-	const sliders = {}
-	for (const key of Object.keys(sliderLimits)) {
-		const value = limit(params.get(key), -1)
-		if (value >= 0 && value <= sliderLimits[key]) sliders[key] = value
-	}
-	return {
-		budgetUsd: limit(params.get("budget"), 5e3),
-		hoursPerWeek: limit(params.get("hours"), 3),
-		chains: [...new Set(chains.filter(Boolean))],
-		sliders
-	}
-}
-function planHash({budgetUsd, hoursPerWeek, chains, sliders}) {
-	const list = chains.map(encodeURIComponent).join(",")
-	const params = new URLSearchParams({budget: String(budgetUsd), hours: String(hoursPerWeek)})
-	for (const key of Object.keys(sliderLimits)) {
-		if (sliders[key] !== void 0) params.set(key, String(sliders[key]))
-	}
-	return `#/plan?${params}${list ? `&chains=${list}` : ""}`
+function bindControls(main, draw, {boardHash, censusHash, isCensusSortKey, isSortKey, parseRoute}) {
+	main.addEventListener("click", event => {
+		if (!(event.target instanceof Element)) return
+		const sort = event.target.closest("button[data-sort]")?.dataset.sort
+		const route = parseRoute(location.hash)
+		const dir = "state" in route && route.state.sort === sort && route.state.dir === "asc" ? "desc" : "asc"
+		if (route.page === "board" && isSortKey(sort)) {
+			location.hash = boardHash({...route.state, sort, dir})
+		} else if (route.page === "census" && isCensusSortKey(sort)) {
+			location.hash = censusHash({...route.state, sort, dir})
+		} else if (!event.target.closest("a") && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+			const link = event.target.closest("tr[data-protocol]")?.querySelector("a")
+			if (link) location.hash = link.hash
+		}
+	})
+	main.addEventListener("submit", event => event.preventDefault())
+	main.addEventListener("input", ({target}) => {
+		if (!(target instanceof HTMLInputElement) || target.name !== "q") return
+		const route = parseRoute(location.hash)
+		if (route.page !== "board") return
+		history.replaceState(null, "", boardHash({...route.state, q: target.value}))
+		draw()
+	})
+	main.addEventListener("change", event => {
+		const target = event.target
+		const route = parseRoute(location.hash)
+		if (route.page === "census" && target instanceof HTMLSelectElement && target.name === "status") {
+			location.hash = censusHash({
+				...route.state,
+				status: target.value,
+				unranked: false
+			})
+			return
+		}
+		if (route.page !== "board") return
+		const {state} = route
+		if (target instanceof HTMLSelectElement && (target.name === "cat" || target.name === "chain")) {
+			location.hash = boardHash({...state, [target.name]: target.value})
+		} else if (target instanceof HTMLInputElement && target.name === "wl") {
+			location.hash = boardHash({...state, wl: target.checked})
+		}
+	})
 }
 
 function formatInteger(value) {
@@ -80,6 +87,68 @@ function options(values) {
 			return `<option value="${label}">${label}</option>`
 		})
 		.join("")
+}
+
+function ageSparkline(maxAge, age, odds, oddsAt) {
+	const y = fraction => ((1 - fraction) * 40).toFixed(2)
+	const marker = (age / maxAge) * 100
+	const line = Array.from({length: 33}, (_, index) => {
+		const x = (index / 32) * 100
+		return `${x.toFixed(2)},${y(oddsAt((x / 100) * maxAge))}`
+	}).join(" ")
+	return svg(100, 40, `<polyline points="${line}"></polyline><circle cx="${marker.toFixed(2)}" cy="${y(odds)}" r="2" class="age-point"></circle>`)
+}
+
+function methodFarmAssumptions(farm, usd) {
+	return {
+		title: `Farm assumptions · ${farm.asOf}`,
+		rows: [
+			["Horizon", `${farm.horizonMonths} months`],
+			["Airdrop share of launch cap", formatOdds(farm.airdropShareOfLaunchCap)],
+			["Farmer haircut (retained)", formatOdds(farm.farmerHaircut)],
+			["Labor", `${usd(farm.hourlyRateUsd)}/h`],
+			["Capital APR", `${formatOdds(farm.capitalApr.yieldBearing)} yield-bearing · ${formatOdds(farm.capitalApr.nonYielding)} non-yielding`],
+			["Verdict test deposits", farm.depositsUsd.map(usd).join(" · ")],
+			["EV / cost cutoffs", `FARM ≥ ${farm.farmThreshold} · THIN ≥ ${farm.thinThreshold}`]
+		]
+	}
+}
+
+function element(selector, root = document) {
+	const found = root.querySelector(selector)
+	if (!found) throw new Error(`Missing dashboard element ${selector}`)
+	return found
+}
+
+var sliderLimits = {share: 100, haircut: 100, rate: 250, yield: 50, carry: 50}
+function limit(value, fallback) {
+	const number = Number(value)
+	return value?.trim() && Number.isFinite(number) && number >= 0 ? number : fallback
+}
+function parsePlanState(hash) {
+	const query = hash.split(/\?(.*)/s, 2)[1]
+	const params = new URLSearchParams(query)
+	const list = /(?:^|&)chains=([^&]*)/.exec(query ?? "")?.[1] ?? ""
+	const chains = list.split(",").map(part => new URLSearchParams(`c=${part}`).get("c") ?? "")
+	const sliders = {}
+	for (const key of Object.keys(sliderLimits)) {
+		const value = limit(params.get(key), -1)
+		if (value >= 0 && value <= sliderLimits[key]) sliders[key] = value
+	}
+	return {
+		budgetUsd: limit(params.get("budget"), 5e3),
+		hoursPerWeek: limit(params.get("hours"), 3),
+		chains: [...new Set(chains.filter(Boolean))],
+		sliders
+	}
+}
+function planHash({budgetUsd, hoursPerWeek, chains, sliders}) {
+	const list = chains.map(encodeURIComponent).join(",")
+	const params = new URLSearchParams({budget: String(budgetUsd), hours: String(hoursPerWeek)})
+	for (const key of Object.keys(sliderLimits)) {
+		if (sliders[key] !== void 0) params.set(key, String(sliders[key]))
+	}
+	return `#/plan?${params}${list ? `&chains=${list}` : ""}`
 }
 
 var sliderLabels = {
@@ -239,16 +308,6 @@ function growthText(growth) {
 	return `<span class="${trend}">${text}</span>`
 }
 
-function ageSparkline(maxAge, age, odds, oddsAt) {
-	const y = fraction => ((1 - fraction) * 40).toFixed(2)
-	const marker = (age / maxAge) * 100
-	const line = Array.from({length: 33}, (_, index) => {
-		const x = (index / 32) * 100
-		return `${x.toFixed(2)},${y(oddsAt((x / 100) * maxAge))}`
-	}).join(" ")
-	return svg(100, 40, `<polyline points="${line}"></polyline><circle cx="${marker.toFixed(2)}" cy="${y(odds)}" r="2" class="age-point"></circle>`)
-}
-
 var reasonLabels = {
 	"pre-token": "Meets the pre-token rule",
 	watchlist: "House watchlist"
@@ -286,5 +345,12 @@ function nearestComparables(slugs, families, usd) {
 	return `<section class="panel compact"><h3>Nearest comparables</h3>${table(["Twin", "Family market cap"], rows)}</section>`
 }
 
-Object.assign(window.Radar, {mountPlanner, protocolFacts, protocolClock, nearestComparables})
+Object.assign(window.Radar, {
+	bindControls,
+	methodFarmAssumptions,
+	mountPlanner,
+	protocolFacts,
+	protocolClock,
+	nearestComparables
+})
 })();

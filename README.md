@@ -10,9 +10,10 @@ This offline radar scans a sealed DefiLlama snapshot of 758 protocols. It identi
 
 - The prediction is `ln V = b0 + b1·ln(TVL·(1+g7)) + b3·ln(days with no token)`. Seven-day growth is `g7 = clamp(change_7d, −50, 100) / 100`, and `g7` is 0 when `change_7d` is missing. The coefficients are fitted to traded market caps using TVL and days since listing, with one comparable per `gecko_id` family.
 - Traded comparables’ TVL changes can reflect their own token prices, so the prediction applies seven-day TVL momentum through the fitted TVL slope.
+- Dated inputs in the value model have a one-day floor. For undated rows the value model uses the median log age among dated fit families (equivalent to 1,000 days on this snapshot), and the launch clock uses the median age across its dated protocols (677 days).
 - `V` estimates total token market cap conditional on launch with the protocol’s record held fixed, independently of launch odds.
 - Each unrounded value decomposes into base × TVL × growth × age, with the last three terms shown as multipliers.
-- Implied value multiplies launch value by 12-month launch odds, estimated from the snapshot’s token records by listing age.
+- Implied value multiplies launch value by 12-month launch odds, estimated from the snapshot’s token records by listing age. The snapshot cannot validate future launch odds.
 
 ## Farm plans and dashboard
 

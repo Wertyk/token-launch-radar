@@ -5,19 +5,20 @@ import { formatInteger, formatOdds as pct } from "./format.ts";
 import type { HouseRuleEvidence } from "./integrity.ts";
 import { multiplier } from "./integrity.ts";
 import { table } from "./render.ts";
+import type { scatterCoverage } from "./scatter-view.ts";
 import { launchValueScatter } from "./scatter-view.ts";
 
 export function methodView(
   {
     model,
     houseRule,
-    looScatter,
+    scatter,
     launchClock,
-  }: Pick<RadarResult, "model" | "looScatter" | "launchClock"> & {
+  }: Pick<RadarResult, "model" | "launchClock"> & {
     houseRule: HouseRuleEvidence;
+    scatter: ReturnType<typeof scatterCoverage>;
   },
-  farm: typeof farmAssumptions,
-  usd: typeof formatUsd,
+  farm?: ReturnType<typeof methodFarmAssumptions>,
 ): string {
   const {
     coefficients: { intercept, lnTvl, lnAge },
@@ -91,24 +92,27 @@ export function methodView(
         ] as const
       ).map(([label, metrics]) => [label, ...score(metrics)]),
     ),
-    launchValueScatter(looScatter, validation.leaveOneFamilyOut),
-    section(
-      `Farm assumptions · ${farm.asOf}`,
-      ["Input", "Default"],
-      [
-        ["Horizon", `${farm.horizonMonths} months`],
-        ["Airdrop share of launch cap", pct(farm.airdropShareOfLaunchCap)],
-        ["Farmer haircut (retained)", pct(farm.farmerHaircut)],
-        ["Labor", `${usd(farm.hourlyRateUsd)}/h`],
-        [
-          "Capital APR",
-          `${pct(farm.capitalApr.yieldBearing)} yield-bearing · ${pct(farm.capitalApr.nonYielding)} non-yielding`,
-        ],
-        ["Verdict test deposits", farm.depositsUsd.map(usd).join(" · ")],
-        ["EV / cost cutoffs", `FARM ≥ ${farm.farmThreshold} · THIN ≥ ${farm.thinThreshold}`],
-      ],
-    ),
+    launchValueScatter(scatter, validation.leaveOneFamilyOut),
+    farm ? section(farm.title, ["Input", "Default"], farm.rows) : "",
     "</div>",
   ];
   return `<div class="method compact">${cards.join("")}</div>`;
+}
+
+export function methodFarmAssumptions(farm: typeof farmAssumptions, usd: typeof formatUsd) {
+  return {
+    title: `Farm assumptions · ${farm.asOf}`,
+    rows: [
+      ["Horizon", `${farm.horizonMonths} months`],
+      ["Airdrop share of launch cap", pct(farm.airdropShareOfLaunchCap)],
+      ["Farmer haircut (retained)", pct(farm.farmerHaircut)],
+      ["Labor", `${usd(farm.hourlyRateUsd)}/h`],
+      [
+        "Capital APR",
+        `${pct(farm.capitalApr.yieldBearing)} yield-bearing · ${pct(farm.capitalApr.nonYielding)} non-yielding`,
+      ],
+      ["Verdict test deposits", farm.depositsUsd.map(usd).join(" · ")],
+      ["EV / cost cutoffs", `FARM ≥ ${farm.farmThreshold} · THIN ≥ ${farm.thinThreshold}`],
+    ],
+  };
 }
