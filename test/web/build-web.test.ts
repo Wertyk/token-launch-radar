@@ -104,7 +104,7 @@ test("keeps five screenshot-backed rubric bullets with their code references in 
   expect(bullets).toHaveLength(5);
   expect(bullets[0]).toContain("758 accounted for");
   const functions = [
-    ["buildRadar", "integrityChecks"],
+    ["recomputeRadar", "integrityChecks"],
     ["fitValueModel", "launchProbability12", "buildCensus"],
     ["makeFarmPlan", "estimateFarmEconomics"],
     ["selectRows", "selectCensus"],
@@ -115,6 +115,21 @@ test("keeps five screenshot-backed rubric bullets with their code references in 
     expect(bullet).toMatch(new RegExp(`^- \\*\\*Criterion ${index + 1} \\([^)]*\\d-\\w+`));
     for (const name of names) expect(bullet).toContain(`\`${name}\``);
   }
+});
+
+test("references only bundled functions for backticked identifiers in the judge's guide", () => {
+  const guide = readFileSync(new URL("dashboard/0-guide.md", root), "utf8");
+  const bundles = ["2-core.js", "3-ui.js"]
+    .map((file) => readFileSync(new URL(`dashboard/${file}`, root), "utf8"))
+    .join("\n");
+  const declared = new Set(
+    Array.from(
+      bundles.matchAll(/^\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/gm),
+      ([, name]) => name,
+    ),
+  );
+  const referenced = Array.from(guide.matchAll(/`([A-Za-z_$][\w$]*)`/g), ([, name]) => name);
+  expect(referenced.filter((name) => !declared.has(name))).toEqual([]);
 });
 
 test("shows each validation result and the fitted clock in separate Criterion 2 sub-bullets", () => {
@@ -138,12 +153,11 @@ test("shows each validation result and the fitted clock in separate Criterion 2 
     expect(value).toContain(result);
   }
   for (const result of [
-    "`fitLaunchClock` fits PAVA by listing age (proxy)",
-    "`launchProbability12` gives board odds",
+    "Build-time PAVA fits token shares by listing age (proxy)",
     "645 listed protocols",
     "32.5% at 171 days",
     "79.7% at 1,841 days",
-    "2.1%–50.5%",
+    "Board odds 2.1%–50.5% via `launchProbability12`",
   ]) {
     expect(odds).toContain(result);
   }
