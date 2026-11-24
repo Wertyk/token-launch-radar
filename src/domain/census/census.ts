@@ -3,15 +3,16 @@ import type { Protocol, Snapshot } from "../snapshot.ts";
 import type { ProtocolFamily } from "./families.ts";
 import { familyKey, groupFamilies } from "./families.ts";
 
-const BRIDGE_PRODUCT = "A bridged or wrapped product of a traded token";
-const STAKED_PRODUCT = "A staked product of a traded token";
+const BRIDGE_PRODUCT = "wrapped and bridged products are";
+const STAKED_PRODUCT = "staked products are";
+const HOUSE_RULE = " (house rule).";
 const EXCLUDED_CATEGORIES = new Map([
   ["Bridge", BRIDGE_PRODUCT],
   ["Canonical Bridge", BRIDGE_PRODUCT],
   ["Liquid Staking", STAKED_PRODUCT],
   ["Liquid Restaking", STAKED_PRODUCT],
   ["Restaked BTC", STAKED_PRODUCT],
-  ["CEX", "An exchange custody product"],
+  ["CEX", "exchange custody is"],
 ]);
 const VERSION_SUFFIX = /\s(?:v\d+(?:\.\d+)*|\d+(?:\.\d+)+)$/i;
 const PRODUCT_WORD = /(?<![\p{L}\p{M}\p{N}_])(?:wrapped|staked|staking)(?![\p{L}\p{M}\p{N}_])/iu;
@@ -58,20 +59,19 @@ function tokenFields({ gecko_id, symbol }: Protocol): string | null {
 function exclusionReason(protocol: Protocol): string | null {
   const { category } = protocol;
   const product = category === null ? undefined : EXCLUDED_CATEGORIES.get(category);
-  if (product) return `${product} (category ${category}).`;
+  if (product) return `${category} category: ${product} not ranked${HOUSE_RULE}`;
   const name = protocol.name.trim();
   if (VERSION_SUFFIX.test(name)) {
-    return "Version marker for an existing protocol.";
+    return `Name ends in a version marker${HOUSE_RULE}`;
   }
   const productWord = name.match(PRODUCT_WORD)?.[0];
   if (productWord !== undefined) {
-    const kind = productWord.toLowerCase() === "wrapped" ? "wrapped" : "staked";
-    return `“${productWord}” marks a ${kind} product of a traded token.`;
+    return `Name contains “${productWord}”${HOUSE_RULE}`;
   }
   const exchange = name.match(EXCHANGE_NAME)?.[0];
   return exchange === undefined
     ? null
-    : `Starts with exchange name “${exchange}” (exchange product).`;
+    : `Name starts with the exchange name “${exchange}”${HOUSE_RULE}`;
 }
 
 export function classify(protocol: Protocol, marketCap = protocol.mcap_usd): Classification {

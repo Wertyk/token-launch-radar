@@ -25,38 +25,38 @@ test.each([
 });
 
 test.each([
-  ["Bridge", "A bridged or wrapped product of a traded token"],
-  ["Canonical Bridge", "A bridged or wrapped product of a traded token"],
-  ["Liquid Staking", "A staked product of a traded token"],
-  ["Liquid Restaking", "A staked product of a traded token"],
-  ["Restaked BTC", "A staked product of a traded token"],
-  ["CEX", "An exchange custody product"],
-])("explains the excluded product in category %s", (category, product) => {
+  ["Bridge", "wrapped and bridged products are"],
+  ["Canonical Bridge", "wrapped and bridged products are"],
+  ["Liquid Staking", "staked products are"],
+  ["Liquid Restaking", "staked products are"],
+  ["Restaked BTC", "staked products are"],
+  ["CEX", "exchange custody is"],
+])("names the category and house rule for %s", (category, rule) => {
   const result = classify(protocol({ category }));
   expect(result).toEqual({
     status: "excluded",
-    reason: `${product} (category ${category}).`,
+    reason: `${category} category: ${rule} not ranked (house rule).`,
   });
   expect(result.reason.length).toBeLessThan(90);
 });
 
 test.each([
-  ["Foo V2", /version marker.*existing protocol/i],
-  ["Pool\u00a0V2", /version marker/i],
-  ["Pool\tV2", /version marker/i],
-  ["Foo v3", /version marker/i],
-  ["Foo 2.0", /version marker/i],
-  ["Foo 3.1", /version marker/i],
-  ["Wrapped Bar", /“Wrapped”.*wrapped product/i],
-  ["Staked Baz", /“Staked”.*staked product/i],
-  ["Bar (STAKING)", /“STAKING”.*staked product/],
-  ["Binance Qux", /exchange name.*exchange product/i],
-  ["kRaKeN-Test", /exchange name/i],
+  ["Foo V2", "Name ends in a version marker"],
+  ["Pool\u00a0V2", "Name ends in a version marker"],
+  ["Pool\tV2", "Name ends in a version marker"],
+  ["Foo v3", "Name ends in a version marker"],
+  ["Foo 2.0", "Name ends in a version marker"],
+  ["Foo 3.1", "Name ends in a version marker"],
+  ["Wrapped Bar", "Name contains “Wrapped”"],
+  ["Staked Baz", "Name contains “Staked”"],
+  ["Bar (STAKING)", "Name contains “STAKING”"],
+  ["Binance Qux", "Name starts with the exchange name “Binance”"],
+  ["kRaKeN-Test", "Name starts with the exchange name “kRaKeN”"],
 ] as const)("excludes %s and explains the matching rule", (name, reason) => {
   const result = classify(protocol({ name }));
   expect(result).toEqual({
     status: "excluded",
-    reason: expect.stringMatching(reason),
+    reason: `${reason} (house rule).`,
   });
   expect(result.reason.length).toBeLessThan(90);
 });

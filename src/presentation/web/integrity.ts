@@ -1,7 +1,8 @@
 import type { RadarResult } from "../../application/build-radar.ts";
 import type { ValidationScore } from "../../domain/valuation/metrics.ts";
+import { escapeHtml as esc } from "./format.ts";
 import type { CheckRow, RecomputedRow } from "./recompute.ts";
-import { countBoardMismatches } from "./recompute.ts";
+import { boardMismatches } from "./recompute.ts";
 
 export interface HouseRuleEvidence {
   truePositives: readonly string[];
@@ -21,7 +22,8 @@ export function integrityChecks(
   watchlist: readonly string[],
   { fitted, houseRule, intervalCounts, loo }: Evidence,
 ) {
-  const mismatches = countBoardMismatches(computed, published);
+  const mismatches = boardMismatches(computed, published);
+  const count = mismatches.length;
   const slugs = new Set(published.map(({ slug }) => slug));
   const unique = [...new Set(watchlist)];
   const covered = unique.filter((slug) => slugs.has(slug)).length;
@@ -37,8 +39,8 @@ export function integrityChecks(
   const samePopulation = model.n === fitted && flat.n === fitted;
   return [
     {
-      pass: mismatches === 0,
-      label: `Recompute ${mismatches ? "≠" : "="} board.json: values, ranks, plans, economics (${mismatches ? `${mismatches} mismatched` : published.length})`,
+      pass: count === 0,
+      label: `Recompute ${count ? "≠" : "="} board.json: values, ranks, plans, economics (${count ? `${count} mismatched: ${mismatches[0]}` : published.length})`,
     },
     { pass: covered === unique.length, label: `Watchlist ${covered}/${unique.length} on board` },
     {
@@ -58,6 +60,15 @@ export function integrityChecks(
       label: `LOO median error ${multiplier(model.medianMultiplier)} vs ${multiplier(flat.medianMultiplier)} flat${samePopulation ? "" : ` · model n=${model.n}/${fitted}, flat n=${flat.n}/${fitted}`}`,
     },
   ];
+}
+
+export function integrityStrip(checks: ReturnType<typeof integrityChecks>): string {
+  return `<ul class="integrity">${checks
+    .map(
+      ({ pass, label }) =>
+        `<li class="${pass ? "check" : "check-failed"}">${pass ? "✓" : "✗"} ${esc(label)}</li>`,
+    )
+    .join("")}</ul>`;
 }
 
 export function multiplier(value: number | null): string {

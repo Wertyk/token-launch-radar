@@ -116,31 +116,31 @@ const families=new Map;for(const protocol of[...protocols].sort((a,b)=>compareTe
 const{tvl_usd,mcap_usd}=protocol;const key=familyKey(protocol);const marketCap=mcap_usd!==null&&mcap_usd>
 0?mcap_usd:null;const family=families.get(key);if(family){family.members.push(protocol);family.tvl_usd+=
 tvl_usd;family.mcap_usd??=marketCap}else{families.set(key,{key,representative:protocol,members:[protocol],
-tvl_usd,mcap_usd:marketCap})}}return[...families.values()]}var BRIDGE_PRODUCT="A bridged or wrapped product of a traded token";var STAKED_PRODUCT="A staked pro\
-duct of a traded token";var EXCLUDED_CATEGORIES=new Map([["Bridge",BRIDGE_PRODUCT],["Canonical Bridg\
-e",BRIDGE_PRODUCT],["Liquid Staking",STAKED_PRODUCT],["Liquid Restaking",STAKED_PRODUCT],["Restaked \
-BTC",STAKED_PRODUCT],["CEX","An exchange custody product"]]);var VERSION_SUFFIX=/\s(?:v\d+(?:\.\d+)*|\d+(?:\.\d+)+)$/i;
-var PRODUCT_WORD=/(?<![\p{L}\p{M}\p{N}_])(?:wrapped|staked|staking)(?![\p{L}\p{M}\p{N}_])/iu;var EXCHANGE_NAME=/^(?:Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gemini)(?![\p{L}\p{M}\p{N}_])/iu;
+tvl_usd,mcap_usd:marketCap})}}return[...families.values()]}var BRIDGE_PRODUCT="wrapped and bridged products are";var STAKED_PRODUCT="staked products are";var HOUSE_RULE="\
+ (house rule).";var EXCLUDED_CATEGORIES=new Map([["Bridge",BRIDGE_PRODUCT],["Canonical Bridge",BRIDGE_PRODUCT],
+["Liquid Staking",STAKED_PRODUCT],["Liquid Restaking",STAKED_PRODUCT],["Restaked BTC",STAKED_PRODUCT],
+["CEX","exchange custody is"]]);var VERSION_SUFFIX=/\s(?:v\d+(?:\.\d+)*|\d+(?:\.\d+)+)$/i;var PRODUCT_WORD=/(?<![\p{L}\p{M}\p{N}_])(?:wrapped|staked|staking)(?![\p{L}\p{M}\p{N}_])/iu;
+var EXCHANGE_NAME=/^(?:Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gemini)(?![\p{L}\p{M}\p{N}_])/iu;
 function tokenFields({gecko_id,symbol}){if(gecko_id!==null)return symbol===null?"gecko_id":"gecko_id\
  and symbol";return symbol===null?null:"symbol"}function exclusionReason(protocol){const{category}=protocol;
-const product=category===null?void 0:EXCLUDED_CATEGORIES.get(category);if(product)return`${product} \
-(category ${category}).`;const name=protocol.name.trim();if(VERSION_SUFFIX.test(name)){return"Versio\
-n marker for an existing protocol."}const productWord=name.match(PRODUCT_WORD)?.[0];if(productWord!==
-void 0){const kind=productWord.toLowerCase()==="wrapped"?"wrapped":"staked";return`“${productWord}\
-” marks a ${kind} product of a traded token.`}const exchange=name.match(EXCHANGE_NAME)?.[0];return exchange===
-void 0?null:`Starts with exchange name “${exchange}” (exchange product).`}function classify(protocol,marketCap=protocol.
-mcap_usd){if(marketCap!==null&&marketCap>0){return{status:"traded",reason:"The family records a posi\
-tive market cap."}}const fields=tokenFields(protocol);if(fields!==null){return{status:"token-unprice\
-d",reason:`The protocol records a token via ${fields} without a positive market cap.`}}const reason=exclusionReason(
-protocol);if(reason!==null)return{status:"excluded",reason};return{status:"pre-token",reason:"The pr\
-otocol records no token."}}function buildCensus(protocols,families=groupFamilies(protocols)){const marketCaps=new Map(
-families.map(({key,mcap_usd})=>[key,mcap_usd]));return protocols.map(protocol=>{const key=familyKey(
-protocol);return{protocol,familyKey:key,...classify(protocol,marketCaps.get(key)??null)}})}function houseRuleMembership({
-protocols,floor_usd,watchlist}){const watchlisted=new Set(watchlist);const matches=new Set(protocols.
-filter(protocol=>protocol.tvl_usd>=floor_usd&&tokenFields(protocol)===null&&exclusionReason(protocol)===
-null).map(({slug})=>slug).sort(compareText));const truePositives=[];const falsePositives=[];for(const slug of matches){
-(watchlisted.has(slug)?truePositives:falsePositives).push(slug)}const falseNegatives=[...watchlisted].
-filter(slug=>!matches.has(slug)).sort(compareText);return{truePositives,falsePositives,falseNegatives}}function boardEntries(census,watchlist){const watchlisted=new Set(watchlist);const entries=[];for(const entry of census){
+const product=category===null?void 0:EXCLUDED_CATEGORIES.get(category);if(product)return`${category}\
+ category: ${product} not ranked${HOUSE_RULE}`;const name=protocol.name.trim();if(VERSION_SUFFIX.test(
+name)){return`Name ends in a version marker${HOUSE_RULE}`}const productWord=name.match(PRODUCT_WORD)?.[0];
+if(productWord!==void 0){return`Name contains “${productWord}”${HOUSE_RULE}`}const exchange=name.
+match(EXCHANGE_NAME)?.[0];return exchange===void 0?null:`Name starts with the exchange name “${exchange}\
+”${HOUSE_RULE}`}function classify(protocol,marketCap=protocol.mcap_usd){if(marketCap!==null&&marketCap>
+0){return{status:"traded",reason:"The family records a positive market cap."}}const fields=tokenFields(
+protocol);if(fields!==null){return{status:"token-unpriced",reason:`The protocol records a token via ${fields}\
+ without a positive market cap.`}}const reason=exclusionReason(protocol);if(reason!==null)return{status:"\
+excluded",reason};return{status:"pre-token",reason:"The protocol records no token."}}function buildCensus(protocols,families=groupFamilies(
+protocols)){const marketCaps=new Map(families.map(({key,mcap_usd})=>[key,mcap_usd]));return protocols.
+map(protocol=>{const key=familyKey(protocol);return{protocol,familyKey:key,...classify(protocol,marketCaps.
+get(key)??null)}})}function houseRuleMembership({protocols,floor_usd,watchlist}){const watchlisted=new Set(
+watchlist);const matches=new Set(protocols.filter(protocol=>protocol.tvl_usd>=floor_usd&&tokenFields(
+protocol)===null&&exclusionReason(protocol)===null).map(({slug})=>slug).sort(compareText));const truePositives=[];
+const falsePositives=[];for(const slug of matches){(watchlisted.has(slug)?truePositives:falsePositives).
+push(slug)}const falseNegatives=[...watchlisted].filter(slug=>!matches.has(slug)).sort(compareText);
+return{truePositives,falsePositives,falseNegatives}}function boardEntries(census,watchlist){const watchlisted=new Set(watchlist);const entries=[];for(const entry of census){
 const boardReasons=[];if(entry.status==="pre-token")boardReasons.push("pre-token");if(watchlisted.has(
 entry.protocol.slug))boardReasons.push("watchlist");if(boardReasons.length>0)entries.push({...entry,
 boardReasons})}return entries}function clamp(value,min,max){return Math.min(max,Math.max(min,value))}function median(observations){

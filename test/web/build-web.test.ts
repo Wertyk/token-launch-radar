@@ -57,6 +57,13 @@ test("keeps the judge's guide within 1,900 bytes and free of URLs", () => {
   expect(guide.toString("utf8")).not.toMatch(/https?:\/\//i);
 });
 
+test("attributes the examples in the guide to their house-rule categories", () => {
+  const guide = readFileSync(new URL("dashboard/0-guide.md", root), "utf8");
+  expect(guide).toMatch(
+    /WBTC, Binance staked ETH, Coinbase Bridge and USDT0 never rank \(excluded by house-rule bridge and liquid-staking categories\)/,
+  );
+});
+
 test("keeps the handwritten design tokens within 1.5 KB", () => {
   expect(readFileSync(new URL("dashboard/1-tokens.css", root)).length).toBeLessThanOrEqual(1_500);
 });

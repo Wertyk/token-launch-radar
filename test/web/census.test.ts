@@ -1,8 +1,10 @@
 import { expect, test } from "vitest";
 import { formatUsd } from "../../src/application/browser-api.ts";
 import type { CensusRecord } from "../../src/domain/census/census.ts";
+import { boardEntries, buildCensus } from "../../src/domain/census/census.ts";
 import { censusSummary, censusView, selectCensus } from "../../src/presentation/web/census-view.ts";
-import { defaultCensus } from "../../src/presentation/web/state.ts";
+import { censusHash, defaultCensus, parseRoute } from "../../src/presentation/web/state.ts";
+import { protocol } from "../domain/protocol-fixture.ts";
 
 const first: CensusRecord = {
   slug: "a",
@@ -53,12 +55,47 @@ test("links the complete census breakdown and the board's unranked counts to the
   expect(censusSummary(census)).toContain(
     `5 protocols = ${pre} + ${traded} + ${unpriced} + ${excluded}`,
   );
-  expect(censusSummary(census, true)).toContain(
-    `Not ranked: ${traded} · ${unpriced} · ${excluded} (wrapped, staked, bridged, exchange)`,
-  );
   expect(() => censusSummary([{ ...first, status: "invalid" as CensusRecord["status"] }])).toThrow(
     /census counts/i,
   );
+});
+
+test("board counts and links exclude two protocols ranked by a watchlist override", () => {
+  const entries = buildCensus([
+    protocol({ slug: "pre" }),
+    protocol({ slug: "traded", mcap_usd: 10, name: "Unranked traded" }),
+    protocol({ slug: "forced-traded", mcap_usd: 10, name: "Watchlisted traded" }),
+    protocol({ slug: "unpriced", symbol: "FIX" }),
+    protocol({ slug: "excluded", category: "Bridge", name: "Unranked bridge" }),
+    protocol({ slug: "forced-excluded", category: "Bridge", name: "Watchlisted bridge" }),
+  ]);
+  const board = new Set(
+    boardEntries(entries, ["forced-traded", "forced-excluded"]).map(
+      ({ protocol }) => protocol.slug,
+    ),
+  );
+  const census = entries.map(({ protocol, ...entry }) => ({ ...protocol, ...entry }));
+  expect([...board]).toEqual(["pre", "forced-traded", "forced-excluded"]);
+  const summary = censusSummary(census, board);
+  expect(summary.replace(/<[^>]+>/g, "")).toContain(
+    "Not ranked: 1 traded · 1 token, unpriced · 1 excluded",
+  );
+  for (const [status, slug] of [
+    ["traded", "traded"],
+    ["excluded", "excluded"],
+  ]) {
+    const href = summary.match(new RegExp(`href="([^"]*status=${status}[^"]*)"`))?.[1];
+    const hash = href?.replaceAll("&amp;", "&") ?? "";
+    const route = parseRoute(hash);
+    if (route.page !== "census") throw new Error(`Bad census link ${hash}`);
+    expect(censusHash(route.state)).toBe(hash);
+    expect(selectCensus(census, route.state, board).map((row) => row.slug)).toEqual([slug]);
+    const html = censusView(census, route.state, formatUsd, board);
+    expect(html.replace(/<[^>]+>/g, "")).toContain(
+      "6 protocols = 1 pre-token (ranked) + 2 traded + 1 token, unpriced + 2 excluded",
+    );
+    expect(html).not.toContain("Watchlisted");
+  }
 });
 
 test("sorts by displayed status and reason, with ascending slug ties in both directions", () => {

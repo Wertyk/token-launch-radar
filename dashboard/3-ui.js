@@ -34,28 +34,28 @@ const number=Number(value);return value?.trim()&&Number.isFinite(number)&&number
 function parseRoute(hash){const[path,query]=hash.slice(1).split(/\?(.*)/s,2);const params=new URLSearchParams(
 query);if(path==="/method")return{page:"method"};if(path==="/census"){const status=params.get("statu\
 s");const sort2=params.get("sort");return{page:"census",state:{status:status&&Object.hasOwn(statusLabels,
-status)?status:"",sort:isCensusSortKey(sort2)?sort2:"tvl",dir:params.get("dir")==="asc"?"asc":"desc"}}}
-if(path==="/plan"){const list=/(?:^|&)chains=([^&]*)/.exec(query??"")?.[1]??"";const chains=list.split(
-",").map(part=>new URLSearchParams(`c=${part}`).get("c")??"");const sliders={};for(const key of Object.
-keys(sliderLimits)){const value=limit(params.get(key),-1);if(value>=0&&value<=sliderLimits[key])sliders[key]=
-value}return{page:"plan",state:{budgetUsd:limit(params.get("budget"),5e3),hoursPerWeek:limit(params.
-get("hours"),3),chains:[...new Set(chains.filter(Boolean))],sliders}}}const sort=params.get("sort")??
-void 0;const state={sort:isSortKey(sort)?sort:defaultState.sort,dir:params.get("dir")==="desc"?"desc":
-"asc",cat:params.get("cat")??"",chain:params.get("chain")??"",wl:params.get("wl")==="1",q:params.get(
-"q")??""};if(!path||path==="/")return{page:"board",state};const segment=/^\/p\/([^/]+)$/.exec(path)?.[1];
-if(segment){try{return{page:"protocol",slug:decodeURIComponent(segment),state}}catch{return{page:"un\
-known",state}}}return{page:"unknown",state}}function planHash({budgetUsd,hoursPerWeek,chains,sliders}){
-const list=chains.map(encodeURIComponent).join(",");const params=new URLSearchParams({budget:String(
-budgetUsd),hours:String(hoursPerWeek)});for(const key of Object.keys(sliderLimits)){if(sliders[key]!==
+status)?status:"",sort:isCensusSortKey(sort2)?sort2:"tvl",dir:params.get("dir")==="asc"?"asc":"desc",
+unranked:params.get("unranked")==="1"}}}if(path==="/plan"){const list=/(?:^|&)chains=([^&]*)/.exec(query??
+"")?.[1]??"";const chains=list.split(",").map(part=>new URLSearchParams(`c=${part}`).get("c")??"");const sliders={};
+for(const key of Object.keys(sliderLimits)){const value=limit(params.get(key),-1);if(value>=0&&value<=
+sliderLimits[key])sliders[key]=value}return{page:"plan",state:{budgetUsd:limit(params.get("budget"),
+5e3),hoursPerWeek:limit(params.get("hours"),3),chains:[...new Set(chains.filter(Boolean))],sliders}}}
+const sort=params.get("sort")??void 0;const state={sort:isSortKey(sort)?sort:defaultState.sort,dir:params.
+get("dir")==="desc"?"desc":"asc",cat:params.get("cat")??"",chain:params.get("chain")??"",wl:params.get(
+"wl")==="1",q:params.get("q")??""};if(!path||path==="/")return{page:"board",state};const segment=/^\/p\/([^/]+)$/.
+exec(path)?.[1];if(segment){try{return{page:"protocol",slug:decodeURIComponent(segment),state}}catch{
+return{page:"unknown",state}}}return{page:"unknown",state}}function planHash({budgetUsd,hoursPerWeek,
+chains,sliders}){const list=chains.map(encodeURIComponent).join(",");const params=new URLSearchParams(
+{budget:String(budgetUsd),hours:String(hoursPerWeek)});for(const key of Object.keys(sliderLimits)){if(sliders[key]!==
 void 0)params.set(key,String(sliders[key]))}return`#/plan?${params}${list?`&chains=${list}`:""}`}function censusHash({
-status,sort,dir}){const params=new URLSearchParams;if(status)params.set("status",status);if(sort!==defaultCensus.
-sort||dir!==defaultCensus.dir){params.set("sort",sort);params.set("dir",dir)}return`#/census${params.
-size?`?${params}`:""}`}function boardHash(state){const params=new URLSearchParams;if(state.sort!==defaultState.
-sort||state.dir!==defaultState.dir){params.set("sort",state.sort);params.set("dir",state.dir)}if(state.
-cat)params.set("cat",state.cat);if(state.chain)params.set("chain",state.chain);if(state.wl)params.set(
-"wl","1");if(state.q)params.set("q",state.q);const query=params.toString();return query?`#/?${query}`:
-"#/"}function protocolHash(slug,state){return`#/p/${encodeURIComponent(slug)}${boardHash(state).slice(
-2)}`}function boardView(rows){const categories=rows.flatMap(({category})=>category??[]);return`<form clas\
+status,sort,dir,unranked}){const params=new URLSearchParams;if(status)params.set("status",status);if(unranked)
+params.set("unranked","1");if(sort!==defaultCensus.sort||dir!==defaultCensus.dir){params.set("sort",
+sort);params.set("dir",dir)}return`#/census${params.size?`?${params}`:""}`}function boardHash(state){
+const params=new URLSearchParams;if(state.sort!==defaultState.sort||state.dir!==defaultState.dir){params.
+set("sort",state.sort);params.set("dir",state.dir)}if(state.cat)params.set("cat",state.cat);if(state.
+chain)params.set("chain",state.chain);if(state.wl)params.set("wl","1");if(state.q)params.set("q",state.
+q);const query=params.toString();return query?`#/?${query}`:"#/"}function protocolHash(slug,state){return`\
+#/p/${encodeURIComponent(slug)}${boardHash(state).slice(2)}`}function boardView(rows){const categories=rows.flatMap(({category})=>category??[]);return`<form clas\
 s="filters" aria-label="Board filters">
 <label class="field">Search protocol<input type="search" name="q" autocomplete="off"></label>
 <label class="field">Category<select name="cat"><option value="">All categories</option>${options(categories)}\
@@ -81,18 +81,19 @@ trong>${usd(row.value)}</strong>
         ${svg(100,8,`<rect width="${scale(row.value).toFixed(2)}" height="3"></rect>${band}`)}</div>`,
 usd(row.tvl),growthText(row.growth),formatInteger(row.age),usd(row.cost),`${formatInteger(row.time)}\
  min`,row.watchlist?chip("Watchlist","badge"):"—"]}),Object.keys(columns).length,{linked:true,empty:"\
-No protocols match these filters."})}function censusSummary(rows,board=false){const counts={"pre-token":0,traded:0,"token-unpriced":0,excluded:0};
-for(const{status}of rows)counts[status]++;if(Object.values(counts).reduce((sum,count)=>sum+count,0)!==
-rows.length)throw new Error("Census counts do not add up");const link=(status,label=status)=>`<a hre\
-f="#/census?status=${status}">${formatInteger(counts[status])} ${label}</a>`;const parts=[link("trad\
-ed"),link("token-unpriced","token, unpriced"),link("excluded")];return`<p class="census-summary">${board?
-`Not ranked: ${parts.join(" · ")} (wrapped, staked, bridged, exchange)`:`${formatInteger(rows.length)}\
- protocols = ${link("pre-token","pre-token (ranked)")} + ${parts.join(" + ")}`}</p>`}function selectCensus(rows,{
-status,sort,dir}){const direction=dir==="asc"?1:-1;const label=(row,key)=>key==="status"?statusLabels[row.
-status]:row[key].toLowerCase();return rows.filter(row=>!status||row.status===status).sort((a,b)=>{const order=sort===
+No protocols match these filters."})}function censusSummary(rows,ranked){const counts={"pre-token":0,traded:0,"token-unpriced":0,excluded:0};
+for(const{slug,status}of rows)if(!ranked?.has(slug))counts[status]++;if(!ranked&&Object.values(counts).
+reduce((sum,count)=>sum+count,0)!==rows.length)throw new Error("Census counts do not add up");const link=(status,label=status)=>`\
+<a href="#/census?status=${status}${ranked?"&amp;unranked=1":""}">${formatInteger(counts[status])} ${label}\
+</a>`;const parts=[link("traded"),link("token-unpriced","token, unpriced"),link("excluded")];return`\
+<p class="census-summary">${ranked?`Not ranked: ${parts.join(" · ")} (wrapped, staked, bridged, exc\
+hange)`:`${formatInteger(rows.length)} protocols = ${link("pre-token","pre-token (ranked)")} + ${parts.
+join(" + ")}`}</p>`}function selectCensus(rows,{status,sort,dir,unranked},ranked){const direction=dir===
+"asc"?1:-1;const label=(row,key)=>key==="status"?statusLabels[row.status]:row[key].toLowerCase();return rows.
+filter(row=>(!status||row.status===status)&&(!unranked||!ranked?.has(row.slug))).sort((a,b)=>{const order=sort===
 "tvl"?a.tvl_usd-b.tvl_usd:compareText(label(a,sort),label(b,sort));return direction*order||compareText(
-a.slug,b.slug)})}function censusView(rows,state,usd){const selected=selectCensus(rows,state);return`\
-<h2>Protocol census</h2>${censusSummary(rows)}
+a.slug,b.slug)})}function censusView(rows,state,usd,ranked){const selected=selectCensus(rows,state,ranked);
+return`<h2>Protocol census</h2>${censusSummary(rows)}
     <div class="filters">
       <label class="field">Status <select name="status"><option value="">All statuses</option>${Object.
 entries(statusLabels).map(([key,label])=>`<option value="${key}"${state.status===key?" selected":""}\
@@ -102,29 +103,31 @@ ols</output>
     </div>
     ${table([["name","Protocol"],["status","Status"],["reason","Reason"],["tvl","TVL"]],selected.map(
 ({name,status,reason,tvl_usd})=>[escapeHtml(name),statusLabels[status],escapeHtml(reason),usd(tvl_usd)]),
-{...state,className:"ranking census",empty:"No matching protocols."})}`}function countBoardMismatches(computed,published){let count=Math.abs(computed.length-published.length);
+{...state,className:"ranking census",empty:"No matching protocols."})}`}function boardMismatches(computed,published){const slugs=published.slice(computed.length).map(({slug})=>slug);
 for(const[index,row]of computed.entries()){const other=published[index];const farm=other?.farm_economics;
-const{airdropYieldApr,launchProbability12:p12,breakEvenDepositUsd,deposits}=row.economics;if(other&&
-(row.protocol.slug!==other.slug||row.rank!==other.rank||row.implied_value_usd!==other.implied_value_usd||
+const{airdropYieldApr,launchProbability12:p12,breakEvenDepositUsd,deposits}=row.economics;if(!other||
+row.protocol.slug!==other.slug||row.rank!==other.rank||row.implied_value_usd!==other.implied_value_usd||
 row.farm_steps.length!==other.farm_steps.length||row.farm_steps.some((step,i)=>step!==other.farm_steps[i])||
 airdropYieldApr!==other.airdrop_yield_apr||p12!==other.launch_p12||p12!==farm?.launchProbability12||
 breakEvenDepositUsd!==farm.breakEvenDepositUsd||deposits.length!==farm.deposits?.length||deposits.some(
-({depositUsd,verdict},i)=>depositUsd!==farm.deposits[i]?.depositUsd||verdict!==farm.deposits[i]?.verdict))){
-count++}}return count}function integrityChecks(computed,published,watchlist,{fitted,houseRule,intervalCounts,loo}){const mismatches=countBoardMismatches(
-computed,published);const slugs=new Set(published.map(({slug})=>slug));const unique=[...new Set(watchlist)];
-const covered=unique.filter(slug=>slugs.has(slug)).length;const{missLow,covered:inside,missHigh}=intervalCounts??
-{missLow:0,covered:0,missHigh:0};const samples=missLow+inside+missHigh;const matches=houseRule.truePositives.
-length;const extra=houseRule.falsePositives.length;const{model,flatMultiple:flat}=loo;const samePopulation=model.
-n===fitted&&flat.n===fitted;return[{pass:mismatches===0,label:`Recompute ${mismatches?"≠":"="} boa\
-rd.json: values, ranks, plans, economics (${mismatches?`${mismatches} mismatched`:published.length})`},
-{pass:covered===unique.length,label:`Watchlist ${covered}/${unique.length} on board`},{pass:matches===
-unique.length&&unique.length>0,label:`House rule ${matches}/${unique.length} recall${extra?` · ${extra}\
- extra explained by parentProtocol`:""}`},{pass:samples===fitted&&inside/samples>=.8,label:`${inside}\
-/${samples} inside P10–P90${samples===fitted?"":` · ${samples}/${fitted} families`}`},{pass:samePopulation&&
-model.medianMultiplier!==null&&flat.medianMultiplier!==null&&model.medianMultiplier<flat.medianMultiplier,
-label:`LOO median error ${multiplier(model.medianMultiplier)} vs ${multiplier(flat.medianMultiplier)}\
- flat${samePopulation?"":` · model n=${model.n}/${fitted}, flat n=${flat.n}/${fitted}`}`}]}function multiplier(value){
-return value===null?"—":`×${value.toFixed(2)}`}function relativeScore(variant,full){if(variant===null||full===null)return"unavailable";return variant===
+(deposit,i)=>{const prior=farm.deposits[i];return!prior||Object.entries(deposit).some(([key,value])=>prior[key]!==
+value)})){slugs.push(row.protocol.slug)}}return slugs}function integrityChecks(computed,published,watchlist,{fitted,houseRule,intervalCounts,loo}){const mismatches=boardMismatches(
+computed,published);const count=mismatches.length;const slugs=new Set(published.map(({slug})=>slug));
+const unique=[...new Set(watchlist)];const covered=unique.filter(slug=>slugs.has(slug)).length;const{
+missLow,covered:inside,missHigh}=intervalCounts??{missLow:0,covered:0,missHigh:0};const samples=missLow+
+inside+missHigh;const matches=houseRule.truePositives.length;const extra=houseRule.falsePositives.length;
+const{model,flatMultiple:flat}=loo;const samePopulation=model.n===fitted&&flat.n===fitted;return[{pass:count===
+0,label:`Recompute ${count?"≠":"="} board.json: values, ranks, plans, economics (${count?`${count}\
+ mismatched: ${mismatches[0]}`:published.length})`},{pass:covered===unique.length,label:`Watchlist ${covered}\
+/${unique.length} on board`},{pass:matches===unique.length&&unique.length>0,label:`House rule ${matches}\
+/${unique.length} recall${extra?` · ${extra} extra explained by parentProtocol`:""}`},{pass:samples===
+fitted&&inside/samples>=.8,label:`${inside}/${samples} inside P10–P90${samples===fitted?"":` · ${samples}\
+/${fitted} families`}`},{pass:samePopulation&&model.medianMultiplier!==null&&flat.medianMultiplier!==
+null&&model.medianMultiplier<flat.medianMultiplier,label:`LOO median error ${multiplier(model.medianMultiplier)}\
+ vs ${multiplier(flat.medianMultiplier)} flat${samePopulation?"":` · model n=${model.n}/${fitted}, \
+flat n=${flat.n}/${fitted}`}`}]}function integrityStrip(checks){return`<ul class="integrity">${checks.
+map(({pass,label})=>`<li class="${pass?"check":"check-failed"}">${pass?"✓":"✗"} ${escapeHtml(label)}\
+</li>`).join("")}</ul>`}function multiplier(value){return value===null?"—":`×${value.toFixed(2)}`}function relativeScore(variant,full){if(variant===null||full===null)return"unavailable";return variant===
 full?"unchanged":variant<full?"lower":"higher"}function methodView({model,houseRule,intervalCounts,launchClock},farm,usd){
 const{coefficients,validation,ablation}=model;const{intercept,lnTvl,lnAge}=coefficients;const{leaveOneFamilyOut,
 seededFiveFold,walkForward}=validation;const{full,withoutTvl,withoutAge,withoutMomentum,withCategory,
@@ -300,83 +303,82 @@ lnAge)}·ln(age)</p>
 <p class="caption">Implied value is conditional market cap at launch if the record stays as it is. L\
 aunch odds are separate.
 Age is days since listing (min 1). g₇ is 7-day TVL growth clipped to −50%…+100%.</p>
-<ul class="integrity">${checks.map(({pass,label})=>`<li class="${pass?"check":"check-failed"}">${pass?
-"✓":"✗"} ${escapeHtml(label)}</li>`).join("")}</ul>
-</section>`}function mountBoard(main2,rows,census,maxLogValue,usd){main2.innerHTML=censusSummary(census,
-true)+boardView(rows);const search=element('[name="q"]',main2);const category=element('[name="cat"]',
-main2);const chain=element('[name="chain"]',main2);const watchlist=element('[name="wl"]',main2);const results=element(
-"#results",main2);const body=element("tbody",main2);const buttons=main2.querySelectorAll("button[dat\
-a-sort]");function setSelect(select,value){select.querySelector("[data-temporary]")?.remove();select.
-value=value;if(select.selectedIndex<0){const option=new Option(value,value,false,true);option.dataset.
-temporary="";select.add(option)}}return state=>{if(search.value!==state.q)search.value=state.q;setSelect(
-category,state.cat);setSelect(chain,state.chain);watchlist.checked=state.wl;for(const button of buttons){
-const th=button.parentElement;if(th)th.ariaSort=button.dataset.sort!==state.sort?null:state.dir==="a\
-sc"?"ascending":"descending"}const selected=selectRows(rows,state);results.textContent=`${formatInteger(
-selected.length)} of ${formatInteger(rows.length)} protocols`;body.innerHTML=boardRows(selected,state,
-maxLogValue,usd)}}function start(main2,snapshot2,data2,api2){const{buildRadar,daysBetween,farmAssumptions,
-formatUsd}=api2;const{launchClock,meta}=data2;const radar=buildRadar(snapshot2,data2.model.lambda,launchClock,
-meta);const published=data2.board.rows;const families=new Map(radar.families.map(family=>[family.representative.
-slug,family]));const evidence=new Map(published.map(row=>[row.slug,row]));const checks=integrityChecks(
-radar.board,published,snapshot2.watchlist,{fitted:radar.model.n,houseRule:radar.houseRule,intervalCounts:data2.
-intervalCounts,loo:data2.model.validation.leaveOneFamilyOut});const watchlisted=new Set(snapshot2.watchlist);
-const protocols=new Map(radar.board.map(row=>[row.protocol.slug,row]));const age=({listed_at})=>listed_at===
-null?null:daysBetween(listed_at,snapshot2.as_of);const rows=radar.board.map(({protocol,rank,status,implied_value_usd,
-plan})=>{const{slug,name,tvl_usd,change_7d,category,chains}=protocol;const diagnostics=evidence.get(
-slug);return{slug,name,rank,category,chains,value:implied_value_usd,tvl:tvl_usd,growth:change_7d,interval:diagnostics?
-[diagnostics.interval_p10_usd,diagnostics.interval_p90_usd]:null,age:status==="traded"||status==="to\
-ken-unpriced"?null:age(protocol),cost:plan.totalCostUsd,time:plan.totalMinutes,watchlist:watchlisted.
-has(slug)}});const maxLogValue=Math.log1p(Math.max(1,...rows.map(row=>Math.max(row.value,row.interval?.[1]??
-0))));element("#snapshot-date").textContent=`Snapshot · ${snapshot2.as_of}`;element("#summary").innerHTML=
-header([["Protocols scanned",formatInteger(snapshot2.protocols.length)],["Traded comparables",formatInteger(
-radar.model.n)],["Board rows",formatInteger(rows.length)]],radar.model.coefficients,checks);let updateBoard;
-let updatePlan;let lastPage;function mountPlanner(){main2.innerHTML=plannerForm(rows.flatMap(row=>row.
-chains));const form=element("form",main2);const budget=element('[name="budget"]',form);const hours=element(
-'[name="hours"]',form);const select=element('[name="chains"]',form);const results=element("#portfoli\
-o-results",main2);const sliders=form.querySelectorAll('input[type="range"]');let state;const save=()=>{
-if(!form.checkValidity())return;location.hash=planHash({budgetUsd:budget.valueAsNumber,hoursPerWeek:hours.
-valueAsNumber,chains:Array.from(select.selectedOptions,option=>option.value),sliders:state.sliders})};
-form.onchange=save;form.onsubmit=event=>{event.preventDefault();save()};const setSliders=sliders2=>{
-const next={...state,sliders:sliders2};history.replaceState(null,"",planHash(next));update(next)};form.
-oninput=({target})=>{if(target instanceof HTMLInputElement&&target.type==="range"){setSliders({...state.
-sliders,[target.name]:target.valueAsNumber})}};element("[data-reset]",form).onclick=()=>setSliders({});
-function update(next){state=next;budget.value=String(state.budgetUsd);hours.value=String(state.hoursPerWeek);
-for(const chain of state.chains){if(![...select.options].some(option=>option.value===chain)){select.
-add(new Option(chain,chain))}}for(const option of select.options)option.selected=state.chains.includes(
-option.value);const{budgetUsd,hoursPerWeek}=state;const values={...sliderValues(farmAssumptions),...state.
-sliders};for(const slider of sliders){slider.value=String(values[slider.name]);const output=slider.previousElementSibling;
-output.value=slider.value}const assumptions={...plannerSettings(farmAssumptions,state.sliders),tables:meta};
-const economics=radar.board.map(row=>api2.estimateFarmEconomics(row.plan,row.implied_value_usd,row.protocol.
-tvl_usd,row.economics.launchProbability12,assumptions));const result=api2.planPortfolio(radar.board,
-{budgetUsd,hoursPerWeek,assumptions,...state.chains.length?{chains:state.chains}:{}});results.innerHTML=
-plannerResults(result,economics,slug=>protocols.get(slug)?.protocol.name??slug,formatUsd)}return update}
-function draw(){delete main2.dataset.ready;const route=parseRoute(location.hash);const page=route.page===
-"protocol"?`protocol/${route.slug}`:route.page;const changedPage=lastPage&&lastPage!==page;lastPage=
-page;if(route.page!=="board")updateBoard=void 0;if(route.page!=="plan")updatePlan=void 0;if(route.page===
-"board"){updateBoard??=mountBoard(main2,rows,data2.census,maxLogValue,formatUsd);updateBoard(route.state)}else if(route.
-page==="plan"){updatePlan??=mountPlanner();updatePlan(route.state)}else if(route.page==="census"){main2.
-innerHTML=censusView(data2.census,route.state,formatUsd)}else if(route.page==="method"){main2.innerHTML=
-methodView({...data2,houseRule:radar.houseRule},farmAssumptions,formatUsd)}else{const back=boardHash(
-route.state);const detail=route.page==="protocol"?protocols.get(route.slug):void 0;main2.innerHTML=detail?
-protocolView(detail,{age:age(detail.protocol),coefficients:data2.model.coefficients,lnValue:api2.logValue(
-detail.features,data2.model),back,usd:formatUsd,farm:farmAssumptions,diagnostics:evidence.get(detail.
-protocol.slug),families,launchClock,clockShareAt:api2.clockShareAt}):`<h2>Page unavailable</h2><a hr\
-ef="${escapeHtml(back)}">Back to board</a>`}if(changedPage){window.scrollTo(0,0);main2.focus({preventScroll:true})}
-main2.dataset.ready=""}main2.addEventListener("click",event=>{if(!(event.target instanceof Element))
-return;const sort=event.target.closest("button[data-sort]")?.dataset.sort;const route=parseRoute(location.
-hash);if(route.page==="board"&&isSortKey(sort)){const{state}=route;const dir=state.sort===sort&&state.
-dir==="asc"?"desc":"asc";location.hash=boardHash({...state,sort,dir})}else if(route.page==="census"&&
-isCensusSortKey(sort)){const{state}=route;const dir=state.sort===sort&&state.dir==="asc"?"desc":"asc";
-location.hash=censusHash({...state,sort,dir})}else if(!event.target.closest("a")&&!event.metaKey&&!event.
-ctrlKey&&!event.shiftKey&&!event.altKey){const link=event.target.closest("tr[data-protocol]")?.querySelector(
-"a");if(link)location.hash=link.hash}});main2.addEventListener("submit",event=>event.preventDefault());
-main2.addEventListener("input",({target})=>{if(!(target instanceof HTMLInputElement)||target.name!==
-"q")return;const route=parseRoute(location.hash);if(route.page!=="board")return;history.replaceState(
-null,"",boardHash({...route.state,q:target.value}));draw()});main2.addEventListener("change",event=>{
-const target=event.target;const route=parseRoute(location.hash);if(route.page==="census"&&target instanceof
-HTMLSelectElement&&target.name==="status"){location.hash=censusHash({...route.state,status:target.value});
-return}if(route.page!=="board")return;const{state}=route;if(target instanceof HTMLSelectElement&&(target.
-name==="cat"||target.name==="chain")){location.hash=boardHash({...state,[target.name]:target.value})}else if(target instanceof
-HTMLInputElement&&target.name==="wl"){location.hash=boardHash({...state,wl:target.checked})}});window.
-addEventListener("hashchange",draw);draw()}var main=element("main");var{RADAR_DATA:data,Radar:api}=window;
-var snapshot=data&&api.readPublishedSnapshot(data);if(data&&snapshot){start(main,snapshot,data,api)}else{
-main.innerHTML="<h2>Snapshot data unavailable</h2><p>Generate it with <code>pnpm radar</code>.</p>"}})();
+${integrityStrip(checks)}
+</section>`}function mountBoard(main2,rows,summary,maxLogValue,usd){main2.innerHTML=summary+boardView(
+rows);const search=element('[name="q"]',main2);const category=element('[name="cat"]',main2);const chain=element(
+'[name="chain"]',main2);const watchlist=element('[name="wl"]',main2);const results=element("#results",
+main2);const body=element("tbody",main2);const buttons=main2.querySelectorAll("button[data-sort]");function setSelect(select,value){
+select.querySelector("[data-temporary]")?.remove();select.value=value;if(select.selectedIndex<0){const option=new Option(
+value,value,false,true);option.dataset.temporary="";select.add(option)}}return state=>{if(search.value!==
+state.q)search.value=state.q;setSelect(category,state.cat);setSelect(chain,state.chain);watchlist.checked=
+state.wl;for(const button of buttons){const th=button.parentElement;if(th)th.ariaSort=button.dataset.
+sort!==state.sort?null:state.dir==="asc"?"ascending":"descending"}const selected=selectRows(rows,state);
+results.textContent=`${formatInteger(selected.length)} of ${formatInteger(rows.length)} protocols`;body.
+innerHTML=boardRows(selected,state,maxLogValue,usd)}}function start(main2,snapshot2,data2,api2){const{
+buildRadar,daysBetween,farmAssumptions,formatUsd}=api2;const{launchClock,meta}=data2;const radar=buildRadar(
+snapshot2,data2.model.lambda,launchClock,meta);const published=data2.board.rows;const families=new Map(
+radar.families.map(family=>[family.representative.slug,family]));const evidence=new Map(published.map(
+row=>[row.slug,row]));const checks=integrityChecks(radar.board,published,snapshot2.watchlist,{fitted:radar.
+model.n,houseRule:radar.houseRule,intervalCounts:data2.intervalCounts,loo:data2.model.validation.leaveOneFamilyOut});
+const watchlisted=new Set(snapshot2.watchlist);const protocols=new Map(radar.board.map(row=>[row.protocol.
+slug,row]));const age=({listed_at})=>listed_at===null?null:daysBetween(listed_at,snapshot2.as_of);const rows=radar.
+board.map(({protocol,rank,status,implied_value_usd,plan})=>{const{slug,name,tvl_usd,change_7d,category,
+chains}=protocol;const diagnostics=evidence.get(slug);return{slug,name,rank,category,chains,value:implied_value_usd,
+tvl:tvl_usd,growth:change_7d,interval:diagnostics?[diagnostics.interval_p10_usd,diagnostics.interval_p90_usd]:
+null,age:status==="traded"||status==="token-unpriced"?null:age(protocol),cost:plan.totalCostUsd,time:plan.
+totalMinutes,watchlist:watchlisted.has(slug)}});const maxLogValue=Math.log1p(Math.max(1,...rows.map(
+row=>Math.max(row.value,row.interval?.[1]??0))));element("#snapshot-date").textContent=`Snapshot · ${snapshot2.
+as_of}`;element("#summary").innerHTML=header([["Protocols scanned",formatInteger(snapshot2.protocols.
+length)],["Traded comparables",formatInteger(radar.model.n)],["Board rows",formatInteger(rows.length)]],
+radar.model.coefficients,checks);let updateBoard;let updatePlan;let lastPage;function mountPlanner(){
+main2.innerHTML=plannerForm(rows.flatMap(row=>row.chains));const form=element("form",main2);const budget=element(
+'[name="budget"]',form);const hours=element('[name="hours"]',form);const select=element('[name="chai\
+ns"]',form);const results=element("#portfolio-results",main2);const sliders=form.querySelectorAll('i\
+nput[type="range"]');let state;const save=()=>{if(!form.checkValidity())return;location.hash=planHash(
+{budgetUsd:budget.valueAsNumber,hoursPerWeek:hours.valueAsNumber,chains:Array.from(select.selectedOptions,
+option=>option.value),sliders:state.sliders})};form.onchange=save;form.onsubmit=event=>{event.preventDefault();
+save()};const setSliders=sliders2=>{const next={...state,sliders:sliders2};history.replaceState(null,
+"",planHash(next));update(next)};form.oninput=({target})=>{if(target instanceof HTMLInputElement&&target.
+type==="range"){setSliders({...state.sliders,[target.name]:target.valueAsNumber})}};element("[data-r\
+eset]",form).onclick=()=>setSliders({});function update(next){state=next;budget.value=String(state.budgetUsd);
+hours.value=String(state.hoursPerWeek);for(const chain of state.chains){if(![...select.options].some(
+option=>option.value===chain)){select.add(new Option(chain,chain))}}for(const option of select.options)
+option.selected=state.chains.includes(option.value);const{budgetUsd,hoursPerWeek}=state;const values={
+...sliderValues(farmAssumptions),...state.sliders};for(const slider of sliders){slider.value=String(
+values[slider.name]);const output=slider.previousElementSibling;output.value=slider.value}const assumptions={
+...plannerSettings(farmAssumptions,state.sliders),tables:meta};const economics=radar.board.map(row=>api2.
+estimateFarmEconomics(row.plan,row.implied_value_usd,row.protocol.tvl_usd,row.economics.launchProbability12,
+assumptions));const result=api2.planPortfolio(radar.board,{budgetUsd,hoursPerWeek,assumptions,...state.
+chains.length?{chains:state.chains}:{}});results.innerHTML=plannerResults(result,economics,slug=>protocols.
+get(slug)?.protocol.name??slug,formatUsd)}return update}function draw(){delete main2.dataset.ready;const route=parseRoute(
+location.hash);const page=route.page==="protocol"?`protocol/${route.slug}`:route.page;const changedPage=lastPage&&
+lastPage!==page;lastPage=page;if(route.page!=="board")updateBoard=void 0;if(route.page!=="plan")updatePlan=
+void 0;if(route.page==="board"){updateBoard??=mountBoard(main2,rows,censusSummary(data2.census,protocols),
+maxLogValue,formatUsd);updateBoard(route.state)}else if(route.page==="plan"){updatePlan??=mountPlanner();
+updatePlan(route.state)}else if(route.page==="census"){main2.innerHTML=censusView(data2.census,route.
+state,formatUsd,protocols)}else if(route.page==="method"){main2.innerHTML=methodView({...data2,houseRule:radar.
+houseRule},farmAssumptions,formatUsd)}else{const back=boardHash(route.state);const detail=route.page===
+"protocol"?protocols.get(route.slug):void 0;main2.innerHTML=detail?protocolView(detail,{age:age(detail.
+protocol),coefficients:data2.model.coefficients,lnValue:api2.logValue(detail.features,data2.model),back,
+usd:formatUsd,farm:farmAssumptions,diagnostics:evidence.get(detail.protocol.slug),families,launchClock,
+clockShareAt:api2.clockShareAt}):`<h2>Page unavailable</h2><a href="${escapeHtml(back)}">Back to boa\
+rd</a>`}if(changedPage){window.scrollTo(0,0);main2.focus({preventScroll:true})}main2.dataset.ready=""}
+main2.addEventListener("click",event=>{if(!(event.target instanceof Element))return;const sort=event.
+target.closest("button[data-sort]")?.dataset.sort;const route=parseRoute(location.hash);if(route.page===
+"board"&&isSortKey(sort)){const{state}=route;const dir=state.sort===sort&&state.dir==="asc"?"desc":"\
+asc";location.hash=boardHash({...state,sort,dir})}else if(route.page==="census"&&isCensusSortKey(sort)){
+const{state}=route;const dir=state.sort===sort&&state.dir==="asc"?"desc":"asc";location.hash=censusHash(
+{...state,sort,dir})}else if(!event.target.closest("a")&&!event.metaKey&&!event.ctrlKey&&!event.shiftKey&&
+!event.altKey){const link=event.target.closest("tr[data-protocol]")?.querySelector("a");if(link)location.
+hash=link.hash}});main2.addEventListener("submit",event=>event.preventDefault());main2.addEventListener(
+"input",({target})=>{if(!(target instanceof HTMLInputElement)||target.name!=="q")return;const route=parseRoute(
+location.hash);if(route.page!=="board")return;history.replaceState(null,"",boardHash({...route.state,
+q:target.value}));draw()});main2.addEventListener("change",event=>{const target=event.target;const route=parseRoute(
+location.hash);if(route.page==="census"&&target instanceof HTMLSelectElement&&target.name==="status"){
+location.hash=censusHash({...route.state,status:target.value});return}if(route.page!=="board")return;
+const{state}=route;if(target instanceof HTMLSelectElement&&(target.name==="cat"||target.name==="chai\
+n")){location.hash=boardHash({...state,[target.name]:target.value})}else if(target instanceof HTMLInputElement&&
+target.name==="wl"){location.hash=boardHash({...state,wl:target.checked})}});window.addEventListener(
+"hashchange",draw);draw()}var main=element("main");var{RADAR_DATA:data,Radar:api}=window;var snapshot=data&&
+api.readPublishedSnapshot(data);if(data&&snapshot){start(main,snapshot,data,api)}else{main.innerHTML=
+"<h2>Snapshot data unavailable</h2><p>Generate it with <code>pnpm radar</code>.</p>"}})();

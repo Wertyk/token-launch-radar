@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { buildRadar } from "../../src/application/browser-api.ts";
 import { farmTables } from "../../src/domain/farming/playbook-data.ts";
-import { integrityChecks } from "../../src/presentation/web/integrity.ts";
+import { integrityChecks, integrityStrip } from "../../src/presentation/web/integrity.ts";
 import { protocol } from "../domain/protocol-fixture.ts";
 
 const deposits = [
@@ -63,6 +63,27 @@ test("marks each failed check and handles unavailable validation", () => {
   const unavailable = integrityChecks([computed], [row], ["a"], { ...data, intervalCounts: null });
   expect(unavailable[3]?.pass).toBe(false);
   expect(unavailable[3]?.label).toContain("0/128");
+});
+
+test("flags the row whose published $10K cost increased by $1,000", () => {
+  const unchanged = { ...row, slug: "unchanged", rank: 2 };
+  const changed = {
+    ...row,
+    farm_economics: {
+      ...farm,
+      deposits: [deposits[0], { ...deposits[1], costUsd: deposits[1].costUsd + 1_000 }],
+    },
+  };
+  const checks = integrityChecks(
+    [computed, { ...computed, protocol: { slug: unchanged.slug }, rank: unchanged.rank }],
+    [changed, unchanged],
+    [row.slug],
+    data,
+  );
+  expect(checks[0]?.pass).toBe(false);
+  expect(integrityStrip(checks)).toContain(
+    '<li class="check-failed">✗ Recompute ≠ board.json: values, ranks, plans, economics (1 mismatched: a)</li>',
+  );
 });
 
 test("checks board membership even when a watchlist row exists only in the recompute", () => {

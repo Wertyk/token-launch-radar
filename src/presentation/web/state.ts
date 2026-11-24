@@ -37,6 +37,7 @@ export interface CensusState {
   status: TokenStatus | "";
   sort: "tvl" | "name" | "status" | "reason";
   dir: "asc" | "desc";
+  unranked?: boolean;
 }
 
 export const defaultCensus: CensusState = { status: "", sort: "tvl", dir: "desc" };
@@ -90,6 +91,7 @@ export function parseRoute(hash: string): Route {
         status: status && Object.hasOwn(statusLabels, status) ? (status as TokenStatus) : "",
         sort: isCensusSortKey(sort) ? sort : "tvl",
         dir: params.get("dir") === "asc" ? "asc" : "desc",
+        unranked: params.get("unranked") === "1",
       },
     };
   }
@@ -142,9 +144,10 @@ export function planHash({ budgetUsd, hoursPerWeek, chains, sliders }: PlanState
   return `#/plan?${params}${list ? `&chains=${list}` : ""}`;
 }
 
-export function censusHash({ status, sort, dir }: CensusState): string {
+export function censusHash({ status, sort, dir, unranked }: CensusState): string {
   const params = new URLSearchParams();
   if (status) params.set("status", status);
+  if (unranked) params.set("unranked", "1");
   if (sort !== defaultCensus.sort || dir !== defaultCensus.dir) {
     params.set("sort", sort);
     params.set("dir", dir);

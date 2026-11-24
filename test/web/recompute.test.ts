@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { countBoardMismatches } from "../../src/presentation/web/recompute.ts";
+import { boardMismatches } from "../../src/presentation/web/recompute.ts";
 
 const economics = {
   launchProbability12: 0.42,
@@ -29,8 +29,8 @@ const computed = [first, second].map(recomputed);
 
 test("matches the board fields while ignoring unrelated metadata", () => {
   const withCategory = { ...first, category: "Yield" };
-  expect(countBoardMismatches(computed, [withCategory, second])).toBe(0);
-  expect(countBoardMismatches([], [])).toBe(0);
+  expect(boardMismatches(computed, [withCategory, second])).toEqual([]);
+  expect(boardMismatches([], [])).toEqual([]);
 });
 
 test.each([
@@ -52,13 +52,23 @@ test.each([
       ),
     },
   })),
+  ...(["depositUsd", "costUsd", "expectedValueUsd"] as const).flatMap((key) =>
+    first.farm_economics.deposits.map((_, index) => ({
+      farm_economics: {
+        ...first.farm_economics,
+        deposits: first.farm_economics.deposits.map((deposit, i) =>
+          i === index ? { ...deposit, [key]: deposit[key] + 1e-9 } : deposit,
+        ),
+      },
+    })),
+  ),
   { farm_economics: { ...first.farm_economics, deposits: first.farm_economics.deposits.slice(1) } },
 ])("detects a changed field in a row (%o)", (change) => {
-  expect(countBoardMismatches(computed, [{ ...first, ...change }, second])).toBe(1);
+  expect(boardMismatches(computed, [{ ...first, ...change }, second])).toEqual([first.slug]);
 });
 
 test("counts reordered, missing and extra rows", () => {
-  expect(countBoardMismatches(computed, [second, first])).toBe(2);
-  expect(countBoardMismatches(computed.slice(0, 1), [first, second])).toBe(1);
-  expect(countBoardMismatches(computed, [first])).toBe(1);
+  expect(boardMismatches(computed, [second, first])).toEqual([first.slug, second.slug]);
+  expect(boardMismatches(computed.slice(0, 1), [first, second])).toEqual([second.slug]);
+  expect(boardMismatches(computed, [first])).toEqual([second.slug]);
 });

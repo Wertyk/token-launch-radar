@@ -5,23 +5,29 @@ import { table } from "./render.ts";
 import type { CensusState } from "./state.ts";
 import { statusLabels } from "./state.ts";
 
-export function censusSummary(rows: readonly CensusRecord[], board = false): string {
+type BoardMembership = Pick<ReadonlySet<string>, "has">;
+
+export function censusSummary(rows: readonly CensusRecord[], ranked?: BoardMembership): string {
   const counts = { "pre-token": 0, traded: 0, "token-unpriced": 0, excluded: 0 };
-  for (const { status } of rows) counts[status]++;
-  if (Object.values(counts).reduce((sum, count) => sum + count, 0) !== rows.length)
+  for (const { slug, status } of rows) if (!ranked?.has(slug)) counts[status]++;
+  if (!ranked && Object.values(counts).reduce((sum, count) => sum + count, 0) !== rows.length)
     throw new Error("Census counts do not add up");
   const link = (status: keyof typeof counts, label: string = status) =>
-    `<a href="#/census?status=${status}">${formatInteger(counts[status])} ${label}</a>`;
+    `<a href="#/census?status=${status}${ranked ? "&amp;unranked=1" : ""}">${formatInteger(counts[status])} ${label}</a>`;
   const parts = [link("traded"), link("token-unpriced", "token, unpriced"), link("excluded")];
-  return `<p class="census-summary">${board ? `Not ranked: ${parts.join(" · ")} (wrapped, staked, bridged, exchange)` : `${formatInteger(rows.length)} protocols = ${link("pre-token", "pre-token (ranked)")} + ${parts.join(" + ")}`}</p>`;
+  return `<p class="census-summary">${ranked ? `Not ranked: ${parts.join(" · ")} (wrapped, staked, bridged, exchange)` : `${formatInteger(rows.length)} protocols = ${link("pre-token", "pre-token (ranked)")} + ${parts.join(" + ")}`}</p>`;
 }
 
-export function selectCensus(rows: readonly CensusRecord[], { status, sort, dir }: CensusState) {
+export function selectCensus(
+  rows: readonly CensusRecord[],
+  { status, sort, dir, unranked }: CensusState,
+  ranked?: BoardMembership,
+) {
   const direction = dir === "asc" ? 1 : -1;
   const label = (row: CensusRecord, key: Exclude<CensusState["sort"], "tvl">) =>
     key === "status" ? statusLabels[row.status] : row[key].toLowerCase();
   return rows
-    .filter((row) => !status || row.status === status)
+    .filter((row) => (!status || row.status === status) && (!unranked || !ranked?.has(row.slug)))
     .sort((a, b) => {
       const order =
         sort === "tvl" ? a.tvl_usd - b.tvl_usd : compareText(label(a, sort), label(b, sort));
@@ -33,8 +39,9 @@ export function censusView(
   rows: readonly CensusRecord[],
   state: CensusState,
   usd: (value: number) => string,
+  ranked?: BoardMembership,
 ) {
-  const selected = selectCensus(rows, state);
+  const selected = selectCensus(rows, state, ranked);
   return `<h2>Protocol census</h2>${censusSummary(rows)}
     <div class="filters">
       <label class="field">Status <select name="status"><option value="">All statuses</option>${Object.entries(

@@ -1,6 +1,5 @@
 import type * as BrowserApi from "../../application/browser-api.ts";
 import type { RadarResult } from "../../application/build-radar.ts";
-import type { CensusRecord } from "../../domain/census/census.ts";
 import type { FarmTables } from "../../domain/farming/playbook-data.ts";
 import type { Protocol, Snapshot } from "../../domain/snapshot.ts";
 import type { ValueDiagnostics } from "../../domain/valuation/diagnostics.ts";
@@ -9,7 +8,7 @@ import { selectRows } from "./board.ts";
 import { boardRows, boardView } from "./board-view.ts";
 import { censusSummary, censusView } from "./census-view.ts";
 import { escapeHtml as esc, formatInteger, signedTerm } from "./format.ts";
-import { integrityChecks } from "./integrity.ts";
+import { integrityChecks, integrityStrip } from "./integrity.ts";
 import { methodView } from "./method-view.ts";
 import { plannerForm, plannerResults, plannerSettings, sliderValues } from "./plan-view.ts";
 import { protocolView } from "./protocol-view.ts";
@@ -58,23 +57,18 @@ function header(
 <p class="equation">ln V = ${intercept.toFixed(3)} ${signedTerm(lnTvl)}·ln(TVL·(1+g₇)) ${signedTerm(lnAge)}·ln(age)</p>
 <p class="caption">Implied value is conditional market cap at launch if the record stays as it is. Launch odds are separate.
 Age is days since listing (min 1). g₇ is 7-day TVL growth clipped to −50%…+100%.</p>
-<ul class="integrity">${checks
-    .map(
-      ({ pass, label }) =>
-        `<li class="${pass ? "check" : "check-failed"}">${pass ? "✓" : "✗"} ${esc(label)}</li>`,
-    )
-    .join("")}</ul>
+${integrityStrip(checks)}
 </section>`;
 }
 
 function mountBoard(
   main: HTMLElement,
   rows: readonly BoardRow[],
-  census: readonly CensusRecord[],
+  summary: string,
   maxLogValue: number,
   usd: typeof BrowserApi.formatUsd,
 ) {
-  main.innerHTML = censusSummary(census, true) + boardView(rows);
+  main.innerHTML = summary + boardView(rows);
   const search = element<HTMLInputElement>('[name="q"]', main);
   const category = element<HTMLSelectElement>('[name="cat"]', main);
   const chain = element<HTMLSelectElement>('[name="chain"]', main);
@@ -263,13 +257,19 @@ function start(
     if (route.page !== "board") updateBoard = undefined;
     if (route.page !== "plan") updatePlan = undefined;
     if (route.page === "board") {
-      updateBoard ??= mountBoard(main, rows, data.census, maxLogValue, formatUsd);
+      updateBoard ??= mountBoard(
+        main,
+        rows,
+        censusSummary(data.census, protocols),
+        maxLogValue,
+        formatUsd,
+      );
       updateBoard(route.state);
     } else if (route.page === "plan") {
       updatePlan ??= mountPlanner();
       updatePlan(route.state);
     } else if (route.page === "census") {
-      main.innerHTML = censusView(data.census, route.state, formatUsd);
+      main.innerHTML = censusView(data.census, route.state, formatUsd, protocols);
     } else if (route.page === "method") {
       main.innerHTML = methodView(
         { ...data, houseRule: radar.houseRule },
