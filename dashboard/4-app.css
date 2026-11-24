@@ -37,8 +37,10 @@ h2 {
   letter-spacing: -0.03em;
 }
 
-h3 {
+h3,
+.method h2 {
   font-size: var(--font-section);
+  line-height: inherit;
   letter-spacing: -0.01em;
 }
 
@@ -591,6 +593,10 @@ button[data-sort]::after {
   font-size: var(--font-small);
 }
 
+.farm tbody td:last-child {
+  text-transform: capitalize;
+}
+
 .farm tfoot {
   color: var(--teal);
   font-weight: 700;
@@ -670,11 +676,14 @@ h2 + div.filters {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--s3);
-  margin-top: var(--s3);
+}
+
+.method .panel {
+  padding-block: var(--s2);
 }
 
 .method .panel + .panel {
-  margin-top: var(--s3);
+  margin-top: var(--s2);
 }
 
 @media (min-width: 1400px) {
@@ -693,6 +702,11 @@ h2 + div.filters {
 .compact :is(th, td) {
   padding: var(--s1) var(--s2);
   border-bottom: 1px solid var(--line);
+}
+
+.method :is(th, td) {
+  padding-block: 2px;
+  line-height: 1.35;
 }
 
 .compact :is(th, td):first-child {
@@ -715,6 +729,54 @@ h2 + div.filters {
   .method {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  .method > div {
+    display: contents;
+  }
+
+  .method .panel + .panel {
+    margin-top: 0;
+  }
+
+  .method-value > :first-child {
+    order: -2;
+  }
+
+  .method > :nth-child(2) > :first-child {
+    order: -1;
+  }
+}
+
+.scatter svg {
+  display: block;
+  width: 100%;
+  height: 204px;
+  margin-top: var(--s1);
+}
+
+.scatter text {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.scatter-grid {
+  stroke: var(--line);
+}
+
+.scatter .identity {
+  stroke: var(--muted);
+  stroke-dasharray: 4 3;
+}
+
+.scatter .inside {
+  fill: var(--teal);
+  opacity: 0.7;
+}
+
+.scatter .outside {
+  fill: var(--surface);
+  stroke: var(--negative);
+  stroke-width: 1.5;
 }
 
 .clock svg {

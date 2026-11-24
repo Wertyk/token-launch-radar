@@ -4,8 +4,7 @@ import type { EconomicsAssumptions } from "../../domain/farming/economics.ts";
 import type { LaunchClock } from "../../domain/launch-clock/clock.ts";
 import type { ValueDiagnostics } from "../../domain/valuation/diagnostics.ts";
 import type { ValueModel } from "../../domain/valuation/model.ts";
-import { chip, growthText } from "./board-view.ts";
-import { ageSparkline } from "./clock-view.ts";
+import { chip } from "./board-view.ts";
 import {
   escapeHtml as esc,
   formatCompactUsd,
@@ -13,20 +12,8 @@ import {
   formatOdds,
   signedTerm,
 } from "./format.ts";
+import type { ProtocolExtras } from "./protocol-extras.ts";
 import { svg, table } from "./render.ts";
-
-import { statusLabels } from "./state.ts";
-
-const reasonLabels = {
-  "pre-token": "Meets the pre-token rule",
-  watchlist: "House watchlist",
-};
-
-const flagLabels = {
-  "growth-missing": "Missing TVL change. The model uses zero growth.",
-  "age-missing": "Missing listing date. The model uses median comparable age.",
-  "outside-comps-range": "TVL or age falls outside the comparable range.",
-};
 
 type FormatUsd = (value: number) => string;
 
@@ -98,21 +85,11 @@ export function protocolView(
     launchClock,
     launchProbability12,
   }: CardOptions,
+  { nearestComparables, protocolClock, protocolFacts }: ProtocolExtras,
 ): string {
-  const { protocol, plan, economics, status } = row;
+  const { protocol, plan, economics } = row;
   const { hourlyRateUsd, farmerHaircut } = farm;
   const { airdropYieldApr, breakEvenDepositUsd } = economics;
-  const facts = [
-    ["TVL", usd(protocol.tvl_usd)],
-    ["7d TVL change", growthText(protocol.change_7d)],
-    ["Listed", esc(protocol.listed_at ?? "Unlisted")],
-    [
-      status === "traded" || status === "token-unpriced"
-        ? "Days since listing"
-        : "Days with no token",
-      formatInteger(age),
-    ],
-  ];
   const interval = diagnostics
     ? `${usd(diagnostics.interval_p10_usd)}–${usd(diagnostics.interval_p90_usd)}`
     : "—";
@@ -125,25 +102,15 @@ export function protocolView(
         ? `Without ${esc(comparable)}, rank moves by ${Math.abs(influence.rank_delta)}`
         : "";
   const clockAge = Math.max(0, age ?? launchClock.medianAgeDays ?? 0);
-  const { points } = launchClock;
-  const p12 = row.launchProbability12;
-  const maxAge = Math.max(1, clockAge, points.at(-1)?.ageDays ?? 0);
-  const twins = (diagnostics?.twins ?? []).map((slug) => {
-    const family = families.get(slug);
-    return [
-      esc(family?.representative.name ?? slug),
-      family?.mcap_usd ? usd(family.mcap_usd) : "—",
-    ];
-  });
   const steps = table(
-    ["Action", "Est. fee", "Minutes", "Cadence"],
+    ["Action", "Est. fee", "Min", "When"],
     plan.steps.map((step) => [
       esc(step.action) + (step.exitCondition ? `<small>${esc(step.exitCondition)}</small>` : ""),
       usd(step.costUsd),
       formatInteger(step.minutes),
       step.cadence,
     ]),
-    { total: ["Total planned", usd(plan.totalCostUsd), formatInteger(plan.totalMinutes), "All"] },
+    { total: ["Total", usd(plan.totalCostUsd), formatInteger(plan.totalMinutes), "—"] },
   );
   return `<a class="back" href="${esc(back)}">← Back to board</a>
     <header class="protocol-heading"><div><h2>${esc(protocol.name)}</h2>
@@ -159,16 +126,9 @@ export function protocolView(
           ${influenceLine ? `<p class="caption">${influenceLine}</p>` : ""}
         </section>
         <section class="panel"><h3>Protocol record</h3>
-          <dl class="facts">${facts.map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("")}</dl>
-          <p><strong>${statusLabels[status]}</strong>${status === "pre-token" ? "" : ` · ${esc(row.reason)}`}</p>
-          <p class="muted">Included · ${row.boardReasons.map((reason) => reasonLabels[reason]).join(" · ")}</p>
-          ${row.flags.length ? `<ul class="flags">${row.flags.map((flag) => `<li>${flagLabels[flag]}</li>`).join("")}</ul>` : ""}
+          ${protocolFacts(row, age, usd)}
         </section>
-        <section class="panel clock"><h3>Launch clock</h3>
-          ${ageSparkline(maxAge, clockAge, p12, (days) => launchProbability12(points, days))}
-          <p><strong>P₁₂ · ${formatOdds(p12)}</strong></p>
-          <p class="caption">Age marker · ${formatInteger(clockAge)} days${age === null ? " (median proxy)" : ""}</p>
-        </section>
+        ${protocolClock(launchClock.points, clockAge, row.launchProbability12, age === null, launchProbability12)}
       </div>
       <div class="detail-facts">
         <section class="panel farm"><h3>Farm plan</h3>
@@ -180,9 +140,7 @@ export function protocolView(
           ${steps}
           <p class="caption">Per-occurrence minutes and fees. Assumptions ${plan.assumptionsAsOf}${plan.flags.length ? " · fallback fees" : ""}.</p>
         </section>
-        <section class="panel compact"><h3>Nearest comparables</h3>
-          ${table(["Twin", "Family market cap"], twins)}
-        </section>
+        ${nearestComparables(diagnostics?.twins ?? [], families, usd)}
       </div>
     </div>`;
 }

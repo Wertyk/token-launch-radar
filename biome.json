@@ -17,7 +17,7 @@
       "!!vendor",
       "!!dashboard/2-core.js",
       "!!dashboard/3-ui.js",
-      "!!dashboard/5-planner.js",
+      "!!dashboard/5-extras.js",
       "!!out",
       "!!node_modules",
       "!!AGENTS.md",

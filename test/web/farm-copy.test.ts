@@ -10,6 +10,11 @@ import { farmTables } from "../../src/domain/farming/playbook-data.ts";
 import type { BoardRow } from "../../src/presentation/web/board.ts";
 import { boardRows, boardTable } from "../../src/presentation/web/board-view.ts";
 import { methodView } from "../../src/presentation/web/method-view.ts";
+import {
+  nearestComparables,
+  protocolClock,
+  protocolFacts,
+} from "../../src/presentation/web/protocol-extras.ts";
 import { protocolView } from "../../src/presentation/web/protocol-view.ts";
 import { defaultState } from "../../src/presentation/web/state.ts";
 import { protocol } from "../domain/protocol-fixture.ts";
@@ -29,7 +34,7 @@ test("renders the labor rate and farmer haircut beside the protocol verdicts", (
   });
   const { board, model } = recomputeRadar(
     {
-      protocols: [tracked, protocol()],
+      protocols: [tracked, protocol({ name: "Sample & Co", category: "Yield", chains: ["Base"] })],
       as_of: "2026-11-14",
       floor_usd: 0,
       source: "Test snapshot",
@@ -58,9 +63,11 @@ test("renders the labor rate and farmer haircut beside the protocol verdicts", (
     launchClock: { points: [{ ageDays: 100, share: 0.4, count: 2 }], medianAgeDays: 80 },
     launchProbability12,
   };
+  const extras = { nearestComparables, protocolClock, protocolFacts };
   const html = protocolView(
     { ...row, launchProbability12: 0.625 },
     { ...card, diagnostics: { ...card.diagnostics, ...{ launch_p12: 0.25 } } },
+    extras,
   );
   expect(html).toMatch(/\$10,000 SKIP<\/span><\/div>\s*<p[^>]*>\$25\/h[^<]*50%[^<]*haircut/);
   expect(html).toContain("P10–P90");
@@ -70,15 +77,21 @@ test("renders the labor rate and farmer haircut beside the protocol verdicts", (
   expect(html).toContain("$8,000,000");
   expect(html).toContain("P₁₂ · 62.5%");
   expect(html).toContain("80 days");
+  expect(html).toContain('<th scope="col">When</th>');
+  expect(html).toContain("Deposit $1,000 into Sample &amp; Co&#39;s vault on Base.");
   expect(html).not.toContain("xmlns");
 
-  const noMovement = protocolView(row, {
-    ...card,
-    diagnostics: {
-      ...card.diagnostics,
-      influence: { ...card.diagnostics.influence, rank_delta: 0 },
+  const noMovement = protocolView(
+    row,
+    {
+      ...card,
+      diagnostics: {
+        ...card.diagnostics,
+        influence: { ...card.diagnostics.influence, rank_delta: 0 },
+      },
     },
-  });
+    extras,
+  );
   expect(noMovement).toContain("No single comparable moves this rank");
   expect(noMovement).not.toContain("Without Traded &amp; Co");
 });
@@ -107,7 +120,7 @@ test("draws a separate P10–P90 band below the board value", () => {
   expect(html).not.toContain("xmlns");
 });
 
-test("shows the published validation, ablation, coverage and dated assumptions in Method", () => {
+test("shows the published validation, ablation, scatter and dated assumptions in Method", () => {
   const snapshot = {
     as_of: "2026-11-14",
     floor_usd: 10,
@@ -152,7 +165,11 @@ test("shows the published validation, ablation, coverage and dated assumptions i
       { ageDays: 600, share: 0.75, count: 7 },
     ],
   };
-  const html = methodView({ ...data, model, launchClock }, farmAssumptions, formatUsd);
+  const looScatter = [
+    { slug: "a", actual: Math.log(100), predicted: Math.log(1_000), inside: true },
+    { slug: "b", actual: Math.log(10_000), predicted: Math.log(100), inside: false },
+  ];
+  const html = methodView({ ...data, model, launchClock, looScatter }, farmAssumptions, formatUsd);
   for (const text of [
     "λ",
     "Leave one family out",
@@ -164,7 +181,10 @@ test("shows the published validation, ablation, coverage and dated assumptions i
     "−Momentum",
     "+Category",
     "OLS",
-    "P10–P90",
+    "Predicted vs actual launch value",
+    "1/2 inside held-out P10–P90 · LOO median error ×2.11 vs ×2.22 flat",
+    "Actual market cap (log USD)",
+    "Predicted (log USD)",
     "Current traded-family market caps proxy for launch value.",
     "F(t)",
     "last rising segment’s constant conditional hazard",
@@ -174,7 +194,12 @@ test("shows the published validation, ablation, coverage and dated assumptions i
   ]) {
     expect(html).toContain(text);
   }
-  expect(html.match(/<table/g)).toHaveLength(7);
+  expect(html.match(/<table/g)).toHaveLength(6);
+  expect(html.match(/<circle/g)).toHaveLength(2);
+  expect(html).toContain('<circle class="inside" cx="59.00" cy="93.00"');
+  expect(html).toContain('<circle class="outside" cx="372.00" cy="178.00"');
+  expect(html).toContain('<path class="identity" d="M59 178L372 8"');
+  expect(html).not.toMatch(/xmlns|https?:\/\//);
   const tableRows = (rows: string[][]) =>
     `<tbody>${rows.map((cells) => `<tr><td>${cells.join("</td><td>")}</td></tr>`).join("")}</tbody>`;
   expect(html).toContain(

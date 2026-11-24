@@ -84,7 +84,7 @@ function roundUsd(value: number): number {
 
 export function makeFarmPlan(
   protocol: Pick<Protocol, "category" | "chains" | "name">,
-  { playbooks, gas }: FarmTables,
+  { playbooks, gas, funding }: FarmTables,
   depositUsd: number = DEFAULT_DEPOSIT_USD,
 ): FarmPlan {
   if (!Number.isFinite(depositUsd) || depositUsd <= 0) {
@@ -97,23 +97,35 @@ export function makeFarmPlan(
   const bridge = group === "bridge";
   const repeats = occurrences[playbook.cadence];
   const [entryTransactions, reviewTransactions, exitTransactions] = playbook.transactions;
+  const gasTransactions =
+    (bridge ? 0 : entryTransactions) + reviewTransactions * repeats + exitTransactions;
   const { chain, transactionUsd, bridgeUsd, feeAssumed } = chooseChain(
     protocol.chains,
-    (bridge ? 0 : entryTransactions) + reviewTransactions * repeats + exitTransactions,
+    gasTransactions,
     bridge ? entryTransactions : 1,
     gas,
   );
   const [entryMinutes, reviewMinutes, exitMinutes] = playbook.minutes;
   const tradingFees =
     group === "derivatives" ? assumptions.tradeVolumeUsd * assumptions.tradingFeeRate : 0;
-  const deposit = formatUsd(depositUsd);
+  const fields: Record<string, string> = {
+    deposit: formatUsd(depositUsd),
+    protocol: shorten(protocol.name, 140),
+    chain: shorten(chain ?? "a verified chain", 110),
+    gas: gasTransactions
+      ? `about ${formatUsd(gasTransactions * transactionUsd)} for gas`
+      : "gas as needed",
+  };
   const step = (
     action: string,
     costUsd: number,
     minutes: number,
     cadence: Cadence = "once",
   ): FarmStep => ({
-    action,
+    action: action.replace(
+      /\{(deposit|protocol|chain|gas)\}/g,
+      (_, key: string) => fields[key] ?? "",
+    ),
     chain,
     costUsd,
     minutes,
@@ -121,24 +133,14 @@ export function makeFarmPlan(
   });
   const fundingStep: FarmStep | null = bridge
     ? null
-    : step(
-        "If funding from another chain, verify the receiving asset and bridge funds.",
-        bridgeUsd,
-        assumptions.bridgeMinutes,
-      );
+    : step(funding.bridge, bridgeUsd, assumptions.bridgeMinutes);
   const steps = [
-    step(
-      chain === null
-        ? `Verify a supported chain before setting aside ${deposit} and gas.`
-        : `Set aside ${deposit} in a compatible wallet or account and check its gas balance.`,
-      0,
-      assumptions.setupMinutes,
-    ),
+    step(chain === null ? funding.unlisted : funding.wallet, 0, assumptions.setupMinutes),
   ];
   if (fundingStep) steps.push(fundingStep);
   steps.push(
     step(
-      `${shorten(protocol.name, 140)} — ${playbook.enter}`,
+      playbook.enter,
       roundUsd(entryTransactions * (bridge ? bridgeUsd : transactionUsd)),
       entryMinutes,
     ),

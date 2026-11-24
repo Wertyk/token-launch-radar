@@ -73,7 +73,10 @@ test("coverage selects a penalty inside each outer training fold", () => {
   });
   expect(selectLambda(rows)).toBe(0.01);
   expect(selectLambda(rows.filter(({ slug }) => slug !== "09"))).toBe(0.1);
-  expect(jackknifePlusCoverage(rows)).toEqual({ missLow: 2, covered: 15, missHigh: 3 });
+  const coverage = jackknifePlusCoverage(rows);
+  expect(coverage?.counts).toEqual({ missLow: 2, covered: 15, missHigh: 3 });
+  expect(coverage?.coveredSlugs.size).toBe(15);
+  expect(coverage?.coveredSlugs.has("09")).toBe(true);
 });
 
 test("out-of-sample coverage is near 80% for seeded Gaussian log errors", () => {
@@ -85,8 +88,8 @@ test("out-of-sample coverage is near 80% for seeded Gaussian log errors", () => 
     return comparable(String(i), tvl, 3 + 0.8 * tvl + 0.2 * age + noise, age);
   });
   const coverage = jackknifePlusCoverage(rows);
-  expect(coverage?.covered).toBeGreaterThanOrEqual(75);
-  expect(coverage?.covered).toBeLessThanOrEqual(85);
+  expect(coverage?.counts.covered).toBeGreaterThanOrEqual(75);
+  expect(coverage?.counts.covered).toBeLessThanOrEqual(85);
   expect(jackknifePlusCoverage(rows.slice(0, 2))).toBeNull();
 });
 

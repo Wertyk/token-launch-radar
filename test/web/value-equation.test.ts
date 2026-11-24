@@ -7,29 +7,39 @@ import {
 } from "../../src/application/browser-api.ts";
 import { buildRadar } from "../../src/application/build-radar.ts";
 import { daysBetween, parseSnapshot } from "../../src/domain/snapshot.ts";
+import {
+  nearestComparables,
+  protocolClock,
+  protocolFacts,
+} from "../../src/presentation/web/protocol-extras.ts";
 import { protocolView } from "../../src/presentation/web/protocol-view.ts";
 import { readKitSnapshot } from "../radar-fixtures.ts";
 
 test("the card reconstructs launch and implied values within 2%, including filled inputs", () => {
   const snapshot = parseSnapshot(readKitSnapshot());
   const { board, model, launchClock, rowDiagnostics } = buildRadar(snapshot);
+  const extras = { nearestComparables, protocolClock, protocolFacts };
   let withFilledGrowth = 0;
   let withFilledAge = 0;
   for (const row of board) {
     const { slug, tvl_usd, change_7d, listed_at } = row.protocol;
     const age = listed_at === null ? null : daysBetween(listed_at, snapshot.as_of);
-    const html = protocolView(row, {
-      age,
-      back: "#/",
-      coefficients: model.coefficients,
-      lnValue: logValue(row.features, model),
-      usd: formatUsd,
-      farm: farmAssumptions,
-      diagnostics: rowDiagnostics.get(slug),
-      families: new Map(),
-      launchClock,
-      launchProbability12,
-    });
+    const html = protocolView(
+      row,
+      {
+        age,
+        back: "#/",
+        coefficients: model.coefficients,
+        lnValue: logValue(row.features, model),
+        usd: formatUsd,
+        farm: farmAssumptions,
+        diagnostics: rowDiagnostics.get(slug),
+        families: new Map(),
+        launchClock,
+        launchProbability12,
+      },
+      extras,
+    );
     const equation = html.match(/<p class="value-equation">([^<]+)<\/p>/)?.[1];
     const parts = equation?.match(
       /^ln V ≈ (-?\d+\.\d{4}) ([+−]) (\d+\.\d{4}) × ln\(\$(\d+(?:\.\d+)?(?:e-\d+)?)([KMBT]?) × (\d+\.\d{3})\) ([+−]) (\d+\.\d{4}) × ln\((\d+) d\) ≈ (-?\d+\.\d{3}) → (\$[\d,]+) × P₁₂\((\d+) d\) (\d{1,3}\.\d)% → (\$[\d,]+)$/,

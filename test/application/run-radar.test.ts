@@ -120,13 +120,16 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   expect(dataScript).not.toMatch(/https?:\/\//i);
   const data = JSON.parse(dataScript.slice(prefix.length, -2));
   expect(data.meta.protocolCount).toBe(snapshot.protocols.length);
-  expect(data.meta.playbooks.lending.enter).toContain("Supply collateral");
+  expect(data.meta.playbooks.lending.enter).toContain("Supply {deposit} as collateral");
   expect(data.meta.gas.chains.Base).toEqual([0.05, 0.3]);
   const publishedRows = data.board.rows as ((typeof rows)[number] &
     ValueDiagnostics & {
       launch_p12: number;
     })[];
   expect(data.intervalCounts).toEqual({ missLow: 12, covered: 104, missHigh: 12 });
+  expect(data.looScatter).toHaveLength(128);
+  expect(new Set(data.looScatter.map((point: { slug: string }) => point.slug)).size).toBe(128);
+  expect(data.looScatter.filter((point: { inside: boolean }) => point.inside)).toHaveLength(104);
   expect(data.intervalCoverage).toBeGreaterThan(0);
   expect(data.intervalCoverage).toBeLessThanOrEqual(1);
   expect(data.launchClock.points).toHaveLength(6);

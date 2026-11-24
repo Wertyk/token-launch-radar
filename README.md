@@ -30,6 +30,7 @@ The project follows Clean Architecture, with dependency-cruiser enforcing the la
 - Presentation renders the board and protocol cards in the browser.
 
 The CLI uses only the Node standard library and repository code. esbuild builds the dashboard bundles with the same radar core the CLI uses.
+The dashboard loads `2-core.js`, then `5-extras.js` for the farm planner and below-fold detail cards, then `3-ui.js` for the main views and Method scatter. The bundles share dependencies through `window.Radar`.
 
 Two runs on the same snapshot write identical bytes. `pnpm verify` runs type checks, lint, the layer rule, tests, the bundle freshness check, the radar and the seven-check gate. `pnpm sandbox` runs the committed tree twice in the grader’s Node 22 container and compares the outputs.
 

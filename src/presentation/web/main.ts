@@ -13,6 +13,7 @@ import { escapeHtml as esc, formatInteger, signedTerm } from "./format.ts";
 import { integrityChecks, integrityStrip } from "./integrity.ts";
 import { methodView } from "./method-view.ts";
 import type { MountPlanner } from "./planner.ts";
+import type { ProtocolExtras } from "./protocol-extras.ts";
 import { protocolView } from "./protocol-view.ts";
 import { options } from "./render.ts";
 import type { BoardState } from "./state.ts";
@@ -23,14 +24,14 @@ type PublishedRow = BrowserApi.BoardRows["rows"][number] &
 
 interface RadarData
   extends BrowserApi.PublishedSnapshot,
-    Pick<RadarResult, "model" | "launchClock" | "census" | "intervalCounts"> {
+    Pick<RadarResult, "model" | "launchClock" | "census" | "intervalCounts" | "looScatter"> {
   meta: BrowserApi.PublishedSnapshot["meta"] & FarmTables;
   board: { rows: (PublishedRow | null)[] };
 }
 
 declare global {
   interface Window {
-    Radar: typeof BrowserApi.browserApi & { mountPlanner: MountPlanner };
+    Radar: typeof BrowserApi.browserApi & ProtocolExtras & { mountPlanner: MountPlanner };
     RADAR_DATA?: RadarData;
   }
 }
@@ -183,18 +184,22 @@ function start(main: HTMLElement, snapshot: Snapshot, data: RadarData, api: Wind
       const back = boardHash(route.state);
       const detail = route.page === "protocol" ? protocols.get(route.slug) : undefined;
       main.innerHTML = detail
-        ? protocolView(detail, {
-            age: age(detail.protocol),
-            coefficients: data.model.coefficients,
-            lnValue: api.logValue(detail.features, data.model),
-            back,
-            usd: formatUsd,
-            farm: farmAssumptions,
-            diagnostics: evidence.get(detail.protocol.slug),
-            families,
-            launchClock,
-            launchProbability12: api.launchProbability12,
-          })
+        ? protocolView(
+            detail,
+            {
+              age: age(detail.protocol),
+              coefficients: data.model.coefficients,
+              lnValue: api.logValue(detail.features, data.model),
+              back,
+              usd: formatUsd,
+              farm: farmAssumptions,
+              diagnostics: evidence.get(detail.protocol.slug),
+              families,
+              launchClock,
+              launchProbability12: api.launchProbability12,
+            },
+            api,
+          )
         : `<h2>Page unavailable</h2><a href="${esc(back)}">Back to board</a>`;
     }
     if (changedPage) {

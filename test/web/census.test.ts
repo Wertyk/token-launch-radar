@@ -42,7 +42,7 @@ test("renders all filtered rows, with reason and TVL escaped or formatted", () =
   expect(html).not.toContain("<td>Excluded</td>");
 });
 
-test("links the complete census breakdown and the board's unranked counts to their statuses", () => {
+test("links the complete census breakdown to its statuses", () => {
   const census: CensusRecord[] = [
     ...rows,
     { ...first, slug: "pre", status: "pre-token" },
@@ -78,7 +78,7 @@ test("board counts and links exclude two protocols ranked by a watchlist overrid
   expect([...board]).toEqual(["pre", "forced-traded", "forced-excluded"]);
   const summary = censusSummary(census, board);
   expect(summary.replace(/<[^>]+>/g, "")).toContain(
-    "Not ranked: 1 traded · 1 token, unpriced · 1 excluded",
+    "All 6 protocols accounted for: 3 ranked · 1 traded · 1 token, unpriced · 1 excluded",
   );
   for (const [status, slug] of [
     ["traded", "traded"],

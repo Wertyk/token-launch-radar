@@ -9,14 +9,17 @@ type BoardMembership = Pick<ReadonlySet<string>, "has">;
 
 export function censusSummary(rows: readonly CensusRecord[], ranked?: BoardMembership): string {
   const counts = { "pre-token": 0, traded: 0, "token-unpriced": 0, excluded: 0 };
+  let included = 0;
   for (const { slug, status } of rows) {
     if (!Object.hasOwn(counts, status)) throw new Error("Census counts do not add up");
-    if (!ranked?.has(slug)) counts[status]++;
+    if (ranked?.has(slug)) included++;
+    else counts[status]++;
   }
   const link = (status: keyof typeof counts, label: string = status) =>
     `<a href="#/census?status=${status}${ranked ? "&amp;unranked=1" : ""}">${formatInteger(counts[status])} ${label}</a>`;
   const parts = [link("traded"), link("token-unpriced", "token, unpriced"), link("excluded")];
-  return `<p class="census-summary">${ranked ? `Not ranked: ${parts.join(" · ")} (wrapped, staked, bridged, exchange)` : `${formatInteger(rows.length)} protocols = ${link("pre-token", "pre-token (ranked)")} + ${parts.join(" + ")}`}</p>`;
+  const total = formatInteger(rows.length);
+  return `<p class="census-summary">${ranked ? `All ${total} protocols accounted for: ${formatInteger(included)} ranked · ${parts.join(" · ")} (wrapped, staked, bridged, exchange)` : `${total} protocols = ${link("pre-token", "pre-token (ranked)")} + ${parts.join(" + ")}`}</p>`;
 }
 
 export function selectCensus(

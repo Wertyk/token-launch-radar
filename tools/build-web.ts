@@ -17,8 +17,8 @@ const bundles = [
     outfile: "dashboard/3-ui.js",
   },
   {
-    entryPoints: ["src/presentation/web/planner.ts"],
-    outfile: "dashboard/5-planner.js",
+    entryPoints: ["src/presentation/web/extras.ts"],
+    outfile: "dashboard/5-extras.js",
   },
 ];
 const biome = fileURLToPath(import.meta.resolve("@biomejs/biome/bin/biome"));

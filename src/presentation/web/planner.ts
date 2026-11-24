@@ -5,7 +5,7 @@ import type { PlanState, Sliders } from "./plan-state.ts";
 import { parsePlanState, planHash } from "./plan-state.ts";
 import { plannerForm, plannerResults, plannerSettings, sliderValues } from "./plan-view.ts";
 
-function mountPlanner(
+export function mountPlanner(
   main: HTMLElement,
   board: readonly BrowserApi.RadarRow[],
   tables: FarmTables,
@@ -96,5 +96,3 @@ function mountPlanner(
 }
 
 export type MountPlanner = typeof mountPlanner;
-
-window.Radar.mountPlanner = mountPlanner;

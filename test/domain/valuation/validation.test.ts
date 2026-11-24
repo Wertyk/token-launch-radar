@@ -8,7 +8,7 @@ import {
   selectCategoryFit,
 } from "../../../src/domain/valuation/category-model.ts";
 import { comparablesFromFamilies } from "../../../src/domain/valuation/comparables.ts";
-import { seededFolds, walkForwardSplit } from "../../../src/domain/valuation/folds.ts";
+import { seededFolds, splitFolds, walkForwardSplit } from "../../../src/domain/valuation/folds.ts";
 import { scorePredictions } from "../../../src/domain/valuation/metrics.ts";
 import { selectLambda } from "../../../src/domain/valuation/selection.ts";
 import { fitOuterFold, validateModel } from "../../../src/domain/valuation/validation.ts";
@@ -191,7 +191,12 @@ test("scores log errors and Spearman with averaged ranks for ties", () => {
 });
 
 test("nested validation reports only scoreable held-out observations", () => {
-  const { validation, ablation } = validateModel(rows);
+  const { validation, ablation, looPredictions } = validateModel(rows);
+  const heldOut = splitFolds(rows.map((row) => [row])).flatMap(
+    (fold) => fitOuterFold(fold).predictions.model,
+  );
+  expect(looPredictions).toEqual(heldOut);
+  expect(scorePredictions(looPredictions)).toEqual(validation.leaveOneFamilyOut.model);
   expect(validation.leaveOneFamilyOut.model.n).toBe(12);
   expect(validation.seededFiveFold.model.n).toBe(12);
   expect(validation.walkForward.model.n).toBe(4);

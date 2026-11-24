@@ -26,6 +26,64 @@ const playbooks = [
   [null, /documented/i, 0.05],
 ] as const;
 
+test.each([
+  [
+    "Yield",
+    "Deposit $1,000 into Sample Finance's vault on Base.",
+    "Check Sample Finance's share price",
+    "Redeem Sample Finance vault shares on Base",
+  ],
+  [
+    "Lending",
+    "Supply $1,000 as collateral through Sample Finance on Base.",
+    "Check Sample Finance's supply rate",
+    "withdraw collateral from Sample Finance on Base",
+  ],
+  [
+    "Dexs",
+    "Add $1,000 of liquidity to a Sample Finance pool on Base.",
+    "Compare the Sample Finance pool",
+    "Remove liquidity from Sample Finance on Base",
+  ],
+])(
+  "renders concrete %s actions with the planned amounts and fees",
+  (category, entry, review, exit) => {
+    const plan = makeFarmPlan(protocol({ category, name: "Sample Finance", chains: ["Base"] }));
+    const steps = plan.steps.map(renderFarmStep);
+    expect(steps[0]).toContain("Move $1,000 to a wallet on Base");
+    expect(steps[1]).toContain("Bridge $1,000 to Base only if your funds sit on another chain");
+    expect(steps[1]).toContain("Est. fee $0.30 | 10 minutes | once");
+    expect(steps[2]).toContain(entry);
+    expect(steps[3]).toContain(review);
+    expect(steps[4]).toContain(exit);
+  },
+);
+
+test("renders a chainless plan with the selected deposit and a chain verification step", () => {
+  const plan = makeFarmPlan(
+    protocol({ name: "Sample Finance", category: "Yield", chains: [] }),
+    250,
+  );
+  const steps = plan.steps.map(renderFarmStep);
+  expect(steps[0]).toContain("Verify a chain supported by Sample Finance");
+  expect(steps[1]).toContain(
+    "Bridge $250 to a verified chain only if your funds sit on another chain",
+  );
+  expect(steps[1]).toContain("Est. fee $2.50 | 10 minutes | once");
+  expect(steps[2]).toContain("Deposit $250 into Sample Finance's vault on a verified chain.");
+});
+
+test("uses the bridge itself for the transfer action and estimates its fee once", () => {
+  const plan = makeFarmPlan(
+    protocol({ name: "Sample Finance", category: "Bridge", chains: ["Base"] }),
+  );
+  expect(plan.fundingStep).toBeNull();
+  expect(plan.steps.map(renderFarmStep)[1]).toContain(
+    "Quote a $1,000 transfer through Sample Finance from Base.",
+  );
+  expect(plan.oneTimeCostUsd).toBe(0.3);
+});
+
 for (const chains of [[], ["Unmapped Chain"]]) {
   test.each(playbooks)(
     "renders the %s playbook with a long name and fallback fees",

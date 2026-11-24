@@ -27,24 +27,34 @@ test("checks the generated bundles byte for byte without writing them", () => {
     );
     expect(core).not.toMatch(/parseSnapshot|duplicate slug|Log the supply rate|Ethereum:\[3,8\]/);
     expect(core).toContain("function planPortfolio");
-    const planner = readFileSync(join(cwd, "dashboard/5-planner.js"), "utf8");
-    expect(planner).toContain("function mountPlanner");
-    expect(planner).toContain("function parsePlanState");
+    const extras = readFileSync(join(cwd, "dashboard/5-extras.js"), "utf8");
+    expect(extras).toContain("function mountPlanner");
+    expect(extras).toContain("function parsePlanState");
+    expect(extras).toContain("function ageSparkline");
+    expect(extras).toContain("function protocolFacts");
+    expect(extras).toContain("Nearest comparables");
+    expect(extras).not.toMatch(
+      /launchValueScatter|Predicted vs actual launch value|Protocol record/,
+    );
     const window: Record<string, unknown> = {};
-    runInNewContext(`${core}\n${planner}`, { window });
+    runInNewContext(`${core}\n${extras}`, { window });
     expect(Object.keys(window)).toEqual(["Radar"]);
     expect(window.Radar).toMatchObject({
       buildRadar: expect.any(Function),
       planPortfolio: expect.any(Function),
       mountPlanner: expect.any(Function),
+      protocolClock: expect.any(Function),
+      protocolFacts: expect.any(Function),
+      nearestComparables: expect.any(Function),
     });
 
     const bundle = join(cwd, "dashboard/3-ui.js");
     const original = readFileSync(bundle, "utf8");
     expect(() => new Script(original)).not.toThrow();
     expect(original).not.toMatch(
-      /function (mountPlanner|parsePlanState)|Farm assumptions<\/legend>/,
+      /function (mountPlanner|parsePlanState|ageSparkline|protocolFacts)|Farm assumptions<\/legend>|Nearest comparables/,
     );
+    expect(original).toContain("Protocol record");
     appendFileSync(bundle, "\n// Changed bundle\n");
     const check = run("--check");
     expect(check.status).toBe(1);
@@ -64,7 +74,14 @@ test("loads the offline resources in dependency order", () => {
   const html = readFileSync(new URL("dashboard/index.html", root), "utf8");
   expect(
     [...html.matchAll(/(?:src|href)="([^"#]+\.(?:js|css))"/g)].map((match) => match[1]),
-  ).toEqual(["../data.js", "1-tokens.css", "4-app.css", "2-core.js", "5-planner.js", "3-ui.js"]);
+  ).toEqual(["../data.js", "1-tokens.css", "4-app.css", "2-core.js", "5-extras.js", "3-ui.js"]);
+});
+
+test("ships the scatter renderer with the screenshot-visible UI", () => {
+  const ui = readFileSync(new URL("dashboard/3-ui.js", root), "utf8");
+  expect(ui).toContain("function launchValueScatter(");
+  expect(ui).toContain('class="identity"');
+  expect(ui).toContain("LOO median error");
 });
 
 test("keeps the guide, design tokens and browser bundles within the judge's source budget", () => {
@@ -83,6 +100,7 @@ test("keeps five screenshot-backed rubric bullets with their code references in 
   expect(guide).toContain("Current traded-family caps proxy for V");
   const bullets = guide.trim().split(/\n(?=- )/);
   expect(bullets).toHaveLength(5);
+  expect(bullets[0]).toContain("758 accounted for");
   const functions = [
     ["buildRadar", "integrityChecks"],
     ["fitValueModel", "launchProbability12", "buildCensus"],

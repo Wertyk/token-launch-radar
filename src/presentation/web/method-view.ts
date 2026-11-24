@@ -5,14 +5,15 @@ import { formatInteger, formatOdds as pct } from "./format.ts";
 import type { HouseRuleEvidence } from "./integrity.ts";
 import { multiplier } from "./integrity.ts";
 import { table } from "./render.ts";
+import { launchValueScatter } from "./scatter-view.ts";
 
 export function methodView(
   {
     model,
     houseRule,
-    intervalCounts,
+    looScatter,
     launchClock,
-  }: Pick<RadarResult, "model" | "intervalCounts" | "launchClock"> & {
+  }: Pick<RadarResult, "model" | "looScatter" | "launchClock"> & {
     houseRule: HouseRuleEvidence;
   },
   farm: typeof farmAssumptions,
@@ -28,7 +29,7 @@ export function methodView(
     spearman?.toFixed(3) ?? "—",
   ];
   const section = (title: string, headers: string[], rows: string[][], note?: string) =>
-    `<section class="panel"><h3>${title}</h3>${table(headers, rows)}${note ? `<p class="caption">${note}</p>` : ""}</section>`;
+    `<section class="panel"><h2>${title}</h2>${table(headers, rows)}${note ? `<p class="caption">${note}</p>` : ""}</section>`;
   const { points } = launchClock;
   const cards = [
     '<div class="method-value">',
@@ -90,14 +91,7 @@ export function methodView(
         ] as const
       ).map(([label, metrics]) => [label, ...score(metrics)]),
     ),
-    section(
-      "Held-out P10–P90 coverage",
-      ["Below P10", "Inside", "Above P90"],
-      intervalCounts
-        ? [[intervalCounts.missLow, intervalCounts.covered, intervalCounts.missHigh].map(String)]
-        : [],
-      "Jackknife+ bands on held-out market caps.",
-    ),
+    launchValueScatter(looScatter, validation.leaveOneFamilyOut),
     section(
       `Farm assumptions · ${farm.asOf}`,
       ["Input", "Default"],
@@ -116,5 +110,5 @@ export function methodView(
     ),
     "</div>",
   ];
-  return `<h2>Method</h2><div class="method compact">${cards.join("")}</div>`;
+  return `<div class="method compact">${cards.join("")}</div>`;
 }

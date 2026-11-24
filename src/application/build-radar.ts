@@ -21,6 +21,7 @@ import { comparablesFromFamilies } from "../domain/valuation/comparables.ts";
 import type { ValueDiagnostics } from "../domain/valuation/diagnostics.ts";
 import { describeBoardValues } from "../domain/valuation/diagnostics.ts";
 import { jackknifePlusCoverage, leaveOneFamilyOut } from "../domain/valuation/jackknife.ts";
+import type { Prediction } from "../domain/valuation/metrics.ts";
 import type { RankedRow, ValueModel } from "../domain/valuation/model.ts";
 import { fitValueModel, rankBoard } from "../domain/valuation/model.ts";
 import { selectLambda } from "../domain/valuation/selection.ts";
@@ -40,7 +41,8 @@ export interface RadarResult {
   model: ValueModel & ModelValidation;
   rowDiagnostics: ReadonlyMap<string, ValueDiagnostics>;
   intervalCoverage: number | null;
-  intervalCounts: ReturnType<typeof jackknifePlusCoverage>;
+  intervalCounts: NonNullable<ReturnType<typeof jackknifePlusCoverage>>["counts"] | null;
+  looScatter: (Prediction & { inside: boolean })[];
   launchClock: LaunchClock;
 }
 
@@ -99,6 +101,7 @@ export function buildRadar(snapshot: Snapshot, tables = farmTables()): RadarResu
   const refits = leaveOneFamilyOut(inputs.comparables, model.lambda);
   const boardValues = describeBoardValues(board, inputs.comparables, refits, as_of);
   const coverage = jackknifePlusCoverage(inputs.comparables);
+  const { looPredictions, ...validation } = validateModel(validationRows);
   const rowDiagnostics = new Map(
     boardValues.map(({ protocol: { slug }, diagnostics }) => [slug, diagnostics]),
   );
@@ -112,10 +115,13 @@ export function buildRadar(snapshot: Snapshot, tables = farmTables()): RadarResu
     })),
     houseRule: checkHouseRule(snapshot),
     board,
-    model: { ...model, ...validateModel(validationRows) },
+    model: { ...model, ...validation },
     rowDiagnostics,
-    intervalCounts: coverage,
-    intervalCoverage: coverage ? coverage.covered / inputs.comparables.length : null,
+    intervalCounts: coverage?.counts ?? null,
+    intervalCoverage: coverage ? coverage.counts.covered / inputs.comparables.length : null,
+    looScatter: coverage
+      ? looPredictions.map((point) => ({ ...point, inside: coverage.coveredSlugs.has(point.slug) }))
+      : [],
     launchClock,
   };
 }

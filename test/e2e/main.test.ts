@@ -114,7 +114,7 @@ test("passes all seven gate checks and reproduces every byte with the repo asset
   for (const file of ["0-guide.md", "1-tokens.css", "2-core.js", "3-ui.js"]) {
     expect(result.stdout).toContain(`dashboard/${file} shown whole`);
   }
-  expect(result.stdout).toContain("dashboard/5-planner.js dropped");
+  expect(result.stdout).toContain("dashboard/5-extras.js dropped");
   expect(result.stdout).toMatch(/dashboard\/(4-app\.css|index\.html) cut \(/);
 
   const files = outputFiles(first);

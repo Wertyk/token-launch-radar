@@ -13,6 +13,7 @@ export function renderDataScript(
     rowDiagnostics,
     intervalCoverage,
     intervalCounts,
+    looScatter,
     launchClock,
   }: Pick<
     RadarResult,
@@ -22,6 +23,7 @@ export function renderDataScript(
     | "rowDiagnostics"
     | "intervalCoverage"
     | "intervalCounts"
+    | "looScatter"
     | "launchClock"
   >,
   tables: FarmTables,
@@ -43,6 +45,7 @@ export function renderDataScript(
     model,
     intervalCoverage,
     intervalCounts,
+    looScatter,
     launchClock,
     board: {
       rows: board.rows.map((row) => {

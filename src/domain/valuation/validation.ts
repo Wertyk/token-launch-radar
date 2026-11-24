@@ -44,24 +44,33 @@ export function fitOuterFold({ train, test }: Fold<CategoryComparable>): {
   };
 }
 
-function scoreFolds(folds: readonly Fold<CategoryComparable>[]): Scores {
+function evaluateFolds(folds: readonly Fold<CategoryComparable>[]) {
   const heldOut = folds.map((fold) => fitOuterFold(fold).predictions);
+  const modelPredictions = heldOut.flatMap(({ model }) => model);
   return {
-    model: scorePredictions(heldOut.flatMap(({ model }) => model)),
-    flatMultiple: scorePredictions(heldOut.flatMap(({ flatMultiple }) => flatMultiple)),
-    categoryMultiple: scorePredictions(heldOut.flatMap(({ categoryMultiple }) => categoryMultiple)),
+    modelPredictions,
+    scores: {
+      model: scorePredictions(modelPredictions),
+      flatMultiple: scorePredictions(heldOut.flatMap(({ flatMultiple }) => flatMultiple)),
+      categoryMultiple: scorePredictions(
+        heldOut.flatMap(({ categoryMultiple }) => categoryMultiple),
+      ),
+    },
   };
 }
 
-export function validateModel(rows: readonly CategoryComparable[]): ModelValidation {
+export function validateModel(
+  rows: readonly CategoryComparable[],
+): ModelValidation & { looPredictions: Prediction[] } {
   const loo = splitFolds(rows.map((row) => [row]));
-  const leaveOneFamilyOut = scoreFolds(loo);
+  const { scores: leaveOneFamilyOut, modelPredictions: looPredictions } = evaluateFolds(loo);
   return {
     validation: {
       leaveOneFamilyOut,
-      seededFiveFold: scoreFolds(splitFolds(seededFolds(rows))),
-      walkForward: scoreFolds([walkForwardSplit(rows)]),
+      seededFiveFold: evaluateFolds(splitFolds(seededFolds(rows))).scores,
+      walkForward: evaluateFolds([walkForwardSplit(rows)]).scores,
     },
     ablation: ablateLoo(loo, leaveOneFamilyOut.model),
+    looPredictions,
   };
 }
