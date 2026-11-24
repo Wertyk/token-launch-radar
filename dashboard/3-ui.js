@@ -217,8 +217,10 @@ function boardRows(rows, state, maxLogValue, usd) {
 
 function censusSummary(rows, ranked) {
 	const counts = {"pre-token": 0, traded: 0, "token-unpriced": 0, excluded: 0}
-	for (const {slug, status} of rows) if (!ranked?.has(slug)) counts[status]++
-	if (!ranked && Object.values(counts).reduce((sum, count) => sum + count, 0) !== rows.length) throw new Error("Census counts do not add up")
+	for (const {slug, status} of rows) {
+		if (!Object.hasOwn(counts, status)) throw new Error("Census counts do not add up")
+		if (!ranked?.has(slug)) counts[status]++
+	}
 	const link = (status, label = status) => `<a href="#/census?status=${status}${ranked ? "&amp;unranked=1" : ""}">${formatInteger(counts[status])} ${label}</a>`
 	const parts = [link("traded"), link("token-unpriced", "token, unpriced"), link("excluded")]
 	return `<p class="census-summary">${ranked ? `Not ranked: ${parts.join(" · ")} (wrapped, staked, bridged, exchange)` : `${formatInteger(rows.length)} protocols = ${link("pre-token", "pre-token (ranked)")} + ${parts.join(" + ")}`}</p>`
@@ -254,38 +256,49 @@ function censusView(rows, state, usd, ranked) {
 		)}`
 }
 
-function element(selector, root = document) {
-	const found = root.querySelector(selector)
+function element(selector, root2 = document) {
+	const found = root2.querySelector(selector)
 	if (!found) throw new Error(`Missing dashboard element ${selector}`)
 	return found
 }
 
+function matchesFields(expected, actual) {
+	if (!expected || typeof expected !== "object") return expected === actual
+	if (!actual || typeof actual !== "object") return false
+	if (Array.isArray(expected) && (!Array.isArray(actual) || expected.length !== actual.length)) {
+		return false
+	}
+	return Object.entries(expected).every(([key, value]) => matchesFields(value, actual[key]))
+}
 function boardMismatches(computed, published) {
-	const slugs = published.slice(computed.length).map(({slug}) => slug)
+	const slugs = published.slice(computed.length).map(row => (typeof row?.slug === "string" ? row.slug : "(missing slug)"))
 	for (const [index, row] of computed.entries()) {
-		const other = published[index]
-		const farm = other?.farm_economics
-		const {airdropYieldApr, launchProbability12: p12, breakEvenDepositUsd, deposits} = row.economics
-		if (
-			!other ||
-			row.protocol.slug !== other.slug ||
-			row.rank !== other.rank ||
-			row.launch_value_usd !== other.launch_value_usd ||
-			row.implied_value_usd !== other.implied_value_usd ||
-			row.farm_steps.length !== other.farm_steps.length ||
-			row.farm_steps.some((step, i) => step !== other.farm_steps[i]) ||
-			airdropYieldApr !== other.airdrop_yield_apr ||
-			p12 !== other.launch_p12 ||
-			p12 !== farm?.launchProbability12 ||
-			breakEvenDepositUsd !== farm.breakEvenDepositUsd ||
-			deposits.length !== farm.deposits?.length ||
-			deposits.some((deposit, i) => {
-				const prior = farm.deposits[i]
-				return !prior || Object.entries(deposit).some(([key, value]) => prior[key] !== value)
-			})
-		) {
-			slugs.push(row.protocol.slug)
+		const {
+			protocol: {slug},
+			rank,
+			launch_value_usd,
+			implied_value_usd,
+			plan,
+			economics,
+			farm_steps
+		} = row
+		const {airdropYieldApr: airdrop_yield_apr, ...farm_economics} = economics
+		const expected = {
+			slug,
+			rank,
+			launch_value_usd,
+			implied_value_usd,
+			farm_steps,
+			airdrop_yield_apr,
+			launch_p12: farm_economics.launchProbability12,
+			plan_chain: plan.chain,
+			plan_one_time_cost_usd: plan.oneTimeCostUsd,
+			plan_recurring_cost_usd: plan.recurringCostUsd,
+			plan_total_cost_usd: plan.totalCostUsd,
+			plan_total_minutes: plan.totalMinutes,
+			farm_economics
 		}
+		if (!matchesFields(expected, published[index])) slugs.push(slug)
 	}
 	return slugs
 }
@@ -293,9 +306,9 @@ function boardMismatches(computed, published) {
 function integrityChecks(computed, published, watchlist, {fitted, houseRule, intervalCounts, loo}) {
 	const mismatches = boardMismatches(computed, published)
 	const count = mismatches.length
-	const slugs = new Set(published.map(({slug}) => slug))
-	const unique = [...new Set(watchlist)]
-	const covered = unique.filter(slug => slugs.has(slug)).length
+	const slugs = new Set(published.map(row => row?.slug))
+	const unique = new Set(watchlist)
+	const covered = [...unique].filter(slug => slugs.has(slug)).length
 	const {missLow, covered: inside, missHigh} = intervalCounts ?? {missLow: 0, covered: 0, missHigh: 0}
 	const samples = missLow + inside + missHigh
 	const matches = houseRule.truePositives.length
@@ -307,14 +320,14 @@ function integrityChecks(computed, published, watchlist, {fitted, houseRule, int
 			pass: count === 0,
 			label: `Recompute ${count ? "≠" : "="} board.json · launch values, odds, implied values, ranks, plans, economics (${count ? `${count} mismatched · ${mismatches[0]}` : published.length})`
 		},
-		{pass: covered === unique.length, label: `Watchlist ${covered}/${unique.length} on board`},
+		{pass: covered === unique.size, label: `Watchlist ${covered}/${unique.size} on board`},
 		{
-			pass: matches === unique.length && unique.length > 0,
-			label: `House rule ${matches}/${unique.length} recall${extra ? ` · ${extra} extra explained by parentProtocol` : ""}`
+			pass: matches === unique.size && unique.size > 0,
+			label: `House rule ${matches}/${unique.size} recall${extra ? ` · ${extra} extra explained by parentProtocol` : ""}`
 		},
 		{
 			pass: samples === fitted && inside / samples >= 0.8,
-			label: `${inside}/${samples} launch values inside P10–P90${samples === fitted ? "" : ` · ${samples}/${fitted} families`}`
+			label: `${inside}/${samples} held-out traded caps inside P10–P90${samples === fitted ? "" : ` · ${samples}/${fitted} families`}`
 		},
 		{
 			pass: samePopulation && model.medianMultiplier !== null && flat.medianMultiplier !== null && model.medianMultiplier < flat.medianMultiplier,
@@ -339,7 +352,7 @@ function methodView({model, houseRule, intervalCounts, launchClock}, farm, usd) 
 	const {leaveOneFamilyOut, seededFiveFold, walkForward} = validation
 	const {full, withoutTvl, withoutAge, withoutMomentum, withCategory, ols} = ablation
 	const score = ({medianMultiplier, spearman}) => [multiplier(medianMultiplier), spearman?.toFixed(3) ?? "—"]
-	const section = (title, headers, rows, note = "") => `<section class="panel"><h3>${title}</h3>${table(headers, rows)}${note ? `<p class="caption">${note}</p>` : ""}</section>`
+	const section = (title, headers, rows, note) => `<section class="panel"><h3>${title}</h3>${table(headers, rows)}${note ? `<p class="caption">${note}</p>` : ""}</section>`
 	const {truePositives, falsePositives, falseNegatives} = houseRule
 	return `<h2>Method</h2><div class="method compact">
     ${section(
@@ -361,7 +374,7 @@ function methodView({model, houseRule, intervalCounts, launchClock}, farm, usd) 
 				["Seeded five-fold", seededFiveFold],
 				["Walk-forward", walkForward]
 			].map(([label, {model: fitted, flatMultiple, categoryMultiple}]) => [label, ...[fitted, flatMultiple, categoryMultiple].map(s => score(s).join(" · "))]),
-			"Launch value on traded families · median error ×k and Spearman ρ."
+			"Current traded-family market caps proxy for launch value. Median error ×k and Spearman ρ."
 		)}
     ${section(
 			"Leave-one-family-out ablation",
@@ -380,13 +393,13 @@ function methodView({model, houseRule, intervalCounts, launchClock}, farm, usd) 
 			"Held-out P10–P90 coverage",
 			["Below P10", "Inside", "Above P90"],
 			intervalCounts ? [[intervalCounts.missLow, intervalCounts.covered, intervalCounts.missHigh].map(String)] : [],
-			"Jackknife+ launch value bands on traded families."
+			"Jackknife+ bands on held-out market caps."
 		)}
     ${section(
 			"Launch clock F(t)",
 			["Mean age (days)", "Fitted token share", "Count"],
 			launchClock.points.map(({ageDays, share, count}) => [ageDays.toFixed(0), formatOdds(share), String(count)]),
-			"The clock estimates 12-month odds. Its tail uses the last rising segment’s constant conditional hazard, or the pooled annual rate for a flat fit. The snapshot cannot validate future launch odds."
+			"Flat windows and the tail use the last rising segment’s constant conditional hazard, or the pooled annual rate for a flat fit. The snapshot cannot validate future launch odds."
 		)}
     ${section(
 			"House watchlist rule",
@@ -528,17 +541,17 @@ function protocolView(row, {age, coefficients, lnValue, back, usd, farm, diagnos
     </div>`
 }
 
-function mountBoard(main2, rows, summary, usd) {
-	main2.innerHTML = summary + element("#board-filters").innerHTML + boardTable()
-	const search = element('[name="q"]', main2)
-	const category = element('[name="cat"]', main2)
-	const chain = element('[name="chain"]', main2)
+function mountBoard(main, rows, summary, usd) {
+	main.innerHTML = summary + element("#board-filters").innerHTML + boardTable()
+	const search = element('[name="q"]', main)
+	const category = element('[name="cat"]', main)
+	const chain = element('[name="chain"]', main)
 	category.insertAdjacentHTML("beforeend", options(rows.flatMap(({category: category2}) => category2 ?? [])))
 	chain.insertAdjacentHTML("beforeend", options(rows.flatMap(({chains}) => chains)))
-	const watchlist = element('[name="wl"]', main2)
-	const results = element("#results", main2)
-	const body = element("tbody", main2)
-	const buttons = main2.querySelectorAll("button[data-sort]")
+	const watchlist = element('[name="wl"]', main)
+	const results = element("#results", main)
+	const body = element("tbody", main)
+	const buttons = main.querySelectorAll("button[data-sort]")
 	const maxLogValue = Math.log1p(Math.max(1, ...rows.flatMap(({value, interval}) => [value, interval?.[1] ?? 0])))
 	function setSelect(select, value) {
 		select.querySelector("[data-temporary]")?.remove()
@@ -563,22 +576,22 @@ function mountBoard(main2, rows, summary, usd) {
 		body.innerHTML = boardRows(selected, state, maxLogValue, usd)
 	}
 }
-function start(main2, snapshot2, data2, api2) {
-	const {buildRadar, daysBetween, farmAssumptions, formatUsd} = api2
-	const {launchClock, meta} = data2
-	const radar = buildRadar(snapshot2, data2.model.lambda, launchClock, meta)
-	const published = data2.board.rows
+function start(main, snapshot, data, api) {
+	const {buildRadar, daysBetween, farmAssumptions, formatUsd} = api
+	const {launchClock, meta} = data
+	const radar = buildRadar(snapshot, data.model.lambda, launchClock, meta)
+	const published = data.board.rows
 	const families = new Map(radar.families.map(family => [family.representative.slug, family]))
-	const evidence = new Map(published.map(row => [row.slug, row]))
-	const checks = integrityChecks(radar.board, published, snapshot2.watchlist, {
+	const evidence = new Map(published.map(row => [row?.slug, row ?? void 0]))
+	const checks = integrityChecks(radar.board, published, snapshot.watchlist, {
 		fitted: radar.model.n,
 		houseRule: radar.houseRule,
-		intervalCounts: data2.intervalCounts,
-		loo: data2.model.validation.leaveOneFamilyOut
+		intervalCounts: data.intervalCounts,
+		loo: data.model.validation.leaveOneFamilyOut
 	})
-	const watchlisted = new Set(snapshot2.watchlist)
+	const watchlisted = new Set(snapshot.watchlist)
 	const protocols = new Map(radar.board.map(row => [row.protocol.slug, row]))
-	const age = ({listed_at}) => (listed_at === null ? null : daysBetween(listed_at, snapshot2.as_of))
+	const age = ({listed_at}) => (listed_at === null ? null : daysBetween(listed_at, snapshot.as_of))
 	const rows = radar.board.map(({protocol, rank, status, implied_value_usd: value, launch_value_usd: launchValue, launchProbability12: odds, plan}) => {
 		const {slug, name, tvl_usd, change_7d, category, chains} = protocol
 		const diagnostics = evidence.get(slug)
@@ -600,8 +613,8 @@ function start(main2, snapshot2, data2, api2) {
 			watchlist: watchlisted.has(slug)
 		}
 	})
-	element("#snapshot-date").textContent = `Snapshot · ${snapshot2.as_of}`
-	const counts = [snapshot2.protocols.length, radar.model.n, rows.length]
+	element("#snapshot-date").textContent = `Snapshot · ${snapshot.as_of}`
+	const counts = [snapshot.protocols.length, radar.model.n, rows.length]
 	document.querySelectorAll("#summary dd").forEach((count, i) => {
 		count.textContent = formatInteger(counts[i] ?? null)
 	})
@@ -612,48 +625,50 @@ function start(main2, snapshot2, data2, api2) {
 	let updatePlan
 	let lastPage
 	function draw() {
-		delete main2.dataset.ready
+		delete main.dataset.ready
 		const route = parseRoute(location.hash)
 		const page = route.page === "protocol" ? `protocol/${route.slug}` : route.page
 		const changedPage = lastPage && lastPage !== page
 		lastPage = page
-		if (route.page !== "board") updateBoard = void 0
-		if (route.page !== "plan") updatePlan = void 0
+		if (changedPage) {
+			updateBoard = void 0
+			updatePlan = void 0
+		}
 		if (route.page === "board") {
-			updateBoard ??= mountBoard(main2, rows, censusSummary(data2.census, protocols), formatUsd)
+			updateBoard ??= mountBoard(main, rows, censusSummary(data.census, protocols), formatUsd)
 			updateBoard(route.state)
 		} else if (route.page === "plan") {
-			updatePlan ??= api2.mountPlanner(main2, radar.board, meta, api2)
+			updatePlan ??= api.mountPlanner(main, radar.board, meta, api)
 			updatePlan(location.hash)
 		} else if (route.page === "census") {
-			main2.innerHTML = censusView(data2.census, route.state, formatUsd, protocols)
+			main.innerHTML = censusView(data.census, route.state, formatUsd, protocols)
 		} else if (route.page === "method") {
-			main2.innerHTML = methodView({...data2, houseRule: radar.houseRule}, farmAssumptions, formatUsd)
+			main.innerHTML = methodView({...data, houseRule: radar.houseRule}, farmAssumptions, formatUsd)
 		} else {
 			const back = boardHash(route.state)
 			const detail = route.page === "protocol" ? protocols.get(route.slug) : void 0
-			main2.innerHTML = detail
+			main.innerHTML = detail
 				? protocolView(detail, {
 						age: age(detail.protocol),
-						coefficients: data2.model.coefficients,
-						lnValue: api2.logValue(detail.features, data2.model),
+						coefficients: data.model.coefficients,
+						lnValue: api.logValue(detail.features, data.model),
 						back,
 						usd: formatUsd,
 						farm: farmAssumptions,
 						diagnostics: evidence.get(detail.protocol.slug),
 						families,
 						launchClock,
-						launchProbability12: api2.launchProbability12
+						launchProbability12: api.launchProbability12
 					})
 				: `<h2>Page unavailable</h2><a href="${escapeHtml(back)}">Back to board</a>`
 		}
 		if (changedPage) {
 			window.scrollTo(0, 0)
-			main2.focus({preventScroll: true})
+			main.focus({preventScroll: true})
 		}
-		main2.dataset.ready = ""
+		main.dataset.ready = ""
 	}
-	main2.addEventListener("click", event => {
+	main.addEventListener("click", event => {
 		if (!(event.target instanceof Element)) return
 		const sort = event.target.closest("button[data-sort]")?.dataset.sort
 		const route = parseRoute(location.hash)
@@ -667,15 +682,15 @@ function start(main2, snapshot2, data2, api2) {
 			if (link) location.hash = link.hash
 		}
 	})
-	main2.addEventListener("submit", event => event.preventDefault())
-	main2.addEventListener("input", ({target}) => {
+	main.addEventListener("submit", event => event.preventDefault())
+	main.addEventListener("input", ({target}) => {
 		if (!(target instanceof HTMLInputElement) || target.name !== "q") return
 		const route = parseRoute(location.hash)
 		if (route.page !== "board") return
 		history.replaceState(null, "", boardHash({...route.state, q: target.value}))
 		draw()
 	})
-	main2.addEventListener("change", event => {
+	main.addEventListener("change", event => {
 		const target = event.target
 		const route = parseRoute(location.hash)
 		if (route.page === "census" && target instanceof HTMLSelectElement && target.name === "status") {
@@ -696,12 +711,12 @@ function start(main2, snapshot2, data2, api2) {
 	window.addEventListener("hashchange", draw)
 	draw()
 }
-var main = element("main")
-var {RADAR_DATA: data, Radar: api} = window
-var snapshot = data && api.readPublishedSnapshot(data)
-if (data && snapshot) {
-	start(main, snapshot, data, api)
+var root = element("main")
+var {RADAR_DATA: publishedData, Radar: core} = window
+var input = publishedData && core.readPublishedSnapshot(publishedData)
+if (publishedData && input) {
+	start(root, input, publishedData, core)
 } else {
-	main.innerHTML = "<h2>Snapshot data unavailable</h2><p>Generate it with <code>pnpm radar</code>.</p>"
+	root.innerHTML = "<h2>Snapshot data unavailable</h2><p>Generate it with <code>pnpm radar</code>.</p>"
 }
 })();

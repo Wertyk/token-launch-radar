@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -142,6 +142,23 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
     await rows.first().waitFor();
     await goTo(protocolHash("/unknown", defaultState));
     await heading("Page unavailable");
+
+    const dataPath = join(out, "data.js");
+    const prefix = "window.RADAR_DATA = ";
+    const data: { board: { rows: { slug: string; farm_steps?: string[] }[] } } = JSON.parse(
+      readFileSync(dataPath, "utf8").slice(prefix.length, -2),
+    );
+    const bad = data.board.rows[0];
+    if (!bad) throw new Error("Expected a published board row.");
+    delete bad.farm_steps;
+    writeFileSync(dataPath, `${prefix}${JSON.stringify(data)};\n`);
+    await goTo("#/");
+    await page.reload({ timeout: 4_000 });
+    await waitUntilReady();
+    expect(await rows.count()).toBeGreaterThan(0);
+    expect(await page.locator(".integrity .check-failed").textContent()).toContain(
+      `✗ Recompute ≠ board.json · launch values, odds, implied values, ranks, plans, economics (1 mismatched · ${bad.slug})`,
+    );
 
     expect(errors).toEqual([]);
     expect(nonFileRequests).toEqual([]);

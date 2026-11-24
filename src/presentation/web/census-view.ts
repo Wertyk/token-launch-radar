@@ -9,9 +9,10 @@ type BoardMembership = Pick<ReadonlySet<string>, "has">;
 
 export function censusSummary(rows: readonly CensusRecord[], ranked?: BoardMembership): string {
   const counts = { "pre-token": 0, traded: 0, "token-unpriced": 0, excluded: 0 };
-  for (const { slug, status } of rows) if (!ranked?.has(slug)) counts[status]++;
-  if (!ranked && Object.values(counts).reduce((sum, count) => sum + count, 0) !== rows.length)
-    throw new Error("Census counts do not add up");
+  for (const { slug, status } of rows) {
+    if (!Object.hasOwn(counts, status)) throw new Error("Census counts do not add up");
+    if (!ranked?.has(slug)) counts[status]++;
+  }
   const link = (status: keyof typeof counts, label: string = status) =>
     `<a href="#/census?status=${status}${ranked ? "&amp;unranked=1" : ""}">${formatInteger(counts[status])} ${label}</a>`;
   const parts = [link("traded"), link("token-unpriced", "token, unpriced"), link("excluded")];

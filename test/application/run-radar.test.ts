@@ -5,6 +5,7 @@ import * as radarApi from "../../src/application/browser-api.ts";
 import { buildRadar } from "../../src/application/build-radar.ts";
 import type { DossierBuilder, OutputSink, SnapshotSource } from "../../src/application/ports.ts";
 import { runRadar } from "../../src/application/run-radar.ts";
+import { farmTables } from "../../src/domain/farming/playbook-data.ts";
 import { parseSnapshot } from "../../src/domain/snapshot.ts";
 import type { ValueDiagnostics } from "../../src/domain/valuation/diagnostics.ts";
 import { integrityChecks } from "../../src/presentation/web/integrity.ts";
@@ -213,17 +214,14 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   });
   expect(checks.filter(({ pass }) => !pass)).toEqual([]);
 
-  const flatClockRadar = radarApi.buildRadar(
-    browserSnapshot,
-    data.model.lambda,
-    { points: [], medianAgeDays: null },
-    data.meta,
-  );
-  expect(
-    flatClockRadar.board.every(({ economics }) =>
-      economics.deposits.every(({ expectedValueUsd }) => expectedValueUsd === 0),
+  expect(() =>
+    radarApi.buildRadar(
+      browserSnapshot,
+      data.model.lambda,
+      { points: [], medianAgeDays: null },
+      data.meta,
     ),
-  ).toBe(true);
+  ).toThrow(/implied value rounds to \$0/);
   expect(
     board.rows.some(({ farm_economics }) =>
       farm_economics.deposits.some(({ expectedValueUsd }) => expectedValueUsd > 0),
@@ -290,6 +288,38 @@ test("preserves v3 airdrop EV where the clock window stays inside the fitted poi
     1.001131156813365, 10.01131156813365,
   ]);
 }, 20_000);
+
+test.each([
+  [0, 0],
+  [0.0000001, 0],
+  [0.5, 500_000],
+  [1, 1_000_000],
+])("publishes the exact rounded product or rejects it on a flat clock at %f", (share, implied) => {
+  const as_of = "2024-02-28";
+  const build = () =>
+    radarApi.buildRadar(
+      {
+        as_of,
+        source: "fixture",
+        floor_usd: 100,
+        watchlist: [],
+        protocols: [
+          protocol({ slug: "traded", mcap_usd: 1_000_000, gecko_id: "traded" }),
+          protocol({ slug: "candidate", listed_at: as_of }),
+        ],
+      },
+      1,
+      { points: [0, 730].map((ageDays) => ({ ageDays, share, count: 1 })), medianAgeDays: 365 },
+      farmTables(),
+    );
+  if (implied === 0) {
+    expect(build).toThrow("candidate: implied value rounds to $0");
+  } else {
+    expect(build().board).toMatchObject([
+      { launch_value_usd: 1_000_000, launchProbability12: share, implied_value_usd: implied },
+    ]);
+  }
+});
 
 test("fits a traded family once using its summed TVL, market cap and representative age", () => {
   const radar = buildRadar({

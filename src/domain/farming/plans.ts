@@ -181,19 +181,15 @@ export function makeFarmPlan(
 
 export function scheduleFarmMinutes({ steps }: FarmPlan): number[] {
   const weeks = Array<number>(occurrences.weekly).fill(0);
-  const addMinutes = (week: number, minutes: number) => {
-    weeks[week] = (weeks[week] ?? 0) + minutes;
-  };
   for (const { cadence, minutes, exitCondition } of steps) {
-    if (cadence === "weekly") {
-      for (let week = 0; week < weeks.length; week++) addMinutes(week, minutes);
-    } else if (cadence === "monthly") {
-      for (let month = 1; month <= occurrences.monthly; month++) {
-        const monthEnd = Math.ceil((month * weeks.length) / occurrences.monthly) - 1;
-        addMinutes(monthEnd, minutes);
-      }
-    } else {
-      addMinutes(exitCondition === undefined ? 0 : weeks.length - 1, minutes);
+    const count = occurrences[cadence];
+    // Recurring steps fall at the end of equally spaced periods.
+    for (let occurrence = 1; occurrence <= count; occurrence++) {
+      const week =
+        cadence === "once" && exitCondition === undefined
+          ? 0
+          : Math.ceil((occurrence * weeks.length) / count) - 1;
+      weeks[week] = (weeks[week] ?? 0) + minutes;
     }
   }
   return weeks;

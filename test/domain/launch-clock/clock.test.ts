@@ -96,3 +96,18 @@ test("uses the pooled annual rate when the fitted curve never rises", () => {
   expect(launchProbability12([point(0, 0), point(365, 0)], 100)).toBe(0);
   expect(launchProbability12([], 100)).toBe(0);
 });
+
+test.each([
+  [0, 0],
+  [0.5, 0.5],
+  [1, 1],
+])("uses the pooled annual rate for a flat in-range window at share %f", (share, odds) => {
+  const curve = [point(0, share), point(730, share)];
+  expect(launchProbability12(curve, 0)).toBe(odds);
+  expect(launchProbability12(curve, 730)).toBe(odds);
+});
+
+test("uses the last rising segment's annual hazard in a flat in-range window", () => {
+  const curve = [point(0, 0.25), point(730, 0.25), point(1095, 0.625)];
+  expect(launchProbability12(curve, 0)).toBeCloseTo(0.5, 12);
+});

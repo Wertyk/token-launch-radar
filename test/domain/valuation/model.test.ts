@@ -167,7 +167,7 @@ test.each([
   },
 );
 
-test("ranks rounded launch values times odds, with clamping and slug ties", () => {
+test("ranks the exact rounded product, with launch-value bounds and slug ties", () => {
   const model = fitFixture(comparables);
   const candidates = [
     protocol({ slug: "z", tvl_usd: 1e100 }),
@@ -188,7 +188,7 @@ test("ranks rounded launch values times odds, with clamping and slug ties", () =
   ).toEqual([
     [1, "a", 2.5e13],
     [2, "z", 2.5e13],
-    [3, "small", 1],
+    [3, "small", 0],
   ]);
 });
 

@@ -10,12 +10,24 @@ const economics = {
     { depositUsd: 10000, verdict: "THIN", expectedValueUsd: 30, costUsd: 40 },
   ],
 } as const;
+const plan = {
+  chain: null,
+  oneTimeCostUsd: 2,
+  recurringCostUsd: 3,
+  totalCostUsd: 5,
+  totalMinutes: 45,
+};
 const first = {
   slug: "a",
   rank: 1,
   launch_value_usd: 48,
   implied_value_usd: 20,
   farm_steps: ["plan", "exit"],
+  plan_chain: plan.chain,
+  plan_one_time_cost_usd: plan.oneTimeCostUsd,
+  plan_recurring_cost_usd: plan.recurringCostUsd,
+  plan_total_cost_usd: plan.totalCostUsd,
+  plan_total_minutes: plan.totalMinutes,
   launch_p12: 0.42,
   airdrop_yield_apr: 0.03,
   farm_economics: { ...economics, deposits: [...economics.deposits] },
@@ -25,6 +37,7 @@ const recomputed = (row: typeof first) => ({
   ...row,
   protocol: { slug: row.slug },
   economics,
+  plan,
 });
 const computed = [first, second].map(recomputed);
 

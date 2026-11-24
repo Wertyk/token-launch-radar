@@ -24,7 +24,7 @@ interface RadarData
   extends BrowserApi.PublishedSnapshot,
     Pick<RadarResult, "model" | "launchClock" | "census" | "intervalCounts"> {
   meta: BrowserApi.PublishedSnapshot["meta"] & FarmTables;
-  board: { rows: PublishedRow[] };
+  board: { rows: (PublishedRow | null)[] };
 }
 
 declare global {
@@ -90,9 +90,10 @@ function start(main: HTMLElement, snapshot: Snapshot, data: RadarData, api: Wind
   const { buildRadar, daysBetween, farmAssumptions, formatUsd } = api;
   const { launchClock, meta } = data;
   const radar = buildRadar(snapshot, data.model.lambda, launchClock, meta);
+  // These are board.json's rows. The CLI end-to-end test checks every published field.
   const published = data.board.rows;
   const families = new Map(radar.families.map((family) => [family.representative.slug, family]));
-  const evidence = new Map(published.map((row) => [row.slug, row]));
+  const evidence = new Map(published.map((row) => [row?.slug, row ?? undefined]));
   const checks = integrityChecks(radar.board, published, snapshot.watchlist, {
     fitted: radar.model.n,
     houseRule: radar.houseRule,
@@ -154,8 +155,10 @@ function start(main: HTMLElement, snapshot: Snapshot, data: RadarData, api: Wind
     const page = route.page === "protocol" ? `protocol/${route.slug}` : route.page;
     const changedPage = lastPage && lastPage !== page;
     lastPage = page;
-    if (route.page !== "board") updateBoard = undefined;
-    if (route.page !== "plan") updatePlan = undefined;
+    if (changedPage) {
+      updateBoard = undefined;
+      updatePlan = undefined;
+    }
     if (route.page === "board") {
       updateBoard ??= mountBoard(main, rows, censusSummary(data.census, protocols), formatUsd);
       updateBoard(route.state);
@@ -250,12 +253,12 @@ function start(main: HTMLElement, snapshot: Snapshot, data: RadarData, api: Wind
   draw();
 }
 
-const main = element("main");
-const { RADAR_DATA: data, Radar: api } = window;
-const snapshot = data && api.readPublishedSnapshot(data);
-if (data && snapshot) {
-  start(main, snapshot, data, api);
+const root = element("main");
+const { RADAR_DATA: publishedData, Radar: core } = window;
+const input = publishedData && core.readPublishedSnapshot(publishedData);
+if (publishedData && input) {
+  start(root, input, publishedData, core);
 } else {
-  main.innerHTML =
+  root.innerHTML =
     "<h2>Snapshot data unavailable</h2><p>Generate it with <code>pnpm radar</code>.</p>";
 }

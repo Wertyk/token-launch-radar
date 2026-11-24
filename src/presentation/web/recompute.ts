@@ -1,4 +1,4 @@
-import type { RadarRow } from "../../application/browser-api.ts";
+import type { BoardRows, RadarRow } from "../../application/browser-api.ts";
 
 type Economics = RadarRow["economics"];
 type RankedFields = Pick<
@@ -7,56 +7,74 @@ type RankedFields = Pick<
 >;
 export type RecomputedRow = RankedFields & {
   protocol: Pick<RadarRow["protocol"], "slug">;
+  plan: Pick<
+    RadarRow["plan"],
+    "chain" | "oneTimeCostUsd" | "recurringCostUsd" | "totalCostUsd" | "totalMinutes"
+  >;
   economics: Omit<Economics, "deposits"> & { deposits: Readonly<Economics["deposits"]> };
 };
-export type CheckRow = RankedFields & {
-  slug: string;
-  launch_p12: number;
-  airdrop_yield_apr: number;
-  farm_economics: Pick<Economics, "breakEvenDepositUsd" | "launchProbability12"> & {
-    deposits: readonly Economics["deposits"][number][];
+export type CheckRow = RankedFields &
+  Pick<
+    BoardRows["rows"][number],
+    | "plan_chain"
+    | "plan_one_time_cost_usd"
+    | "plan_recurring_cost_usd"
+    | "plan_total_cost_usd"
+    | "plan_total_minutes"
+  > & {
+    slug: string;
+    launch_p12: number;
+    airdrop_yield_apr: number;
+    farm_economics: Pick<Economics, "breakEvenDepositUsd" | "launchProbability12"> & {
+      deposits: readonly Economics["deposits"][number][];
+    };
   };
-};
+
+function matchesFields(expected: unknown, actual: unknown): boolean {
+  if (!expected || typeof expected !== "object") return expected === actual;
+  if (!actual || typeof actual !== "object") return false;
+  if (Array.isArray(expected) && (!Array.isArray(actual) || expected.length !== actual.length)) {
+    return false;
+  }
+  return Object.entries(expected).every(([key, value]) =>
+    matchesFields(value, (actual as Record<string, unknown>)[key]),
+  );
+}
 
 export function boardMismatches(
   computed: readonly RecomputedRow[],
-  published: readonly CheckRow[],
+  published: readonly (CheckRow | null)[],
 ): string[] {
-  const slugs = published.slice(computed.length).map(({ slug }) => slug);
+  const slugs = published
+    .slice(computed.length)
+    .map((row) => (typeof row?.slug === "string" ? row.slug : "(missing slug)"));
   for (const [index, row] of computed.entries()) {
-    const other = published[index];
-    const farm = other?.farm_economics;
     const {
-      airdropYieldApr,
-      launchProbability12: p12,
-      breakEvenDepositUsd,
-      deposits,
-    } = row.economics;
-    if (
-      !other ||
-      row.protocol.slug !== other.slug ||
-      row.rank !== other.rank ||
-      row.launch_value_usd !== other.launch_value_usd ||
-      row.implied_value_usd !== other.implied_value_usd ||
-      row.farm_steps.length !== other.farm_steps.length ||
-      row.farm_steps.some((step, i) => step !== other.farm_steps[i]) ||
-      airdropYieldApr !== other.airdrop_yield_apr ||
-      p12 !== other.launch_p12 ||
-      p12 !== farm?.launchProbability12 ||
-      breakEvenDepositUsd !== farm.breakEvenDepositUsd ||
-      deposits.length !== farm.deposits?.length ||
-      deposits.some((deposit, i) => {
-        const prior = farm.deposits[i];
-        return (
-          !prior ||
-          Object.entries(deposit).some(
-            ([key, value]) => prior[key as keyof typeof deposit] !== value,
-          )
-        );
-      })
-    ) {
-      slugs.push(row.protocol.slug);
-    }
+      protocol: { slug },
+      rank,
+      launch_value_usd,
+      implied_value_usd,
+      plan,
+      economics,
+      farm_steps,
+    } = row;
+    const { airdropYieldApr: airdrop_yield_apr, ...farm_economics } = economics;
+    const expected: CheckRow = {
+      slug,
+      rank,
+      launch_value_usd,
+      implied_value_usd,
+      farm_steps,
+      airdrop_yield_apr,
+      launch_p12: farm_economics.launchProbability12,
+      plan_chain: plan.chain,
+      plan_one_time_cost_usd: plan.oneTimeCostUsd,
+      plan_recurring_cost_usd: plan.recurringCostUsd,
+      plan_total_cost_usd: plan.totalCostUsd,
+      plan_total_minutes: plan.totalMinutes,
+      farm_economics,
+    };
+    if (!matchesFields(expected, published[index])) slugs.push(slug);
   }
   return slugs;
 }

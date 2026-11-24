@@ -72,11 +72,12 @@ export function shareAt(points: readonly ClockPoint[], age: number): number {
 }
 
 export function launchProbability12(points: readonly ClockPoint[], age: number): number {
-  const last = points.at(-1);
-  if (!last) return 0;
-  if (age >= last.ageDays) return -Math.expm1(-tailHazard(points) * YEAR_DAYS);
-  const now = shareAt(points, age);
-  // A saturated share corresponds to the limiting case of certain launch.
-  if (now === 1) return 1;
-  return clamp((shareAt(points, age + YEAR_DAYS) - now) / (1 - now), 0, 1);
+  if (age < (points.at(-1)?.ageDays ?? 0)) {
+    const now = shareAt(points, age);
+    // A saturated share corresponds to the limiting case of certain launch.
+    if (now === 1) return 1;
+    const rise = shareAt(points, age + YEAR_DAYS) - now;
+    if (rise > 0) return clamp(rise / (1 - now), 0, 1);
+  }
+  return -Math.expm1(-tailHazard(points) * YEAR_DAYS);
 }

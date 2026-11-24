@@ -164,19 +164,11 @@ function makeFarmPlan(protocol, {playbooks, gas}, depositUsd = DEFAULT_DEPOSIT_U
 }
 function scheduleFarmMinutes({steps}) {
 	const weeks = Array(occurrences.weekly).fill(0)
-	const addMinutes = (week, minutes) => {
-		weeks[week] = (weeks[week] ?? 0) + minutes
-	}
 	for (const {cadence, minutes, exitCondition} of steps) {
-		if (cadence === "weekly") {
-			for (let week = 0; week < weeks.length; week++) addMinutes(week, minutes)
-		} else if (cadence === "monthly") {
-			for (let month = 1; month <= occurrences.monthly; month++) {
-				const monthEnd = Math.ceil((month * weeks.length) / occurrences.monthly) - 1
-				addMinutes(monthEnd, minutes)
-			}
-		} else {
-			addMinutes(exitCondition === void 0 ? 0 : weeks.length - 1, minutes)
+		const count = occurrences[cadence]
+		for (let occurrence = 1; occurrence <= count; occurrence++) {
+			const week = cadence === "once" && exitCondition === void 0 ? 0 : Math.ceil((occurrence * weeks.length) / count) - 1
+			weeks[week] = (weeks[week] ?? 0) + minutes
 		}
 	}
 	return weeks
@@ -472,12 +464,13 @@ function shareAt(points, age) {
 	return left.share + (1 - left.share) * -Math.expm1(-tailHazard(points) * (age - left.ageDays))
 }
 function launchProbability12(points, age) {
-	const last = points.at(-1)
-	if (!last) return 0
-	if (age >= last.ageDays) return -Math.expm1(-tailHazard(points) * YEAR_DAYS)
-	const now = shareAt(points, age)
-	if (now === 1) return 1
-	return clamp((shareAt(points, age + YEAR_DAYS) - now) / (1 - now), 0, 1)
+	if (age < (points.at(-1)?.ageDays ?? 0)) {
+		const now = shareAt(points, age)
+		if (now === 1) return 1
+		const rise = shareAt(points, age + YEAR_DAYS) - now
+		if (rise > 0) return clamp(rise / (1 - now), 0, 1)
+	}
+	return -Math.expm1(-tailHazard(points) * YEAR_DAYS)
 }
 
 function logAge(listedAt, asOf) {
@@ -783,7 +776,7 @@ function rankBoard(entries, asOf, model) {
 			return {
 				...entry,
 				...value,
-				implied_value_usd: Math.max(1, Math.round(value.launch_value_usd * entry.launchProbability12))
+				implied_value_usd: Math.round(value.launch_value_usd * entry.launchProbability12)
 			}
 		})
 		.sort((a, b) => b.implied_value_usd - a.implied_value_usd || compareText(a.protocol.slug, b.protocol.slug))
@@ -804,6 +797,9 @@ function rankRadar(snapshot, {families, comparables}, lambda, launchClock, table
 		return {...entry, launchProbability12: launchProbability12(launchClock.points, age)}
 	})
 	const board = rankBoard(candidates, as_of, model).map(row => {
+		if (row.implied_value_usd === 0) {
+			throw new Error(`${row.protocol.slug}: implied value rounds to $0`)
+		}
 		const {protocol, launch_value_usd, launchProbability12: p12} = row
 		const plan = makeFarmPlan(protocol, tables)
 		const economics = estimateFarmEconomics(plan, launch_value_usd, protocol.tvl_usd, p12)

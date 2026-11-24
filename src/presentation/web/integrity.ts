@@ -18,15 +18,15 @@ interface Evidence extends Pick<RadarResult, "intervalCounts"> {
 
 export function integrityChecks(
   computed: readonly RecomputedRow[],
-  published: readonly CheckRow[],
+  published: readonly (CheckRow | null)[],
   watchlist: readonly string[],
   { fitted, houseRule, intervalCounts, loo }: Evidence,
 ) {
   const mismatches = boardMismatches(computed, published);
   const count = mismatches.length;
-  const slugs = new Set(published.map(({ slug }) => slug));
-  const unique = [...new Set(watchlist)];
-  const covered = unique.filter((slug) => slugs.has(slug)).length;
+  const slugs = new Set(published.map((row) => row?.slug));
+  const unique = new Set(watchlist);
+  const covered = [...unique].filter((slug) => slugs.has(slug)).length;
   const {
     missLow,
     covered: inside,
@@ -42,14 +42,14 @@ export function integrityChecks(
       pass: count === 0,
       label: `Recompute ${count ? "≠" : "="} board.json · launch values, odds, implied values, ranks, plans, economics (${count ? `${count} mismatched · ${mismatches[0]}` : published.length})`,
     },
-    { pass: covered === unique.length, label: `Watchlist ${covered}/${unique.length} on board` },
+    { pass: covered === unique.size, label: `Watchlist ${covered}/${unique.size} on board` },
     {
-      pass: matches === unique.length && unique.length > 0,
-      label: `House rule ${matches}/${unique.length} recall${extra ? ` · ${extra} extra explained by parentProtocol` : ""}`,
+      pass: matches === unique.size && unique.size > 0,
+      label: `House rule ${matches}/${unique.size} recall${extra ? ` · ${extra} extra explained by parentProtocol` : ""}`,
     },
     {
       pass: samples === fitted && inside / samples >= 0.8,
-      label: `${inside}/${samples} launch values inside P10–P90${samples === fitted ? "" : ` · ${samples}/${fitted} families`}`,
+      label: `${inside}/${samples} held-out traded caps inside P10–P90${samples === fitted ? "" : ` · ${samples}/${fitted} families`}`,
     },
     {
       pass:

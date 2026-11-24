@@ -15,6 +15,8 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, expect, test } from "vitest";
+import type { BoardRows } from "../../src/application/board-rows.ts";
+import type { ValueDiagnostics } from "../../src/domain/valuation/diagnostics.ts";
 import { buildDossier } from "../../vendor/makefun-board.ts";
 import { dossierCaps, kitSnapshotPath, writeAssetFixture } from "../radar-fixtures.ts";
 
@@ -88,6 +90,21 @@ test("passes all seven gate checks and reproduces every byte with the repo asset
   for (const output of [first, second]) {
     const result = run("--input", input, "--output", output);
     expect(result.status, result.stderr || result.error?.message).toBe(0);
+  }
+  const { rows }: BoardRows = JSON.parse(readFileSync(join(first, "board.json"), "utf8"));
+  const script = readFileSync(join(first, "data.js"), "utf8");
+  const embedded: (BoardRows["rows"][number] & ValueDiagnostics & { launch_p12: number })[] =
+    JSON.parse(script.slice("window.RADAR_DATA = ".length, -2)).board.rows;
+  expect(
+    embedded.map(
+      ({ interval_p10_usd, interval_p90_usd, influence, twins, launch_p12, ...row }) => row,
+    ),
+  ).toEqual(rows);
+  for (const row of rows) {
+    expect(row.implied_value_usd, row.slug).toBe(
+      Math.round(row.launch_value_usd * row.farm_economics.launchProbability12),
+    );
+    expect(row.implied_value_usd, row.slug).toBeGreaterThanOrEqual(1);
   }
   const result = spawnSync(process.execPath, [gate, "--out", first, "--input", input], {
     encoding: "utf8",

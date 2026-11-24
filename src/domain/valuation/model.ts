@@ -204,10 +204,7 @@ export function rankBoard(
       return {
         ...entry,
         ...value,
-        implied_value_usd: Math.max(
-          1,
-          Math.round(value.launch_value_usd * entry.launchProbability12),
-        ),
+        implied_value_usd: Math.round(value.launch_value_usd * entry.launchProbability12),
       };
     })
     .sort(

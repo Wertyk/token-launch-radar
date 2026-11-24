@@ -68,6 +68,9 @@ function rankRadar(
     return { ...entry, launchProbability12: launchProbability12(launchClock.points, age) };
   });
   const board = rankBoard(candidates, as_of, model).map((row) => {
+    if (row.implied_value_usd === 0) {
+      throw new Error(`${row.protocol.slug}: implied value rounds to $0`);
+    }
     const { protocol, launch_value_usd, launchProbability12: p12 } = row;
     const plan = makeFarmPlan(protocol, tables);
     const economics = estimateFarmEconomics(plan, launch_value_usd, protocol.tvl_usd, p12);

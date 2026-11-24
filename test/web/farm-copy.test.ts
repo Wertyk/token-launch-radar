@@ -36,7 +36,7 @@ test("renders the labor rate and farmer haircut beside the protocol verdicts", (
       watchlist: [],
     },
     1,
-    { points: [], medianAgeDays: null },
+    { points: [{ ageDays: 0, share: 0.1, count: 1 }], medianAgeDays: 0 },
     farmTables(),
   );
   const [row] = board;
@@ -158,6 +158,7 @@ test("shows the published validation, ablation, coverage and dated assumptions i
     "+Category",
     "OLS",
     "P10–P90",
+    "Current traded-family market caps proxy for launch value.",
     "F(t)",
     "last rising segment’s constant conditional hazard",
     "The snapshot cannot validate future launch odds.",

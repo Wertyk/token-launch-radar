@@ -30,7 +30,7 @@ export function methodView(
     multiplier(medianMultiplier),
     spearman?.toFixed(3) ?? "—",
   ];
-  const section = (title: string, headers: string[], rows: string[][], note = "") =>
+  const section = (title: string, headers: string[], rows: string[][], note?: string) =>
     `<section class="panel"><h3>${title}</h3>${table(headers, rows)}${note ? `<p class="caption">${note}</p>` : ""}</section>`;
   const { truePositives, falsePositives, falseNegatives } = houseRule;
   return `<h2>Method</h2><div class="method compact">
@@ -58,7 +58,7 @@ export function methodView(
         label,
         ...[fitted, flatMultiple, categoryMultiple].map((s) => score(s).join(" · ")),
       ]),
-      "Launch value on traded families · median error ×k and Spearman ρ.",
+      "Current traded-family market caps proxy for launch value. Median error ×k and Spearman ρ.",
     )}
     ${section(
       "Leave-one-family-out ablation",
@@ -81,7 +81,7 @@ export function methodView(
       intervalCounts
         ? [[intervalCounts.missLow, intervalCounts.covered, intervalCounts.missHigh].map(String)]
         : [],
-      "Jackknife+ launch value bands on traded families.",
+      "Jackknife+ bands on held-out market caps.",
     )}
     ${section(
       "Launch clock F(t)",
@@ -91,7 +91,7 @@ export function methodView(
         pct(share),
         String(count),
       ]),
-      "The clock estimates 12-month odds. Its tail uses the last rising segment’s constant conditional hazard, or the pooled annual rate for a flat fit. The snapshot cannot validate future launch odds.",
+      "Flat windows and the tail use the last rising segment’s constant conditional hazard, or the pooled annual rate for a flat fit. The snapshot cannot validate future launch odds.",
     )}
     ${section(
       "House watchlist rule",

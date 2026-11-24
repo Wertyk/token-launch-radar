@@ -80,6 +80,7 @@ test("keeps five screenshot-backed rubric bullets with their code references in 
   expect(Buffer.byteLength(guide)).toBeGreaterThanOrEqual(1_250);
   expect(Buffer.byteLength(guide)).toBeLessThanOrEqual(1_450);
   expect(guide).not.toMatch(/https?:\/\//i);
+  expect(guide).toContain("Current traded-family caps proxy for V");
   const bullets = guide.trim().split("\n");
   expect(bullets).toHaveLength(5);
   const functions = [
