@@ -159,6 +159,7 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     expect(published.flags).toEqual(row.flags);
   }
   const radar = buildRadar(snapshot);
+  const { coefficients: _, ...publishedModel } = radar.model;
   expect(data).toMatchObject({
     meta: {
       as_of: snapshot.as_of,
@@ -168,7 +169,7 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     protocols: snapshot.protocols,
     watchlist: snapshot.watchlist,
     census: radar.census,
-    model: radar.model,
+    model: publishedModel,
     looScatter: radar.looScatter,
   });
   expect(
@@ -186,7 +187,7 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   expect(data.model.validation.leaveOneFamilyOut.model.n).toBe(128);
   expect(data.model.ablation.withCategory.n).toBe(128);
   expect(data.model.ablation.ols.n).toBe(128);
-  expect(data.model.coefficients).not.toHaveProperty("category");
+  expect(data.model).not.toHaveProperty("coefficients");
   expect(data.protocols).toHaveLength(758);
 
   expect(radar.census).toHaveLength(snapshot.protocols.length);
@@ -217,7 +218,10 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   expect(browserRadar.model).not.toHaveProperty("validation");
   expect(radarApi).not.toHaveProperty("validateModel");
   expect(browserRadar).not.toHaveProperty("heldOutBands");
-  const scatter = scatterCoverage(data.looScatter);
+  const families = new Map(
+    browserRadar.families.map((family) => [family.representative.slug, family]),
+  );
+  const scatter = scatterCoverage(data.looScatter, families);
   expect(scatter.counts).toEqual({ missLow: 12, covered: 104, missHigh: 12 });
   const checks = integrityChecks(
     boardMismatches(browserRadar.board, publishedRows),
@@ -353,7 +357,7 @@ test("fits a traded family once using its summed TVL, market cap and representat
     watchlist: [],
   });
   expect(radar.model.n).toBe(1);
-  expect(radar.looScatter).toEqual([]);
+  expect(radar.looScatter).toBeNull();
   expect(radar.model.featureMeans).toEqual({ lnTvl: Math.log(50), lnAge: Math.log(16) });
   expect(radar.model.coefficients.intercept).toBeCloseTo(Math.log(100), 12);
   expect(radar.census[1]).toEqual({

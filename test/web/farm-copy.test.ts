@@ -170,7 +170,13 @@ test("shows the published validation, ablation, scatter and dated assumptions in
     { slug: "a", actual: Math.log(100), predicted: Math.log(1_000), p10: 0, p90: Math.log(500) },
     { slug: "b", actual: Math.log(10_000), predicted: Math.log(100), p10: 0, p90: Math.log(500) },
   ];
-  const scatter = scatterCoverage(looScatter);
+  const scatter = scatterCoverage(
+    looScatter,
+    new Map([
+      ["a", { mcap_usd: 100 }],
+      ["b", { mcap_usd: 10_000 }],
+    ]),
+  );
   const html = methodView(
     { ...data, model, launchClock, scatter },
     methodFarmAssumptions(farmAssumptions, formatUsd),

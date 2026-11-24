@@ -20,7 +20,11 @@ import { groupComparableCategories } from "../domain/valuation/categories.ts";
 import { comparablesFromFamilies } from "../domain/valuation/comparables.ts";
 import type { ValueDiagnostics } from "../domain/valuation/diagnostics.ts";
 import { describeBoardValues } from "../domain/valuation/diagnostics.ts";
-import { jackknifePlusBands, leaveOneFamilyOut } from "../domain/valuation/jackknife.ts";
+import {
+  jackknifePlusBands,
+  leaveOneFamilyOut,
+  MIN_BAND_FAMILIES,
+} from "../domain/valuation/jackknife.ts";
 import type { Prediction } from "../domain/valuation/metrics.ts";
 import type { RankedRow, ValueModel } from "../domain/valuation/model.ts";
 import { fitValueModel, rankBoard } from "../domain/valuation/model.ts";
@@ -40,7 +44,7 @@ export interface RadarResult {
   board: RadarRow[];
   model: ValueModel & ModelValidation;
   rowDiagnostics: ReadonlyMap<string, ValueDiagnostics>;
-  looScatter: (Prediction & { p10: number | null; p90: number | null })[];
+  looScatter: (Prediction & { p10: number | null; p90: number | null })[] | null;
   launchClock: LaunchClock;
 }
 
@@ -98,7 +102,7 @@ export function buildRadar(snapshot: Snapshot, tables = farmTables()): RadarResu
   const validationRows = groupComparableCategories(inputs.comparables, inputs.families);
   const refits = leaveOneFamilyOut(inputs.comparables, model.lambda);
   const boardValues = describeBoardValues(board, inputs.comparables, refits, as_of);
-  const bands = jackknifePlusBands(inputs.comparables);
+  const bands = model.n < MIN_BAND_FAMILIES ? null : jackknifePlusBands(inputs.comparables);
   const { looPredictions, ...validation } = validateModel(validationRows);
   const rowDiagnostics = new Map(
     boardValues.map(({ protocol: { slug }, diagnostics }) => [slug, diagnostics]),
@@ -115,17 +119,19 @@ export function buildRadar(snapshot: Snapshot, tables = farmTables()): RadarResu
     board,
     model: { ...model, ...validation },
     rowDiagnostics,
-    looScatter: looPredictions.flatMap((point) => {
-      const band = bands.get(point.slug);
-      if (!band) return [];
-      return [
-        {
-          ...point,
-          p10: Number.isFinite(band.p10) ? band.p10 : null,
-          p90: Number.isFinite(band.p90) ? band.p90 : null,
-        },
-      ];
-    }),
+    looScatter:
+      bands &&
+      looPredictions.flatMap((point) => {
+        const band = bands.get(point.slug);
+        if (!band) return [];
+        return [
+          {
+            ...point,
+            p10: Number.isFinite(band.p10) ? band.p10 : null,
+            p90: Number.isFinite(band.p90) ? band.p90 : null,
+          },
+        ];
+      }),
     launchClock,
   };
 }

@@ -443,6 +443,10 @@ button[data-sort]::after {
   color: var(--negative);
 }
 
+.integrity .check-unavailable {
+  color: var(--muted);
+}
+
 .ranking .empty {
   padding: var(--s6);
   color: var(--muted);

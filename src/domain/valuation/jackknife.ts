@@ -5,6 +5,8 @@ import { fitValueModel, logValue } from "./model.ts";
 import { modelFeatures, selectLambda } from "./selection.ts";
 
 const TAIL_ALPHA = 0.1;
+// With one held-out family the finite lower rank first exists at floor(n × alpha) ≥ 1.
+export const MIN_BAND_FAMILIES = Math.ceil(1 / TAIL_ALPHA);
 
 export interface JackknifeSample {
   slug: string;

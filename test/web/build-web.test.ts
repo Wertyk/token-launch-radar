@@ -32,6 +32,7 @@ test("checks the generated bundles byte for byte without writing them", () => {
     const extras = readFileSync(join(cwd, "dashboard/5-extras.js"), "utf8");
     expect(extras).toContain("function mountPlanner");
     expect(extras).toContain("function parsePlanState");
+    expect(extras).toContain("function censusHash(");
     expect(extras).toContain("function ageSparkline");
     expect(extras).toContain("function protocolFacts");
     expect(extras).toContain("Nearest comparables");
@@ -54,6 +55,7 @@ test("checks the generated bundles byte for byte without writing them", () => {
     const original = readFileSync(bundle, "utf8");
     expect(() => new Script(original)).not.toThrow();
     expect(original).not.toContain("function compareText(");
+    expect(original).not.toContain("function censusHash(");
     expect(original).not.toMatch(
       /function (mountPlanner|parsePlanState|ageSparkline|protocolFacts)|Farm assumptions<\/legend>|Nearest comparables/,
     );

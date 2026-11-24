@@ -16,6 +16,7 @@ export function renderDataScript(
   tables: FarmTables,
 ): string {
   const { as_of, floor_usd, source, protocols, watchlist } = snapshot;
+  const { coefficients: _, ...publishedModel } = model;
   const scheme = /https?:\/\//gi;
   const data = {
     meta: {
@@ -28,7 +29,7 @@ export function renderDataScript(
     protocols,
     watchlist,
     census,
-    model,
+    model: publishedModel,
     looScatter,
     launchClock,
     board: {

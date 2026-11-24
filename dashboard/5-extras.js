@@ -1,5 +1,23 @@
 (() => {
-function bindControls(main, draw, {boardHash, censusHash, isCensusSortKey, isSortKey, parseRoute}) {
+var statusLabels = {
+	traded: "Token trades",
+	"token-unpriced": "Records an unpriced token",
+	"pre-token": "Records no token",
+	excluded: "Excluded by the house rule"
+}
+var defaultCensus = {status: "", sort: "tvl", dir: "desc"}
+function censusHash({status, sort, dir, unranked}) {
+	const params = new URLSearchParams()
+	if (status) params.set("status", status)
+	if (unranked) params.set("unranked", "1")
+	if (sort !== defaultCensus.sort || dir !== defaultCensus.dir) {
+		params.set("sort", sort)
+		params.set("dir", dir)
+	}
+	return `#/census${params.size ? `?${params}` : ""}`
+}
+
+function bindControls(main, draw, {boardHash, isCensusSortKey, isSortKey, parseRoute}) {
 	main.addEventListener("click", event => {
 		if (!(event.target instanceof Element)) return
 		const sort = event.target.closest("button[data-sort]")?.dataset.sort
@@ -293,13 +311,6 @@ function mountPlanner(main, board, tables, {estimateFarmEconomics, farmAssumptio
 		results.innerHTML = plannerResults(result, economics, slug => names.get(slug) ?? slug, formatUsd)
 	}
 	return hash => update(parsePlanState(hash))
-}
-
-var statusLabels = {
-	traded: "Token trades",
-	"token-unpriced": "Records an unpriced token",
-	"pre-token": "Records no token",
-	excluded: "Excluded by the house rule"
 }
 
 function growthText(growth) {

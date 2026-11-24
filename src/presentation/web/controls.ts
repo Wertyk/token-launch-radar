@@ -1,18 +1,15 @@
 import type * as State from "./state.ts";
+import { censusHash } from "./state.ts";
 
 export function bindControls(
   main: HTMLElement,
   draw: () => void,
   {
     boardHash,
-    censusHash,
     isCensusSortKey,
     isSortKey,
     parseRoute,
-  }: Pick<
-    typeof State,
-    "boardHash" | "censusHash" | "isCensusSortKey" | "isSortKey" | "parseRoute"
-  >,
+  }: Pick<typeof State, "boardHash" | "isCensusSortKey" | "isSortKey" | "parseRoute">,
 ): void {
   main.addEventListener("click", (event) => {
     if (!(event.target instanceof Element)) return;

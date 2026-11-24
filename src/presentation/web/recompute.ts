@@ -49,7 +49,7 @@ function matchesFields(expected: unknown, actual: unknown): boolean {
 export function boardInterval(row: Interval | null | undefined) {
   if (!row) return null;
   const { interval_p10_usd: low, interval_p90_usd: high } = row;
-  return Number.isFinite(low) && Number.isFinite(high) && low <= high
+  return Number.isInteger(low) && Number.isInteger(high) && low > 0 && low <= high
     ? ([low, high] as const)
     : null;
 }
@@ -127,7 +127,6 @@ function boardViewRows(
       plan,
     }) => {
       const { slug, name, tvl_usd, change_7d, category, chains } = protocol;
-      const diagnostics = evidence.get(slug);
       return {
         slug,
         name,
@@ -139,7 +138,7 @@ function boardViewRows(
         odds,
         tvl: tvl_usd,
         growth: change_7d,
-        interval: boardInterval(diagnostics),
+        interval: boardInterval(evidence.get(slug)),
         age: status === "traded" || status === "token-unpriced" ? null : age(protocol),
         cost: plan.totalCostUsd,
         time: plan.totalMinutes,

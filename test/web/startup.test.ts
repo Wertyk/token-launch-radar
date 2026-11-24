@@ -8,6 +8,7 @@ import { renderDataScript } from "../../src/application/data-script.ts";
 import { farmTables } from "../../src/domain/farming/playbook-data.ts";
 import { parseSnapshot } from "../../src/domain/snapshot.ts";
 import { logValue } from "../../src/domain/valuation/model.ts";
+import { protocol } from "../domain/protocol-fixture.ts";
 import { readKitSnapshot } from "../radar-fixtures.ts";
 
 const dashboard = new URL("../../dashboard/", import.meta.url);
@@ -29,13 +30,13 @@ class Select {
   }
 }
 
-function open(data: Record<string, unknown>, hash = "#/", loadExtras = true) {
+function open(data: Record<string, unknown>, hash = "#/", loadExtras = true, loadUi = true) {
   const location = { hash };
   const markup = new Map<string, { innerHTML: string; textContent?: string }>();
   const listeners = new Map<string, (event: { target: Select }) => void>();
   const windowListeners = new Map<string, () => void>();
   const main = {
-    innerHTML: "",
+    innerHTML: html.match(/<main[^>]*>([\s\S]*?)<\/main>/)?.[1] ?? "",
     dataset: {},
     focus() {},
     addEventListener(type: string, listener: (event: { target: Select }) => void) {
@@ -73,7 +74,8 @@ function open(data: Record<string, unknown>, hash = "#/", loadExtras = true) {
     HTMLSelectElement: Select,
   });
   for (const { file, source } of scripts) {
-    if (loadExtras || file !== "5-extras.js") runInContext(source, context);
+    if ((!loadExtras && file === "5-extras.js") || (!loadUi && file === "3-ui.js")) continue;
+    runInContext(source, context);
   }
   return {
     main,
@@ -97,8 +99,8 @@ beforeAll(() => {
   script = renderDataScript(snapshot, toBoardRows(radar), radar, farmTables());
 }, 20_000);
 
-function data() {
-  return JSON.parse(script.slice("window.RADAR_DATA = ".length, -2));
+function data(published = script) {
+  return JSON.parse(published.slice("window.RADAR_DATA = ".length, -2));
 }
 
 test("clears the board link's unranked filter when changing census status", () => {
@@ -115,12 +117,12 @@ test("clears the board link's unranked filter when changing census status", () =
   expect(page.main.innerHTML).toContain('value="pre-token" selected>Records no token');
 }, 20_000);
 
-test("uses the in-page model and rejects a card interval when published evidence is tampered with", () => {
+test("uses the refit when the only injected field is a changed intercept", () => {
   const payload = data();
   const row = radar.board[0];
   if (!row) throw new Error("Missing first board row");
-  payload.model.coefficients.intercept += 1;
-  delete payload.board.rows[0].interval_p10_usd;
+  const { coefficients } = radar.model;
+  payload.model.coefficients = { ...coefficients, intercept: coefficients.intercept + 1 };
 
   const page = open(payload, `#/p/${row.protocol.slug}`);
   const checks = page.markup.get("#checks")?.innerHTML;
@@ -131,10 +133,8 @@ test("uses the in-page model and rejects a card interval when published evidence
   expect
     .soft(page.main.innerHTML)
     .toContain(`≈ ${lnValue.toFixed(3)} → ${formatUsd(Math.round(Math.exp(lnValue)))}`);
-  expect.soft(checks).toContain('class="check-failed">✗ Recompute ≠ board.json');
+  expect.soft(checks?.match(/class="check"/g)).toHaveLength(5);
   expect.soft(checks).toContain('class="check">✓ 104/128 held-out traded caps inside P10–P90');
-  expect.soft(page.main.innerHTML).toContain("P10–P90 · —");
-  expect.soft(page.main.innerHTML).not.toContain("$NaN");
 
   page.navigate("#/method");
   expect
@@ -143,6 +143,20 @@ test("uses the in-page model and rejects a card interval when published evidence
   expect.soft(page.main.innerHTML).toContain("104/128 inside held-out P10–P90");
   expect.soft(page.main.innerHTML.match(/class="inside"/g)).toHaveLength(104);
 }, 20_000);
+
+test.each([undefined, -2])("rejects P10=%s on the board and detail card", (low) => {
+  const payload = data();
+  const row = payload.board.rows[0];
+  row.interval_p10_usd = low;
+  const page = open(payload);
+  const table = page.markup.get("tbody")?.innerHTML;
+  expect(page.markup.get("#checks")?.innerHTML).toContain('class="check-failed">✗ Recompute');
+  expect(table?.match(/class="band"/g)).toHaveLength(197);
+  expect(table).not.toContain('x="NaN"');
+  page.navigate(`#/p/${row.slug}`);
+  expect(page.main.innerHTML).toContain("P10–P90 · —");
+  expect(page.main.innerHTML).not.toContain("$NaN");
+});
 
 function insidePoint(payload: ReturnType<typeof data>) {
   const point = payload.looScatter.find(
@@ -197,6 +211,82 @@ test("flags invalid evidence even when the valid points account for the fitted p
   expect(page.main.innerHTML).toContain("104/128 inside held-out P10–P90");
 });
 
+test.each([9, 10])("respects the publisher's held-out band decision at %i families", (n) => {
+  const snapshot = parseSnapshot({
+    as_of: "2026-11-14",
+    floor_usd: 10,
+    source: "small sample",
+    watchlist: ["sample"],
+    protocols: [
+      protocol(),
+      ...Array.from({ length: n }, (_, i) =>
+        protocol({ slug: `priced-${i}`, mcap_usd: 100_000_000 + i }),
+      ),
+    ],
+  });
+  const result = buildRadar(snapshot);
+  const payload = data(renderDataScript(snapshot, toBoardRows(result), result, farmTables()));
+  const page = open(payload, "#/method", false);
+  const checks = page.markup.get("#checks")?.innerHTML;
+  if (n === 9) {
+    expect(payload.looScatter).toBeNull();
+    expect(checks).toContain(
+      'class="check-unavailable">Coverage unavailable · too few traded families',
+    );
+    expect(checks).not.toContain("0/0 held-out traded caps");
+    expect(page.main.innerHTML).toContain("No valid held-out bands to display.");
+  } else {
+    expect(payload.looScatter).toHaveLength(n);
+    expect(checks).toContain("/10 held-out traded caps");
+    expect(checks).not.toContain("Coverage unavailable");
+  }
+});
+
+test("reports missing bands as a failure for a sample large enough to score", () => {
+  const payload = data();
+  payload.looScatter = null;
+  const page = open(payload, "#/method");
+  expect(page.markup.get("#checks")?.innerHTML).toContain(
+    'class="check-failed">✗ 0/0 held-out traded caps',
+  );
+});
+
+test.each(["steakhouse-financial", "aave-v2", "across"])(
+  "rejects a copy of across under the slug %s",
+  (slug) => {
+    const payload = data();
+    const index = payload.looScatter.findIndex((p: { slug: string }) => p.slug === "aave-v2");
+    const covered = payload.looScatter.find((p: { slug: string }) => p.slug === "across");
+    expect(index).toBeGreaterThanOrEqual(0);
+    expect(covered).toBeDefined();
+    payload.looScatter[index] = { ...covered, slug };
+    const page = open(payload, "#/method");
+    expect(page.markup.get("#checks")?.innerHTML).toContain(
+      'class="check-failed">✗ 104/127 held-out traded caps inside P10–P90 · 127/128 families',
+    );
+    expect(page.main.innerHTML).toContain("104/127 inside held-out P10–P90");
+  },
+);
+
+test("replaces a rendered board with the alert when Method data disappears before navigation", () => {
+  const payload = data();
+  const page = open(payload);
+  expect(page.main.innerHTML).toContain("198 ranked");
+  const { ablation } = payload.model;
+  delete payload.model.ablation;
+  page.navigate("#/method");
+  expect(page.main.innerHTML).toContain('role="alert"');
+  expect(page.main.dataset).not.toHaveProperty("ready");
+  payload.model.ablation = ablation;
+  page.navigate("#/");
+  expect(page.main.innerHTML).toContain("198 ranked");
+  expect(page.main.dataset).toHaveProperty("ready");
+});
+
+test("the initial HTML gives a fallback if the UI script fails to load", () => {
+  expect(open(data(), "#/", true, false).main.innerHTML).toContain('role="alert"');
+});
+
 test.each([true, false])("renders all required routes with loadExtras=%s", (loadExtras) => {
   const page = open(data(), "#/", loadExtras);
   expect(page.main.innerHTML).toContain("198 ranked");
@@ -228,12 +318,14 @@ test.each([
   "launchClock",
   "model.validation",
   "model.validation.seededFiveFold",
+  "model.ablation",
   "census",
 ])("shows a startup failure in main when %s is missing", (field) => {
   const payload = data();
   if (field === "model.validation") delete payload.model.validation;
   else if (field === "model.validation.seededFiveFold")
     delete payload.model.validation.seededFiveFold;
+  else if (field === "model.ablation") delete payload.model.ablation;
   else delete payload[field];
   expect(open(payload, "#/census").main.innerHTML).toContain('role="alert"');
 });

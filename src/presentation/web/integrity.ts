@@ -19,6 +19,7 @@ interface Evidence {
   houseRule: HouseRuleEvidence;
   intervalCounts: CoverageCounts;
   invalidPoints: number;
+  coverageUnavailable?: boolean;
   loo: { model: ValidationScore; flatMultiple: ValidationScore };
 }
 
@@ -26,7 +27,7 @@ export function integrityChecks(
   mismatches: readonly string[],
   published: readonly (CheckRow | null)[],
   watchlist: readonly string[],
-  { fitted, houseRule, intervalCounts, invalidPoints, loo }: Evidence,
+  { fitted, houseRule, intervalCounts, invalidPoints, coverageUnavailable, loo }: Evidence,
 ) {
   const count = mismatches.length;
   const slugs = new Set(published.map((row) => row?.slug));
@@ -48,14 +49,16 @@ export function integrityChecks(
       pass: matches === unique.size && unique.size > 0,
       label: `House rule ${matches}/${unique.size} recall${extra ? ` · ${extra} extra explained by parentProtocol` : ""}`,
     },
-    {
-      pass:
-        invalidPoints === 0 &&
-        Object.values(intervalCounts).every((n) => Number.isInteger(n) && n >= 0) &&
-        samples === fitted &&
-        inside / samples >= 0.8,
-      label: `${inside}/${samples} held-out traded caps inside P10–P90${samples === fitted ? "" : ` · ${samples}/${fitted} families`}${invalidPoints ? ` · ${invalidPoints} invalid` : ""}`,
-    },
+    coverageUnavailable
+      ? { pass: null, label: "Coverage unavailable · too few traded families" }
+      : {
+          pass:
+            invalidPoints === 0 &&
+            Object.values(intervalCounts).every((n) => Number.isInteger(n) && n >= 0) &&
+            samples === fitted &&
+            inside / samples >= 0.8,
+          label: `${inside}/${samples} held-out traded caps inside P10–P90${samples === fitted ? "" : ` · ${samples}/${fitted} families`}${invalidPoints ? ` · ${invalidPoints} invalid` : ""}`,
+        },
     {
       pass:
         samePopulation &&
@@ -69,9 +72,10 @@ export function integrityChecks(
 
 export function integrityStrip(checks: ReturnType<typeof integrityChecks>): string {
   return `<ul class="integrity">${checks
-    .map(
-      ({ pass, label }) =>
-        `<li class="${pass ? "check" : "check-failed"}">${pass ? "✓" : "✗"} ${esc(label)}</li>`,
+    .map(({ pass, label }) =>
+      pass === null
+        ? `<li class="check-unavailable">${esc(label)}</li>`
+        : `<li class="${pass ? "check" : "check-failed"}">${pass ? "✓" : "✗"} ${esc(label)}</li>`,
     )
     .join("")}</ul>`;
 }

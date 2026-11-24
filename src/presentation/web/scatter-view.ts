@@ -4,18 +4,23 @@ import type { CoverageCounts } from "./integrity.ts";
 import { multiplier } from "./integrity.ts";
 import { svg } from "./render.ts";
 
-export function scatterCoverage(points: readonly (RadarResult["looScatter"][number] | null)[]) {
+export function scatterCoverage(
+  points: readonly (NonNullable<RadarResult["looScatter"]>[number] | null)[],
+  families: ReadonlyMap<string, { mcap_usd: number | null }>,
+) {
   const counts: CoverageCounts = { missLow: 0, covered: 0, missHigh: 0 };
   const seen = new Set<string>();
   const classified = points.flatMap((point) => {
     if (!point) return [];
     const { slug, actual, predicted, p10, p90 } = point;
+    const cap = families.get(slug)?.mcap_usd ?? 0;
     if (
       p10 === null ||
       p90 === null ||
       ![p10, p90, actual, predicted].every(Number.isFinite) ||
       p10 > p90 ||
-      seen.has(slug)
+      seen.has(slug) ||
+      Math.abs(actual - Math.log(cap)) > 1e-9
     )
       return [];
     seen.add(slug);
@@ -33,7 +38,7 @@ export function launchValueScatter(
   const heading =
     '<section class="panel scatter"><h2>Predicted launch value vs current market cap</h2>';
   if (!points.length) {
-    return `${heading}<p class="caption">Too few traded families for held-out bands.</p></section>`;
+    return `${heading}<p class="caption">No valid held-out bands to display.</p></section>`;
   }
   // Predictions and caps are already natural logs. Share one domain across the two axes.
   const values = points.flatMap(({ actual, predicted }) => [actual, predicted]);

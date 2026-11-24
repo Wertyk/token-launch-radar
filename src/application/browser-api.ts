@@ -6,6 +6,7 @@ import { formatUsd } from "../domain/shared/money.ts";
 import { compareText } from "../domain/shared/order.ts";
 import type { Snapshot } from "../domain/snapshot.ts";
 import { daysBetween } from "../domain/snapshot.ts";
+import { MIN_BAND_FAMILIES } from "../domain/valuation/jackknife.ts";
 import { logValue } from "../domain/valuation/model.ts";
 import { recomputeRadar as buildRadar } from "./build-radar.ts";
 
@@ -43,6 +44,7 @@ export function readPublishedSnapshot({
 }
 
 export const browserApi = {
+  MIN_BAND_FAMILIES,
   farmAssumptions,
   estimateFarmEconomics,
   planPortfolio,

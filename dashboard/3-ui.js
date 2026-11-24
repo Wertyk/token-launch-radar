@@ -89,7 +89,6 @@ var statusLabels = {
 	"pre-token": "Records no token",
 	excluded: "Excluded by the house rule"
 }
-var defaultCensus = {status: "", sort: "tvl", dir: "desc"}
 var defaultState = {
 	sort: "rank",
 	dir: "asc",
@@ -141,16 +140,6 @@ function parseRoute(hash) {
 		}
 	}
 	return {page: "unknown", state}
-}
-function censusHash({status, sort, dir, unranked}) {
-	const params = new URLSearchParams()
-	if (status) params.set("status", status)
-	if (unranked) params.set("unranked", "1")
-	if (sort !== defaultCensus.sort || dir !== defaultCensus.dir) {
-		params.set("sort", sort)
-		params.set("dir", dir)
-	}
-	return `#/census${params.size ? `?${params}` : ""}`
 }
 function boardHash(state) {
 	const params = new URLSearchParams()
@@ -276,7 +265,7 @@ function element(selector, root = document) {
 	return found
 }
 
-function integrityChecks(mismatches, published, watchlist, {fitted, houseRule, intervalCounts, invalidPoints, loo}) {
+function integrityChecks(mismatches, published, watchlist, {fitted, houseRule, intervalCounts, invalidPoints, coverageUnavailable, loo}) {
 	const count = mismatches.length
 	const slugs = new Set(published.map(row => row?.slug))
 	const unique = new Set(watchlist)
@@ -297,10 +286,12 @@ function integrityChecks(mismatches, published, watchlist, {fitted, houseRule, i
 			pass: matches === unique.size && unique.size > 0,
 			label: `House rule ${matches}/${unique.size} recall${extra ? ` · ${extra} extra explained by parentProtocol` : ""}`
 		},
-		{
-			pass: invalidPoints === 0 && Object.values(intervalCounts).every(n => Number.isInteger(n) && n >= 0) && samples === fitted && inside / samples >= 0.8,
-			label: `${inside}/${samples} held-out traded caps inside P10–P90${samples === fitted ? "" : ` · ${samples}/${fitted} families`}${invalidPoints ? ` · ${invalidPoints} invalid` : ""}`
-		},
+		coverageUnavailable
+			? {pass: null, label: "Coverage unavailable · too few traded families"}
+			: {
+					pass: invalidPoints === 0 && Object.values(intervalCounts).every(n => Number.isInteger(n) && n >= 0) && samples === fitted && inside / samples >= 0.8,
+					label: `${inside}/${samples} held-out traded caps inside P10–P90${samples === fitted ? "" : ` · ${samples}/${fitted} families`}${invalidPoints ? ` · ${invalidPoints} invalid` : ""}`
+				},
 		{
 			pass: samePopulation && model.medianMultiplier !== null && flat.medianMultiplier !== null && model.medianMultiplier < flat.medianMultiplier,
 			label: `Launch value LOO error ${multiplier(model.medianMultiplier)} vs ${multiplier(flat.medianMultiplier)} flat${samePopulation ? "" : ` · model n=${model.n}/${fitted}, flat n=${flat.n}/${fitted}`}`
@@ -308,19 +299,24 @@ function integrityChecks(mismatches, published, watchlist, {fitted, houseRule, i
 	]
 }
 function integrityStrip(checks) {
-	return `<ul class="integrity">${checks.map(({pass, label}) => `<li class="${pass ? "check" : "check-failed"}">${pass ? "✓" : "✗"} ${escapeHtml(label)}</li>`).join("")}</ul>`
+	return `<ul class="integrity">${checks
+		.map(({pass, label}) =>
+			pass === null ? `<li class="check-unavailable">${escapeHtml(label)}</li>` : `<li class="${pass ? "check" : "check-failed"}">${pass ? "✓" : "✗"} ${escapeHtml(label)}</li>`
+		)
+		.join("")}</ul>`
 }
 function multiplier(value) {
 	return value === null ? "—" : `×${value.toFixed(2)}`
 }
 
-function scatterCoverage(points) {
+function scatterCoverage(points, families) {
 	const counts = {missLow: 0, covered: 0, missHigh: 0}
 	const seen = new Set()
 	const classified = points.flatMap(point => {
 		if (!point) return []
 		const {slug, actual, predicted, p10, p90} = point
-		if (p10 === null || p90 === null || ![p10, p90, actual, predicted].every(Number.isFinite) || p10 > p90 || seen.has(slug)) return []
+		const cap = families.get(slug)?.mcap_usd ?? 0
+		if (p10 === null || p90 === null || ![p10, p90, actual, predicted].every(Number.isFinite) || p10 > p90 || seen.has(slug) || Math.abs(actual - Math.log(cap)) > 1e-9) return []
 		seen.add(slug)
 		const result = actual < p10 ? "missLow" : actual > p90 ? "missHigh" : "covered"
 		counts[result]++
@@ -331,7 +327,7 @@ function scatterCoverage(points) {
 function launchValueScatter({points, counts}, {model, flatMultiple}) {
 	const heading = '<section class="panel scatter"><h2>Predicted launch value vs current market cap</h2>'
 	if (!points.length) {
-		return `${heading}<p class="caption">Too few traded families for held-out bands.</p></section>`
+		return `${heading}<p class="caption">No valid held-out bands to display.</p></section>`
 	}
 	const values = points.flatMap(({actual, predicted}) => [actual, predicted])
 	const min = Math.floor(Math.min(...values) / Math.LN10)
@@ -434,7 +430,7 @@ function matchesFields(expected, actual) {
 function boardInterval(row) {
 	if (!row) return null
 	const {interval_p10_usd: low, interval_p90_usd: high} = row
-	return Number.isFinite(low) && Number.isFinite(high) && low <= high ? [low, high] : null
+	return Number.isInteger(low) && Number.isInteger(high) && low > 0 && low <= high ? [low, high] : null
 }
 function boardMismatches(computed, published) {
 	const slugs = published.slice(computed.length).map(row => (typeof row?.slug === "string" ? row.slug : "(missing slug)"))
@@ -482,7 +478,6 @@ function boardViewRows(board, evidence, watchlist, age) {
 	const watchlisted = new Set(watchlist)
 	return board.map(({protocol, rank, status, implied_value_usd: value, launch_value_usd: launchValue, launchProbability12: odds, plan}) => {
 		const {slug, name, tvl_usd, change_7d, category, chains} = protocol
-		const diagnostics = evidence.get(slug)
 		return {
 			slug,
 			name,
@@ -494,7 +489,7 @@ function boardViewRows(board, evidence, watchlist, age) {
 			odds,
 			tvl: tvl_usd,
 			growth: change_7d,
-			interval: boardInterval(diagnostics),
+			interval: boardInterval(evidence.get(slug)),
 			age: status === "traded" || status === "token-unpriced" ? null : age(protocol),
 			cost: plan.totalCostUsd,
 			time: plan.totalMinutes,
@@ -587,6 +582,11 @@ function protocolView(row, {age, coefficients, lnValue, back, usd, farm, diagnos
 function boot(start2) {
 	const root = document.querySelector("main")
 	if (!root) return
+	const fallback = root.innerHTML
+	const fail = () => {
+		delete root.dataset.ready
+		root.innerHTML = fallback
+	}
 	try {
 		const {RADAR_DATA: publishedData, Radar: core} = window
 		const input = publishedData && core.readPublishedSnapshot(publishedData)
@@ -596,14 +596,15 @@ function boot(start2) {
 			!input ||
 			!Array.isArray(publishedData.board?.rows) ||
 			!Array.isArray(publishedData.launchClock?.points) ||
+			!publishedData.model?.ablation?.full ||
 			[validation?.leaveOneFamilyOut, validation?.seededFiveFold, validation?.walkForward].some(scheme => !scheme?.model || !scheme.flatMultiple || !scheme.categoryMultiple) ||
 			!Array.isArray(publishedData.census) ||
 			publishedData.census.length !== input.protocols.length
 		)
 			throw new Error("Incomplete snapshot")
-		start2(root, input, publishedData, core)
+		start2(root, input, publishedData, core, fail)
 	} catch {
-		root.innerHTML = '<h2 role="alert">Snapshot data unavailable</h2><p>Generate it with <code>pnpm radar</code>.</p>'
+		fail()
 	}
 }
 
@@ -633,35 +634,36 @@ function mountBoard(main, rows, summary, {formatUsd: usd, compareText}) {
 		body.innerHTML = boardRows(selected, state, maxLogValue, usd)
 	}
 }
-function start(main, snapshot, data, api) {
+function start(main, snapshot, data, api, fail) {
 	const {buildRadar, daysBetween, farmAssumptions, formatUsd} = api
 	const {launchClock, meta} = data
 	const radar = buildRadar(snapshot, data.model.lambda, launchClock, meta)
-	const {validation, ablation} = data.model
-	const scatter = scatterCoverage(data.looScatter)
+	const {model, houseRule} = radar
+	const {validation} = data.model
 	const published = data.board.rows
 	const age = ({listed_at}) => (listed_at === null ? null : daysBetween(listed_at, snapshot.as_of))
 	const {families, diagnostics, protocols, mismatches, rows} = prepareBoard(radar, published, snapshot.watchlist, age)
+	const scatter = scatterCoverage(data.looScatter ?? [], families)
 	const checks = integrityChecks(mismatches, published, snapshot.watchlist, {
-		fitted: radar.model.n,
-		houseRule: radar.houseRule,
+		fitted: model.n,
+		houseRule,
 		intervalCounts: scatter.counts,
 		invalidPoints: scatter.invalidPoints,
+		coverageUnavailable: data.looScatter === null && model.n < api.MIN_BAND_FAMILIES,
 		loo: validation.leaveOneFamilyOut
 	})
 	element("#snapshot-date").textContent = `Snapshot · ${snapshot.as_of}`
-	const counts = [snapshot.protocols.length, radar.model.n, rows.length, clockSampleSize(launchClock.points)]
+	const counts = [snapshot.protocols.length, model.n, rows.length, clockSampleSize(launchClock.points)]
 	document.querySelectorAll("#summary dd, #clock-count").forEach((count, i) => {
 		count.textContent = formatInteger(counts[i] ?? null)
 	})
-	const {intercept, lnTvl, lnAge} = radar.model.coefficients
+	const {intercept, lnTvl, lnAge} = model.coefficients
 	element("#formula").textContent = `ln V = ${intercept.toFixed(3)} ${signedTerm(lnTvl)}·ln(TVL·(1+g₇)) ${signedTerm(lnAge)}·ln(age)`
 	element("#checks").innerHTML = integrityStrip(checks)
 	let updateBoard
 	let updatePlan
 	let lastPage
-	function draw() {
-		delete main.dataset.ready
+	function render() {
 		const route = parseRoute(location.hash)
 		const page = route.page === "protocol" ? `protocol/${route.slug}` : route.page
 		const changedPage = lastPage && lastPage !== page
@@ -674,20 +676,17 @@ function start(main, snapshot, data, api) {
 			updateBoard ??= mountBoard(main, rows, censusSummary(data.census, protocols), api)
 			updateBoard(route.state)
 		} else if (route.page === "plan") {
-			if (api.mountPlanner) {
-				updatePlan ??= api.mountPlanner(main, radar.board, meta, api)
-				updatePlan(location.hash)
-			} else {
-				main.innerHTML = "<h2>Farm planner unavailable</h2>"
-			}
+			updatePlan ??= api.mountPlanner?.(main, radar.board, meta, api)
+			if (updatePlan) updatePlan(location.hash)
+			else main.innerHTML = "<h2>Farm planner unavailable</h2>"
 		} else if (route.page === "census") {
 			main.innerHTML = censusView(data.census, route.state, formatUsd, api.compareText, protocols)
 		} else if (route.page === "method") {
 			main.innerHTML = methodView(
 				{
-					model: {...radar.model, validation, ablation},
+					model: {...model, validation, ablation: data.model.ablation},
 					launchClock,
-					houseRule: radar.houseRule,
+					houseRule,
 					scatter
 				},
 				api.methodFarmAssumptions?.(farmAssumptions, formatUsd)
@@ -700,8 +699,8 @@ function start(main, snapshot, data, api) {
 						detail,
 						{
 							age: age(detail.protocol),
-							coefficients: radar.model.coefficients,
-							lnValue: api.logValue(detail.features, radar.model),
+							coefficients: model.coefficients,
+							lnValue: api.logValue(detail.features, model),
 							back,
 							usd: formatUsd,
 							farm: farmAssumptions,
@@ -720,9 +719,17 @@ function start(main, snapshot, data, api) {
 		}
 		main.dataset.ready = ""
 	}
+	function draw() {
+		try {
+			render()
+		} catch {
+			lastPage = "error"
+			fail()
+		}
+	}
 	draw()
 	window.addEventListener("hashchange", draw)
-	api.bindControls?.(main, draw, {boardHash, censusHash, isCensusSortKey, isSortKey, parseRoute})
+	api.bindControls?.(main, draw, {boardHash, isCensusSortKey, isSortKey, parseRoute})
 }
 boot(start)
 })();

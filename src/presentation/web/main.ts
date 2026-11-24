@@ -18,7 +18,7 @@ import { options } from "./render.ts";
 import { scatterCoverage } from "./scatter-view.ts";
 import { boot, type RadarData } from "./startup.ts";
 import type { BoardState } from "./state.ts";
-import { boardHash, censusHash, isCensusSortKey, isSortKey, parseRoute } from "./state.ts";
+import { boardHash, isCensusSortKey, isSortKey, parseRoute } from "./state.ts";
 
 declare global {
   interface Window {
@@ -76,12 +76,18 @@ function mountBoard(
   };
 }
 
-function start(main: HTMLElement, snapshot: Snapshot, data: RadarData, api: Window["Radar"]): void {
+function start(
+  main: HTMLElement,
+  snapshot: Snapshot,
+  data: RadarData,
+  api: Window["Radar"],
+  fail: () => void,
+): void {
   const { buildRadar, daysBetween, farmAssumptions, formatUsd } = api;
   const { launchClock, meta } = data;
   const radar = buildRadar(snapshot, data.model.lambda, launchClock, meta);
-  const { validation, ablation } = data.model;
-  const scatter = scatterCoverage(data.looScatter);
+  const { model, houseRule } = radar;
+  const { validation } = data.model;
   // These are board.json's rows. The CLI end-to-end test checks every published field.
   const published = data.board.rows;
   const age = ({ listed_at }: Protocol) =>
@@ -92,24 +98,26 @@ function start(main: HTMLElement, snapshot: Snapshot, data: RadarData, api: Wind
     snapshot.watchlist,
     age,
   );
+  const scatter = scatterCoverage(data.looScatter ?? [], families);
   const checks = integrityChecks(mismatches, published, snapshot.watchlist, {
-    fitted: radar.model.n,
-    houseRule: radar.houseRule,
+    fitted: model.n,
+    houseRule,
     intervalCounts: scatter.counts,
     invalidPoints: scatter.invalidPoints,
+    coverageUnavailable: data.looScatter === null && model.n < api.MIN_BAND_FAMILIES,
     loo: validation.leaveOneFamilyOut,
   });
   element("#snapshot-date").textContent = `Snapshot · ${snapshot.as_of}`;
   const counts = [
     snapshot.protocols.length,
-    radar.model.n,
+    model.n,
     rows.length,
     clockSampleSize(launchClock.points),
   ];
   document.querySelectorAll("#summary dd, #clock-count").forEach((count, i) => {
     count.textContent = formatInteger(counts[i] ?? null);
   });
-  const { intercept, lnTvl, lnAge } = radar.model.coefficients;
+  const { intercept, lnTvl, lnAge } = model.coefficients;
   element("#formula").textContent =
     `ln V = ${intercept.toFixed(3)} ${signedTerm(lnTvl)}·ln(TVL·(1+g₇)) ${signedTerm(lnAge)}·ln(age)`;
   element("#checks").innerHTML = integrityStrip(checks);
@@ -118,8 +126,7 @@ function start(main: HTMLElement, snapshot: Snapshot, data: RadarData, api: Wind
   let updatePlan: ReturnType<MountPlanner> | undefined;
   let lastPage: string | undefined;
 
-  function draw(): void {
-    delete main.dataset.ready;
+  function render(): void {
     const route = parseRoute(location.hash);
     const page = route.page === "protocol" ? `protocol/${route.slug}` : route.page;
     const changedPage = lastPage && lastPage !== page;
@@ -132,20 +139,17 @@ function start(main: HTMLElement, snapshot: Snapshot, data: RadarData, api: Wind
       updateBoard ??= mountBoard(main, rows, censusSummary(data.census, protocols), api);
       updateBoard(route.state);
     } else if (route.page === "plan") {
-      if (api.mountPlanner) {
-        updatePlan ??= api.mountPlanner(main, radar.board, meta, api);
-        updatePlan(location.hash);
-      } else {
-        main.innerHTML = "<h2>Farm planner unavailable</h2>";
-      }
+      updatePlan ??= api.mountPlanner?.(main, radar.board, meta, api);
+      if (updatePlan) updatePlan(location.hash);
+      else main.innerHTML = "<h2>Farm planner unavailable</h2>";
     } else if (route.page === "census") {
       main.innerHTML = censusView(data.census, route.state, formatUsd, api.compareText, protocols);
     } else if (route.page === "method") {
       main.innerHTML = methodView(
         {
-          model: { ...radar.model, validation, ablation },
+          model: { ...model, validation, ablation: data.model.ablation },
           launchClock,
-          houseRule: radar.houseRule,
+          houseRule,
           scatter,
         },
         api.methodFarmAssumptions?.(farmAssumptions, formatUsd),
@@ -158,8 +162,8 @@ function start(main: HTMLElement, snapshot: Snapshot, data: RadarData, api: Wind
             detail,
             {
               age: age(detail.protocol),
-              coefficients: radar.model.coefficients,
-              lnValue: api.logValue(detail.features, radar.model),
+              coefficients: model.coefficients,
+              lnValue: api.logValue(detail.features, model),
               back,
               usd: formatUsd,
               farm: farmAssumptions,
@@ -179,9 +183,18 @@ function start(main: HTMLElement, snapshot: Snapshot, data: RadarData, api: Wind
     main.dataset.ready = "";
   }
 
+  function draw(): void {
+    try {
+      render();
+    } catch {
+      lastPage = "error";
+      fail();
+    }
+  }
+
   draw();
   window.addEventListener("hashchange", draw);
-  api.bindControls?.(main, draw, { boardHash, censusHash, isCensusSortKey, isSortKey, parseRoute });
+  api.bindControls?.(main, draw, { boardHash, isCensusSortKey, isSortKey, parseRoute });
 }
 
 boot(start);

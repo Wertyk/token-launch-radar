@@ -778,6 +778,9 @@ function rankBoard(entries, asOf, model) {
 		.map((entry, index) => ({...entry, rank: index + 1}))
 }
 
+var TAIL_ALPHA = 0.1
+var MIN_BAND_FAMILIES = Math.ceil(1 / TAIL_ALPHA)
+
 function radarInputs({protocols, as_of}) {
 	const families = groupFamilies(protocols)
 	return {families, comparables: comparablesFromFamilies(families, as_of)}
@@ -826,6 +829,7 @@ function readPublishedSnapshot({meta, protocols, watchlist}) {
 	return {as_of, floor_usd, source, protocols, watchlist}
 }
 var browserApi = {
+	MIN_BAND_FAMILIES,
 	farmAssumptions: defaults,
 	estimateFarmEconomics,
 	planPortfolio,
