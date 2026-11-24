@@ -667,14 +667,22 @@ h2 + div.filters {
 }
 
 .method {
-  columns: 3;
-  column-gap: var(--s3);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s3);
   margin-top: var(--s3);
 }
 
-.method .panel {
-  break-inside: avoid;
-  margin-bottom: var(--s3);
+.method .panel + .panel {
+  margin-top: var(--s3);
+}
+
+@media (min-width: 1400px) {
+  .method-value .panel + .panel td + td {
+    padding-inline: var(--s1);
+    font-size: var(--font-small);
+    white-space: nowrap;
+  }
 }
 
 .compact table {
@@ -699,13 +707,13 @@ h2 + div.filters {
 
 @media (max-width: 1080px) {
   .method {
-    columns: 2;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 700px) {
   .method {
-    columns: 1;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

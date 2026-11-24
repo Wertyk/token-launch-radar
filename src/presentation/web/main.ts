@@ -7,6 +7,7 @@ import type { BoardRow } from "./board.ts";
 import { selectRows } from "./board.ts";
 import { boardRows, boardTable } from "./board-view.ts";
 import { censusSummary, censusView } from "./census-view.ts";
+import { clockSampleSize } from "./clock-view.ts";
 import { element } from "./dom.ts";
 import { escapeHtml as esc, formatInteger, signedTerm } from "./format.ts";
 import { integrityChecks, integrityStrip } from "./integrity.ts";
@@ -136,8 +137,13 @@ function start(main: HTMLElement, snapshot: Snapshot, data: RadarData, api: Wind
     },
   );
   element("#snapshot-date").textContent = `Snapshot · ${snapshot.as_of}`;
-  const counts = [snapshot.protocols.length, radar.model.n, rows.length];
-  document.querySelectorAll("#summary dd").forEach((count, i) => {
+  const counts = [
+    snapshot.protocols.length,
+    radar.model.n,
+    rows.length,
+    clockSampleSize(launchClock.points),
+  ];
+  document.querySelectorAll("#summary dd, #clock-count").forEach((count, i) => {
     count.textContent = formatInteger(counts[i] ?? null);
   });
   const { intercept, lnTvl, lnAge } = radar.model.coefficients;

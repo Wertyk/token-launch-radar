@@ -256,6 +256,19 @@ function censusView(rows, state, usd, ranked) {
 		)}`
 }
 
+function clockSampleSize(points) {
+	return points.reduce((total, {count}) => total + count, 0)
+}
+function ageSparkline(maxAge, age, odds, oddsAt) {
+	const y = fraction => ((1 - fraction) * 40).toFixed(2)
+	const marker = (age / maxAge) * 100
+	const line = Array.from({length: 33}, (_, index) => {
+		const x = (index / 32) * 100
+		return `${x.toFixed(2)},${y(oddsAt((x / 100) * maxAge))}`
+	}).join(" ")
+	return svg(100, 40, `<polyline points="${line}"></polyline><circle cx="${marker.toFixed(2)}" cy="${y(odds)}" r="2" class="age-point"></circle>`)
+}
+
 function element(selector, root2 = document) {
 	const found = root2.querySelector(selector)
 	if (!found) throw new Error(`Missing dashboard element ${selector}`)
@@ -342,20 +355,18 @@ function multiplier(value) {
 	return value === null ? "—" : `×${value.toFixed(2)}`
 }
 
-function relativeScore(variant, full) {
-	if (variant === null || full === null) return "unavailable"
-	return variant === full ? "unchanged" : variant < full ? "lower" : "higher"
-}
 function methodView({model, houseRule, intervalCounts, launchClock}, farm, usd) {
-	const {coefficients, validation, ablation} = model
-	const {intercept, lnTvl, lnAge} = coefficients
-	const {leaveOneFamilyOut, seededFiveFold, walkForward} = validation
-	const {full, withoutTvl, withoutAge, withoutMomentum, withCategory, ols} = ablation
+	const {
+		coefficients: {intercept, lnTvl, lnAge},
+		validation,
+		ablation
+	} = model
 	const score = ({medianMultiplier, spearman}) => [multiplier(medianMultiplier), spearman?.toFixed(3) ?? "—"]
 	const section = (title, headers, rows, note) => `<section class="panel"><h3>${title}</h3>${table(headers, rows)}${note ? `<p class="caption">${note}</p>` : ""}</section>`
-	const {truePositives, falsePositives, falseNegatives} = houseRule
-	return `<h2>Method</h2><div class="method compact">
-    ${section(
+	const {points} = launchClock
+	const cards = [
+		'<div class="method-value">',
+		section(
 			"Launch value model",
 			["Term in ln V", "Coefficient"],
 			[
@@ -365,49 +376,50 @@ function methodView({model, houseRule, intervalCounts, launchClock}, farm, usd) 
 				["Ridge penalty λ", String(model.lambda)]
 			],
 			`Huber ridge on ${model.n} traded families.`
-		)}
-    ${section(
+		),
+		section(
 			"Out-of-sample validation",
 			["Scheme", "Model", "Flat", "Category"],
 			[
-				["Leave one family out", leaveOneFamilyOut],
-				["Seeded five-fold", seededFiveFold],
-				["Walk-forward", walkForward]
+				["Leave one family out", validation.leaveOneFamilyOut],
+				["Seeded five-fold", validation.seededFiveFold],
+				["Walk-forward", validation.walkForward]
 			].map(([label, {model: fitted, flatMultiple, categoryMultiple}]) => [label, ...[fitted, flatMultiple, categoryMultiple].map(s => score(s).join(" · "))]),
 			"Current traded-family market caps proxy for launch value. Median error ×k and Spearman ρ."
-		)}
-    ${section(
+		),
+		"</div><div>",
+		section(
+			"Launch clock F(t)",
+			["Mean listing age (days)", "Fitted token share (PAVA)", "Count"],
+			points.map(({ageDays, share, count}) => [ageDays.toFixed(0), formatOdds(share), String(count)]),
+			`${formatInteger(clockSampleSize(points))} protocols · P₁₂(t) = [F(t+365) − F(t)] / [1 − F(t)]<br>Flat windows and the tail use the last rising segment’s constant conditional hazard, or the pooled annual rate for a flat fit. The snapshot cannot validate future launch odds.`
+		),
+		section(
+			"House watchlist rule",
+			["TP", "FP", "FN"],
+			[["truePositives", "falsePositives", "falseNegatives"].map(key => String(houseRule[key].length))],
+			"DefiLlama marks extra matches with parentProtocol, absent from the snapshot."
+		),
+		"</div><div>",
+		section(
 			"Leave-one-family-out ablation",
 			["Variant", "Median error", "Spearman ρ"],
 			[
-				["Full", full],
-				["−TVL", withoutTvl],
-				["−Age", withoutAge],
-				["−Momentum", withoutMomentum],
-				["+Category", withCategory],
-				["OLS", ols]
-			].map(([label, metrics]) => [label, ...score(metrics)]),
-			`Without age, median error is ${relativeScore(withoutAge.medianMultiplier, full.medianMultiplier)} and Spearman is ${relativeScore(withoutAge.spearman, full.spearman)}.`
-		)}
-    ${section(
+				["Full", ablation.full],
+				["−TVL", ablation.withoutTvl],
+				["−Age", ablation.withoutAge],
+				["−Momentum", ablation.withoutMomentum],
+				["+Category", ablation.withCategory],
+				["OLS", ablation.ols]
+			].map(([label, metrics]) => [label, ...score(metrics)])
+		),
+		section(
 			"Held-out P10–P90 coverage",
 			["Below P10", "Inside", "Above P90"],
 			intervalCounts ? [[intervalCounts.missLow, intervalCounts.covered, intervalCounts.missHigh].map(String)] : [],
 			"Jackknife+ bands on held-out market caps."
-		)}
-    ${section(
-			"Launch clock F(t)",
-			["Mean age (days)", "Fitted token share", "Count"],
-			launchClock.points.map(({ageDays, share, count}) => [ageDays.toFixed(0), formatOdds(share), String(count)]),
-			"Flat windows and the tail use the last rising segment’s constant conditional hazard, or the pooled annual rate for a flat fit. The snapshot cannot validate future launch odds."
-		)}
-    ${section(
-			"House watchlist rule",
-			["TP", "FP", "FN"],
-			[[truePositives.length, falsePositives.length, falseNegatives.length].map(String)],
-			"DefiLlama marks extra matches with parentProtocol, absent from the snapshot."
-		)}
-    ${section(
+		),
+		section(
 			`Farm assumptions · ${farm.asOf}`,
 			["Input", "Default"],
 			[
@@ -419,18 +431,10 @@ function methodView({model, houseRule, intervalCounts, launchClock}, farm, usd) 
 				["Verdict test deposits", farm.depositsUsd.map(usd).join(" · ")],
 				["EV / cost cutoffs", `FARM ≥ ${farm.farmThreshold} · THIN ≥ ${farm.thinThreshold}`]
 			]
-		)}
-  </div>`
-}
-
-function ageSparkline(maxAge, age, odds, oddsAt) {
-	const y = fraction => ((1 - fraction) * 40).toFixed(2)
-	const marker = (age / maxAge) * 100
-	const line = Array.from({length: 33}, (_, index) => {
-		const x = (index / 32) * 100
-		return `${x.toFixed(2)},${y(oddsAt((x / 100) * maxAge))}`
-	}).join(" ")
-	return svg(100, 40, `<polyline points="${line}"></polyline><circle cx="${marker.toFixed(2)}" cy="${y(odds)}" r="2" class="age-point"></circle>`)
+		),
+		"</div>"
+	]
+	return `<h2>Method</h2><div class="method compact">${cards.join("")}</div>`
 }
 
 var reasonLabels = {
@@ -614,8 +618,8 @@ function start(main, snapshot, data, api) {
 		}
 	})
 	element("#snapshot-date").textContent = `Snapshot · ${snapshot.as_of}`
-	const counts = [snapshot.protocols.length, radar.model.n, rows.length]
-	document.querySelectorAll("#summary dd").forEach((count, i) => {
+	const counts = [snapshot.protocols.length, radar.model.n, rows.length, clockSampleSize(launchClock.points)]
+	document.querySelectorAll("#summary dd, #clock-count").forEach((count, i) => {
 		count.textContent = formatInteger(counts[i] ?? null)
 	})
 	const {intercept, lnTvl, lnAge} = radar.model.coefficients

@@ -145,7 +145,14 @@ test("shows the published validation, ablation, coverage and dated assumptions i
       ols: score(2.16, 0.696),
     },
   };
-  const html = methodView({ ...data, model }, farmAssumptions, formatUsd);
+  const launchClock = {
+    medianAgeDays: 100,
+    points: [
+      { ageDays: 100, share: 0.25, count: 3 },
+      { ageDays: 600, share: 0.75, count: 7 },
+    ],
+  };
+  const html = methodView({ ...data, model, launchClock }, farmAssumptions, formatUsd);
   for (const text of [
     "λ",
     "Leave one family out",
@@ -172,6 +179,14 @@ test("shows the published validation, ablation, coverage and dated assumptions i
     `<tbody>${rows.map((cells) => `<tr><td>${cells.join("</td><td>")}</td></tr>`).join("")}</tbody>`;
   expect(html).toContain(
     tableRows([
+      ["100", "25.0%", "3"],
+      ["600", "75.0%", "7"],
+    ]),
+  );
+  expect(html).toContain("10 protocols · P₁₂(t) = [F(t+365) − F(t)] / [1 − F(t)]");
+  expect(html.indexOf("Launch clock F(t)")).toBeLessThan(html.indexOf("House watchlist rule"));
+  expect(html).toContain(
+    tableRows([
       ["Leave one family out", "×2.11 · 0.711", "×2.22 · 0.322", "×2.33 · 0.533"],
       ["Seeded five-fold", "×3.11 · 0.611", "×3.22 · 0.422", "×3.33 · 0.233"],
       ["Walk-forward", "×4.11 · 0.511", "×4.22 · 0.222", "×4.33 · 0.433"],
@@ -186,9 +201,5 @@ test("shows the published validation, ablation, coverage and dated assumptions i
       ["+Category", "×3.15", "0.815"],
       ["OLS", "×2.16", "0.696"],
     ]),
-  );
-  expect(html).toContain("Without age, median error is higher and Spearman is lower.");
-  expect(methodView(data, farmAssumptions, formatUsd)).toContain(
-    "Without age, median error is unavailable and Spearman is unavailable.",
   );
 });

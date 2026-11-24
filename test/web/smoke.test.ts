@@ -28,7 +28,10 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
       timeout: 10_000,
     });
     const url = pathToFileURL(join(out, "dashboard", "index.html"));
-    const context = await browser.newContext({ serviceWorkers: "block" });
+    const context = await browser.newContext({
+      serviceWorkers: "block",
+      viewport: { width: 1440, height: 900 },
+    });
     const nonFileRequests: string[] = [];
     context.on("request", (request) => {
       if (!request.url().startsWith("file://")) nonFileRequests.push(request.url());
@@ -64,7 +67,7 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
     await definition.waitFor({ state: "visible", timeout: 4_000 });
     expect((await definition.textContent())?.replace(/\s+/g, " ").trim()).toBe(
       "Launch value is the conditional market cap at launch. " +
-        "Launch odds come from the clock fitted to the snapshot's token records by listing age. " +
+        "Launch odds come from a monotone clock fitted to the token records of 645 listed protocols. " +
         "Age is days since listing (min 1). g₇ is 7-day TVL growth clipped to −50%…+100%.",
     );
     await ready.getByRole("link", { name: "144 excluded", exact: true }).click();
@@ -104,6 +107,22 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
     const nav = page.getByRole("navigation", { name: "Radar pages" });
     await nav.getByRole("link", { name: "Method", exact: true }).click();
     await heading("Method");
+    const methodCard = (name: string) =>
+      ready.locator(".method .panel").filter({
+        has: page.getByRole("heading", { name, exact: true, level: 3 }),
+      });
+    for (const name of [
+      "Launch value model",
+      "Out-of-sample validation",
+      "Leave-one-family-out ablation",
+      "Launch clock F(t)",
+    ]) {
+      const bounds = await methodCard(name).boundingBox();
+      if (!bounds) throw new Error(`Expected a visible ${name} card`);
+      expect(bounds.y, name).toBeGreaterThanOrEqual(0);
+      expect(bounds.y + bounds.height, name).toBeLessThanOrEqual(900);
+    }
+    expect(await methodCard("Launch clock F(t)").textContent()).toContain("645 protocols · P₁₂(t)");
     await nav.getByRole("link", { name: "Census", exact: true }).click();
     await heading("Protocol census");
     expect(await ready.locator('th[aria-sort="descending"] button[data-sort="tvl"]').count()).toBe(

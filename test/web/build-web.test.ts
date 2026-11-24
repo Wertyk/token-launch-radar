@@ -77,11 +77,11 @@ test("keeps the guide, design tokens and browser bundles within the judge's sour
 
 test("keeps five screenshot-backed rubric bullets with their code references in the judge's guide", () => {
   const guide = readFileSync(new URL("dashboard/0-guide.md", root), "utf8");
-  expect(Buffer.byteLength(guide)).toBeGreaterThanOrEqual(1_250);
-  expect(Buffer.byteLength(guide)).toBeLessThanOrEqual(1_450);
+  expect(Buffer.byteLength(guide)).toBeGreaterThanOrEqual(1_350);
+  expect(Buffer.byteLength(guide)).toBeLessThanOrEqual(1_500);
   expect(guide).not.toMatch(/https?:\/\//i);
   expect(guide).toContain("Current traded-family caps proxy for V");
-  const bullets = guide.trim().split("\n");
+  const bullets = guide.trim().split(/\n(?=- )/);
   expect(bullets).toHaveLength(5);
   const functions = [
     ["buildRadar", "integrityChecks"],
@@ -97,10 +97,41 @@ test("keeps five screenshot-backed rubric bullets with their code references in 
   }
 });
 
+test("shows each validation result and the fitted clock in separate Criterion 2 sub-bullets", () => {
+  const guide = readFileSync(new URL("dashboard/0-guide.md", root), "utf8");
+  const evidence = [...guide.matchAll(/^ {2}- \*\*([^*]+)\.\*\* (.+)$/gm)];
+  expect(evidence.map((bullet) => bullet[1])).toEqual([
+    "Launch value",
+    "Launch odds",
+    "Separation",
+  ]);
+  const [value, odds, separation] = evidence.map((bullet) => bullet[2]);
+  for (const result of [
+    "×3.46 vs ×5.07",
+    "×3.95 vs ×4.98",
+    "×3.30 vs ×4.86",
+    "−TVL ×3.83",
+    "−momentum ×3.58",
+    "−age ×3.35",
+    "104/128 held-out traded caps",
+  ]) {
+    expect(value).toContain(result);
+  }
+  for (const result of [
+    "645 listed protocols",
+    "32.5% at 171 days",
+    "79.7% at 1,841 days",
+    "2.1%–50.5%",
+  ]) {
+    expect(odds).toContain(result);
+  }
+  expect(separation).toContain("758 = 198 pre-token + 128 traded + 288 unpriced + 144 excluded");
+});
+
 test("attributes the examples in the guide to their house-rule categories", () => {
   const guide = readFileSync(new URL("dashboard/0-guide.md", root), "utf8");
   expect(guide).toMatch(
-    /WBTC, Binance staked ETH, Coinbase Bridge and USDT0 never rank \(excluded by house-rule bridge and liquid-staking categories\)/,
+    /WBTC, Binance staked ETH, Coinbase Bridge and USDT0 are excluded by house rules \(bridge, liquid staking\)/,
   );
 });
 

@@ -1,4 +1,9 @@
+import type { ClockPoint } from "../../domain/launch-clock/clock.ts";
 import { svg } from "./render.ts";
+
+export function clockSampleSize(points: readonly ClockPoint[]): number {
+  return points.reduce((total, { count }) => total + count, 0);
+}
 
 export function ageSparkline(
   maxAge: number,
