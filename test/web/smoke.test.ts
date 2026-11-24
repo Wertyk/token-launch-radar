@@ -71,7 +71,7 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
         "Age is days since listing (min 1). g₇ is 7-day TVL growth clipped to −50%…+100%.",
     );
     expect(await ready.locator(".census-summary").textContent()).toBe(
-      "All 758 protocols accounted for: 198 ranked · 128 traded · 288 token, unpriced · 144 excluded (wrapped, staked, bridged, exchange)",
+      "All 758 protocols accounted for: 198 ranked · 128 traded · 288 token, unpriced · 144 excluded (wrapped, staked, bridged, exchange or versioned names)",
     );
     await ready.getByRole("link", { name: "144 excluded", exact: true }).click();
     await heading("Protocol census");
@@ -119,7 +119,7 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
       "Out-of-sample validation",
       "Leave-one-family-out ablation",
       "Launch clock F(t)",
-      "Predicted vs actual launch value",
+      "Predicted launch value vs current market cap",
     ]) {
       const bounds = await methodCard(name).boundingBox();
       if (!bounds) throw new Error(`Expected a visible ${name} card`);
@@ -127,7 +127,7 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
       expect(bounds.y + bounds.height, name).toBeLessThanOrEqual(900);
     }
     expect(await methodCard("Launch clock F(t)").textContent()).toContain("645 protocols · P₁₂(t)");
-    const scatter = methodCard("Predicted vs actual launch value");
+    const scatter = methodCard("Predicted launch value vs current market cap");
     const identity = await scatter.locator("svg .identity").boundingBox();
     expect(identity?.height).toBeGreaterThanOrEqual(169);
     expect(await scatter.locator("svg circle.inside").count()).toBe(104);

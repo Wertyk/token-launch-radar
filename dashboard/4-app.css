@@ -765,7 +765,6 @@ h2 + div.filters {
 
 .scatter .identity {
   stroke: var(--muted);
-  stroke-dasharray: 4 3;
 }
 
 .scatter .inside {
@@ -774,7 +773,6 @@ h2 + div.filters {
 }
 
 .scatter .outside {
-  fill: var(--surface);
   stroke: var(--negative);
   stroke-width: 1.5;
 }

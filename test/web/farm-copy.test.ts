@@ -181,7 +181,7 @@ test("shows the published validation, ablation, scatter and dated assumptions in
     "−Momentum",
     "+Category",
     "OLS",
-    "Predicted vs actual launch value",
+    "Predicted launch value vs current market cap",
     "1/2 inside held-out P10–P90 · LOO median error ×2.11 vs ×2.22 flat",
     "Actual market cap (log USD)",
     "Predicted (log USD)",
@@ -197,8 +197,12 @@ test("shows the published validation, ablation, scatter and dated assumptions in
   expect(html.match(/<table/g)).toHaveLength(6);
   expect(html.match(/<circle/g)).toHaveLength(2);
   expect(html).toContain('<circle class="inside" cx="59.00" cy="93.00"');
-  expect(html).toContain('<circle class="outside" cx="372.00" cy="178.00"');
-  expect(html).toContain('<path class="identity" d="M59 178L372 8"');
+  expect(html).toContain(
+    '<circle class="outside" cx="372.00" cy="178.00" r="3" fill="none" stroke="currentColor">',
+  );
+  expect(html).toContain(
+    '<path class="identity" d="M59 178L372 8" stroke="currentColor" stroke-dasharray="4 3">',
+  );
   expect(html).not.toMatch(/xmlns|https?:\/\//);
   const tableRows = (rows: string[][]) =>
     `<tbody>${rows.map((cells) => `<tr><td>${cells.join("</td><td>")}</td></tr>`).join("")}</tbody>`;

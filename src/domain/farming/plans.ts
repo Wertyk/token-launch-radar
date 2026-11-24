@@ -84,7 +84,7 @@ function roundUsd(value: number): number {
 
 export function makeFarmPlan(
   protocol: Pick<Protocol, "category" | "chains" | "name">,
-  { playbooks, gas, funding }: FarmTables,
+  { playbooks, gas, funding, uncollateralized }: FarmTables,
   depositUsd: number = DEFAULT_DEPOSIT_USD,
 ): FarmPlan {
   if (!Number.isFinite(depositUsd) || depositUsd <= 0) {
@@ -94,6 +94,7 @@ export function makeFarmPlan(
   const [group, playbook] = Object.entries(playbooks).find(([, book]) =>
     book.categories.includes(category),
   ) ?? ["generic", playbooks.generic];
+  const copy = category.includes("uncollateralized") ? uncollateralized : playbook;
   const bridge = group === "bridge";
   const repeats = occurrences[playbook.cadence];
   const [entryTransactions, reviewTransactions, exitTransactions] = playbook.transactions;
@@ -140,19 +141,19 @@ export function makeFarmPlan(
   if (fundingStep) steps.push(fundingStep);
   steps.push(
     step(
-      playbook.enter,
+      copy.enter,
       roundUsd(entryTransactions * (bridge ? bridgeUsd : transactionUsd)),
       entryMinutes,
     ),
     step(
-      playbook.review,
+      copy.review,
       roundUsd(tradingFees + reviewTransactions * transactionUsd),
       reviewMinutes,
       playbook.cadence,
     ),
     {
-      ...step(playbook.exit, roundUsd(exitTransactions * transactionUsd), exitMinutes),
-      exitCondition: playbook.exitCondition,
+      ...step(copy.exit, roundUsd(exitTransactions * transactionUsd), exitMinutes),
+      exitCondition: copy.exitCondition,
     },
   );
 

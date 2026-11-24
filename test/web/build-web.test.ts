@@ -34,7 +34,7 @@ test("checks the generated bundles byte for byte without writing them", () => {
     expect(extras).toContain("function protocolFacts");
     expect(extras).toContain("Nearest comparables");
     expect(extras).not.toMatch(
-      /launchValueScatter|Predicted vs actual launch value|Protocol record/,
+      /launchValueScatter|Predicted launch value vs current market cap|Protocol record/,
     );
     const window: Record<string, unknown> = {};
     runInNewContext(`${core}\n${extras}`, { window });
@@ -81,6 +81,8 @@ test("ships the scatter renderer with the screenshot-visible UI", () => {
   const ui = readFileSync(new URL("dashboard/3-ui.js", root), "utf8");
   expect(ui).toContain("function launchValueScatter(");
   expect(ui).toContain('class="identity"');
+  expect(ui).toContain('stroke-dasharray="4 3"');
+  expect(ui).toContain('fill="none" stroke="currentColor"');
   expect(ui).toContain("LOO median error");
 });
 

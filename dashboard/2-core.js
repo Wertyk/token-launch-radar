@@ -96,12 +96,13 @@ function shorten(text, max) {
 function roundUsd(value) {
 	return Math.round(value * 100) / 100
 }
-function makeFarmPlan(protocol, {playbooks, gas, funding}, depositUsd = DEFAULT_DEPOSIT_USD) {
+function makeFarmPlan(protocol, {playbooks, gas, funding, uncollateralized}, depositUsd = DEFAULT_DEPOSIT_USD) {
 	if (!Number.isFinite(depositUsd) || depositUsd <= 0) {
 		throw new Error("The farm plan needs a positive, finite deposit size.")
 	}
 	const category = protocol.category?.trim().toLowerCase() ?? ""
 	const [group, playbook] = Object.entries(playbooks).find(([, book]) => book.categories.includes(category)) ?? ["generic", playbooks.generic]
+	const copy = category.includes("uncollateralized") ? uncollateralized : playbook
 	const bridge = group === "bridge"
 	const repeats = occurrences[playbook.cadence]
 	const [entryTransactions, reviewTransactions, exitTransactions] = playbook.transactions
@@ -126,11 +127,11 @@ function makeFarmPlan(protocol, {playbooks, gas, funding}, depositUsd = DEFAULT_
 	const steps = [step(chain === null ? funding.unlisted : funding.wallet, 0, defaults.setupMinutes)]
 	if (fundingStep) steps.push(fundingStep)
 	steps.push(
-		step(playbook.enter, roundUsd(entryTransactions * (bridge ? bridgeUsd : transactionUsd)), entryMinutes),
-		step(playbook.review, roundUsd(tradingFees + reviewTransactions * transactionUsd), reviewMinutes, playbook.cadence),
+		step(copy.enter, roundUsd(entryTransactions * (bridge ? bridgeUsd : transactionUsd)), entryMinutes),
+		step(copy.review, roundUsd(tradingFees + reviewTransactions * transactionUsd), reviewMinutes, playbook.cadence),
 		{
-			...step(playbook.exit, roundUsd(exitTransactions * transactionUsd), exitMinutes),
-			exitCondition: playbook.exitCondition
+			...step(copy.exit, roundUsd(exitTransactions * transactionUsd), exitMinutes),
+			exitCondition: copy.exitCondition
 		}
 	)
 	let oneTimeCostUsd = 0

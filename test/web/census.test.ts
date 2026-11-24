@@ -78,7 +78,7 @@ test("board counts and links exclude two protocols ranked by a watchlist overrid
   expect([...board]).toEqual(["pre", "forced-traded", "forced-excluded"]);
   const summary = censusSummary(census, board);
   expect(summary.replace(/<[^>]+>/g, "")).toContain(
-    "All 6 protocols accounted for: 3 ranked · 1 traded · 1 token, unpriced · 1 excluded",
+    "All 6 protocols accounted for: 3 ranked · 1 traded · 1 token, unpriced · 1 excluded (wrapped, staked, bridged, exchange or versioned names)",
   );
   for (const [status, slug] of [
     ["traded", "traded"],

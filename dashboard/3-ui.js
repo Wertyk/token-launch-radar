@@ -226,7 +226,7 @@ function censusSummary(rows, ranked) {
 	const link = (status, label = status) => `<a href="#/census?status=${status}${ranked ? "&amp;unranked=1" : ""}">${formatInteger(counts[status])} ${label}</a>`
 	const parts = [link("traded"), link("token-unpriced", "token, unpriced"), link("excluded")]
 	const total = formatInteger(rows.length)
-	return `<p class="census-summary">${ranked ? `All ${total} protocols accounted for: ${formatInteger(included)} ranked · ${parts.join(" · ")} (wrapped, staked, bridged, exchange)` : `${total} protocols = ${link("pre-token", "pre-token (ranked)")} + ${parts.join(" + ")}`}</p>`
+	return `<p class="census-summary">${ranked ? `All ${total} protocols accounted for: ${formatInteger(included)} ranked · ${parts.join(" · ")} (wrapped, staked, bridged, exchange or versioned names)` : `${total} protocols = ${link("pre-token", "pre-token (ranked)")} + ${parts.join(" + ")}`}</p>`
 }
 function selectCensus(rows, {status, sort, dir, unranked}, ranked) {
 	const direction = dir === "asc" ? 1 : -1
@@ -350,7 +350,7 @@ function multiplier(value) {
 }
 
 function launchValueScatter(points, {model, flatMultiple}) {
-	const heading = '<section class="panel scatter"><h2>Predicted vs actual launch value</h2>'
+	const heading = '<section class="panel scatter"><h2>Predicted launch value vs current market cap</h2>'
 	if (!points.length) {
 		return `${heading}<p class="caption">Too few traded families for held-out bands.</p></section>`
 	}
@@ -368,11 +368,13 @@ function launchValueScatter(points, {model, flatMultiple}) {
 			`<path class="scatter-grid" d="M59 ${y(log)}H372 M${x(log)} 178V8"></path><text x="54" y="${y(log)}" dy=".35em" text-anchor="end">${label}</text><text x="${x(log)}" y="191" text-anchor="middle">${label}</text>`
 		)
 	}
-	const circles = points.map(({actual, predicted, inside}) => `<circle class="${inside ? "inside" : "outside"}" cx="${x(actual)}" cy="${y(predicted)}" r="3"></circle>`)
+	const circles = points.map(
+		({actual, predicted, inside}) => `<circle class="${inside ? "inside" : "outside"}" cx="${x(actual)}" cy="${y(predicted)}" r="3"${inside ? "" : ' fill="none" stroke="currentColor"'}></circle>`
+	)
 	const plot = svg(
 		400,
 		204,
-		`${marks.join("")}<path class="identity" d="M59 178L372 8"></path>${circles.join("")}<text x="216" y="201" text-anchor="middle">Actual market cap (log USD)</text><text transform="translate(10 93) rotate(-90)" text-anchor="middle">Predicted (log USD)</text>`
+		`${marks.join("")}<path class="identity" d="M59 178L372 8" stroke="currentColor" stroke-dasharray="4 3"></path>${circles.join("")}<text x="216" y="201" text-anchor="middle">Actual market cap (log USD)</text><text transform="translate(10 93) rotate(-90)" text-anchor="middle">Predicted (log USD)</text>`
 	)
 	const covered = points.filter(({inside}) => inside).length
 	return `${heading}${plot}<p class="caption">● Inside band · ○ Outside band · Dashed y = x<br>${covered}/${points.length} inside held-out P10–P90 · LOO median error ${multiplier(model.medianMultiplier)} vs ${multiplier(flatMultiple.medianMultiplier)} flat</p></section>`

@@ -14,6 +14,7 @@ function makeFarmPlan(record: ReturnType<typeof protocol>, depositUsd?: number) 
 
 const playbooks = [
   ["Dexs", /pool/i, 0.02],
+  ["Uncollateralized Lending", /supply/i, 0.02],
   ["CDP", /collateral/i, 0.02],
   ["Liquid Restaking", /stake/i, 0.02],
   ["Yield Aggregator", /vault/i, 0.02],
@@ -30,28 +31,33 @@ test.each([
   [
     "Yield",
     "Deposit $1,000 into Sample Finance's vault on Base.",
-    "Check Sample Finance's share price",
-    "Redeem Sample Finance vault shares on Base",
+    "share price",
+    "Redeem Sample Finance vault shares",
   ],
   [
     "Lending",
     "Supply $1,000 as collateral through Sample Finance on Base.",
-    "Check Sample Finance's supply rate",
-    "withdraw collateral from Sample Finance on Base",
+    "supply rate",
+    "withdraw collateral",
   ],
   [
     "Dexs",
     "Add $1,000 of liquidity to a Sample Finance pool on Base.",
-    "Compare the Sample Finance pool",
-    "Remove liquidity from Sample Finance on Base",
+    "Compare the value and fees",
+    "Remove liquidity",
   ],
 ])(
   "renders concrete %s actions with the planned amounts and fees",
   (category, entry, review, exit) => {
     const plan = makeFarmPlan(protocol({ category, name: "Sample Finance", chains: ["Base"] }));
     const steps = plan.steps.map(renderFarmStep);
-    expect(steps[0]).toContain("Move $1,000 to a wallet on Base");
-    expect(steps[1]).toContain("Bridge $1,000 to Base only if your funds sit on another chain");
+    const gas = category === "Dexs" ? "$2.70" : "$0.10";
+    expect(plan.steps[0]?.action).toBe(
+      `Set aside $1,000 for Sample Finance and keep about ${gas} for gas on Base.`,
+    );
+    expect(steps[1]).toContain(
+      "If your funds sit on another chain, bridge $1,000 to Base for Sample Finance.",
+    );
     expect(steps[1]).toContain("Est. fee $0.30 | 10 minutes | once");
     expect(steps[2]).toContain(entry);
     expect(steps[3]).toContain(review);
@@ -67,7 +73,7 @@ test("renders a chainless plan with the selected deposit and a chain verificatio
   const steps = plan.steps.map(renderFarmStep);
   expect(steps[0]).toContain("Verify a chain supported by Sample Finance");
   expect(steps[1]).toContain(
-    "Bridge $250 to a verified chain only if your funds sit on another chain",
+    "If your funds sit on another chain, bridge $250 to a verified chain for Sample Finance.",
   );
   expect(steps[1]).toContain("Est. fee $2.50 | 10 minutes | once");
   expect(steps[2]).toContain("Deposit $250 into Sample Finance's vault on a verified chain.");
@@ -82,6 +88,44 @@ test("uses the bridge itself for the transfer action and estimates its fee once"
     "Quote a $1,000 transfer through Sample Finance from Base.",
   );
   expect(plan.oneTimeCostUsd).toBe(0.3);
+});
+
+test("preserves the funding condition when long names shorten the rendered action", () => {
+  const plan = makeFarmPlan(
+    protocol({
+      name: "Long protocol name ".repeat(30),
+      chains: ["Long chain label ".repeat(30)],
+    }),
+  );
+  expect(plan.steps.map(renderFarmStep)[1]).toMatch(
+    /^If your funds sit on another chain, bridge \$1,000 to Long chain label/,
+  );
+});
+
+test.each([" Uncollateralized Lending ", "Uncollateralized Credit"])(
+  "uses supply and withdrawal wording for %s without changing its plan estimates",
+  (category) => {
+    const record = protocol({ name: "Sample Finance", chains: ["Base"], category });
+    const plan = makeFarmPlan(record, 250);
+    const baselineCategory = category.trim() === "Uncollateralized Lending" ? "Lending" : null;
+    const baseline = makeFarmPlan({ ...record, category: baselineCategory }, 250);
+    const steps = plan.steps.map(renderFarmStep);
+    expect(steps[2]).toContain("Supply $250 to Sample Finance on Base");
+    expect(steps[4]).toContain("Withdraw the supplied funds");
+    expect(steps.join(" ")).not.toMatch(/\bcollateral\b|liquidation/i);
+    expect(plan.steps.map(({ costUsd, minutes, cadence }) => [costUsd, minutes, cadence])).toEqual(
+      baseline.steps.map(({ costUsd, minutes, cadence }) => [costUsd, minutes, cadence]),
+    );
+  },
+);
+
+test.each(playbooks)("names the protocol and original amount in each %s action", (category) => {
+  const record = protocol({ name: "Sample Finance", chains: ["Base"], category });
+  const plan = makeFarmPlan(record, 450);
+  for (const step of plan.steps) {
+    expect(step.action).toContain("Sample Finance");
+    expect(step.action).toContain("$450");
+  }
 });
 
 for (const chains of [[], ["Unmapped Chain"]]) {

@@ -7,7 +7,8 @@ export function launchValueScatter(
   points: RadarResult["looScatter"],
   { model, flatMultiple }: RadarResult["model"]["validation"]["leaveOneFamilyOut"],
 ): string {
-  const heading = '<section class="panel scatter"><h2>Predicted vs actual launch value</h2>';
+  const heading =
+    '<section class="panel scatter"><h2>Predicted launch value vs current market cap</h2>';
   if (!points.length) {
     return `${heading}<p class="caption">Too few traded families for held-out bands.</p></section>`;
   }
@@ -28,12 +29,12 @@ export function launchValueScatter(
   }
   const circles = points.map(
     ({ actual, predicted, inside }) =>
-      `<circle class="${inside ? "inside" : "outside"}" cx="${x(actual)}" cy="${y(predicted)}" r="3"></circle>`,
+      `<circle class="${inside ? "inside" : "outside"}" cx="${x(actual)}" cy="${y(predicted)}" r="3"${inside ? "" : ' fill="none" stroke="currentColor"'}></circle>`,
   );
   const plot = svg(
     400,
     204,
-    `${marks.join("")}<path class="identity" d="M59 178L372 8"></path>${circles.join("")}<text x="216" y="201" text-anchor="middle">Actual market cap (log USD)</text><text transform="translate(10 93) rotate(-90)" text-anchor="middle">Predicted (log USD)</text>`,
+    `${marks.join("")}<path class="identity" d="M59 178L372 8" stroke="currentColor" stroke-dasharray="4 3"></path>${circles.join("")}<text x="216" y="201" text-anchor="middle">Actual market cap (log USD)</text><text transform="translate(10 93) rotate(-90)" text-anchor="middle">Predicted (log USD)</text>`,
   );
   const covered = points.filter(({ inside }) => inside).length;
   return `${heading}${plot}<p class="caption">● Inside band · ○ Outside band · Dashed y = x<br>${covered}/${points.length} inside held-out P10–P90 · LOO median error ${multiplier(model.medianMultiplier)} vs ${multiplier(flatMultiple.medianMultiplier)} flat</p></section>`;
