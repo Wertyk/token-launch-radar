@@ -20,10 +20,56 @@
         <a href="#/census">Census</a>
         <a href="#/plan">Farm planner</a>
       </nav>
-      <div id="summary"></div>
+      <div id="summary">
+        <dl class="kpis">
+          <div>
+            <dt>Protocols scanned</dt>
+            <dd></dd>
+          </div>
+          <div>
+            <dt>Traded comparables</dt>
+            <dd></dd>
+          </div>
+          <div>
+            <dt>Board rows</dt>
+            <dd></dd>
+          </div>
+        </dl>
+        <section class="model" aria-label="Value model">
+          <p class="equation">
+            Implied value = launch value × 12-month launch odds · <span id="formula"></span>
+          </p>
+          <p class="caption">
+            Launch value is the conditional market cap at launch. Launch odds come from the clock
+            fitted to the snapshot's token records by listing age. Age is days since listing (min
+            1). g₇ is 7-day TVL growth clipped to −50%…+100%.
+          </p>
+          <div id="checks"></div>
+        </section>
+      </div>
     </header>
     <main class="shell" tabindex="-1"></main>
+    <template id="board-filters">
+      <form class="filters" aria-label="Board filters">
+        <label class="field"
+          >Search protocol<input type="search" name="q" autocomplete="off"></label
+        >
+        <label class="field"
+          >Category<select name="cat">
+            <option value="">All categories</option>
+          </select></label
+        >
+        <label class="field"
+          >Chain<select name="chain">
+            <option value="">All chains</option>
+          </select></label
+        >
+        <label class="toggle"><input type="checkbox" name="wl"> Watchlist only</label>
+        <output id="results" aria-live="polite"></output>
+      </form>
+    </template>
     <script src="2-core.js"></script>
+    <script src="5-planner.js"></script>
     <script src="3-ui.js"></script>
   </body>
 </html>

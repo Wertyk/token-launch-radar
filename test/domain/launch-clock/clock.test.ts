@@ -1,6 +1,10 @@
 import { expect, test } from "vitest";
 import type { ClockPoint } from "../../../src/domain/launch-clock/clock.ts";
-import { fitLaunchClock, launchProbability12 } from "../../../src/domain/launch-clock/clock.ts";
+import {
+  fitLaunchClock,
+  launchProbability12,
+  shareAt,
+} from "../../../src/domain/launch-clock/clock.ts";
 import { pava } from "../../../src/domain/launch-clock/pava.ts";
 import { protocol } from "../protocol-fixture.ts";
 
@@ -58,16 +62,37 @@ test("bins dated protocols, including unpriced records and excluded protocols", 
 
 const point = (ageDays: number, share: number): ClockPoint => ({ ageDays, share, count: 1 });
 
-test("P12 interpolates and extrapolates flat for a row starting at F = 0", () => {
+test("P12 preserves interpolation for a horizon inside the fitted points", () => {
   const curve = [point(100, 0), point(500, 0.8)];
   expect(launchProbability12(curve, 0)).toBeCloseTo(0.53, 12);
-  expect(launchProbability12(curve, 300)).toBeCloseTo(2 / 3, 12);
-  expect(launchProbability12(curve, 600)).toBe(0);
+  expect(launchProbability12(curve, 100)).toBeCloseTo(0.73, 12);
 });
 
-test("P12 is zero at F = 1, on a flat curve, and without a curve", () => {
-  expect(launchProbability12([point(0, 0), point(365, 1)], 365)).toBe(0);
-  expect(launchProbability12([point(0, 0.4), point(365, 0.4)], 100)).toBe(0);
+test("a saturated clock gives the limiting P12 of one", () => {
+  const curve = [point(0, 0.25), point(365, 1), point(730, 1)];
+  expect(shareAt(curve, 1095)).toBe(1);
+  expect(launchProbability12(curve, 729.99)).toBe(1);
+  expect(launchProbability12(curve, 730)).toBe(1);
+  expect(launchProbability12(curve, 1095)).toBe(1);
+});
+
+test("extends a flat tail with the last rising segment's conditional hazard", () => {
+  const curve = [point(0, 0.25), point(365, 0.625), point(730, 0.625)];
+  // The rising segment halves the unrecorded share every 365 days.
+  expect(shareAt(curve, 730)).toBe(0.625);
+  expect(shareAt(curve, 912.5)).toBeCloseTo(1 - 0.375 / Math.sqrt(2), 12);
+  expect(shareAt(curve, 1095)).toBeCloseTo(0.8125, 12);
+  expect(shareAt(curve, 1460)).toBeCloseTo(0.90625, 12);
+  expect(launchProbability12(curve, 730 - 1e-7)).toBeCloseTo(0.5, 9);
+  expect(launchProbability12(curve, 730)).toBeCloseTo(0.5, 12);
+  expect(launchProbability12(curve, 730 + 1e-7)).toBeCloseTo(0.5, 12);
+  expect(launchProbability12(curve, 1e6)).toBeCloseTo(0.5, 12);
+});
+
+test("uses the pooled annual rate when the fitted curve never rises", () => {
+  const curve = [point(0, 0.4), point(365, 0.4)];
+  expect(shareAt(curve, 730)).toBeCloseTo(0.64, 12);
+  expect(launchProbability12(curve, 365)).toBeCloseTo(0.4, 12);
   expect(launchProbability12([point(0, 0), point(365, 0)], 100)).toBe(0);
   expect(launchProbability12([], 100)).toBe(0);
 });

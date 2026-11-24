@@ -1,8 +1,8 @@
 import type * as BrowserApi from "../../application/browser-api.ts";
 import { escapeHtml as esc } from "./format.ts";
+import type { Sliders } from "./plan-state.ts";
+import { sliderLimits } from "./plan-state.ts";
 import { options, table } from "./render.ts";
-import type { Sliders } from "./state.ts";
-import { sliderLimits } from "./state.ts";
 
 const sliderLabels = {
   share: "Airdrop share of launch cap (%)",

@@ -62,6 +62,7 @@ export function describeBoardValues(
   } = prepareFit(comparables);
   return [...board.values()].map(({ row, samples, influence }) => {
     const { p10, p90 } = jackknifePlusBand(samples);
+    const scale = (bound: number) => clamp(Math.exp(bound), 1, 1e14) * row.launchProbability12;
     const { lnTvl, lnAge } = row.features;
     const twins = comparables
       .map((comparable) => {
@@ -73,8 +74,8 @@ export function describeBoardValues(
       .slice(0, 5)
       .map(({ slug }) => slug);
     const diagnostics: ValueDiagnostics = {
-      interval_p10_usd: clamp(Math.floor(Math.exp(p10)), 1, 1e14),
-      interval_p90_usd: clamp(Math.ceil(Math.exp(p90)), 1, 1e14),
+      interval_p10_usd: Math.max(1, Math.floor(scale(p10))),
+      interval_p90_usd: Math.max(1, Math.ceil(scale(p90))),
       influence,
       twins,
     };

@@ -37,14 +37,19 @@ export interface ValueModel {
 
 export interface Valuation extends FeatureRow {
   valueUsd: number;
-  implied_value_usd: number;
+  launch_value_usd: number;
   decomposition: {
     base: number;
     multipliers: FittedFeatures & { growth: number };
   };
 }
 
-export interface RankedRow extends BoardEntry, Valuation {
+interface LaunchCandidate extends BoardEntry {
+  launchProbability12: number;
+}
+
+export interface RankedRow extends LaunchCandidate, Valuation {
+  implied_value_usd: number;
   rank: number;
 }
 
@@ -176,7 +181,7 @@ export function predictValue(protocol: Protocol, asOf: string, model: ValueModel
   return {
     ...row,
     valueUsd,
-    implied_value_usd: clamp(Math.round(valueUsd), 1, 1e14),
+    launch_value_usd: clamp(Math.round(valueUsd), 1, 1e14),
     decomposition: {
       base: Math.exp(logBase),
       multipliers: {
@@ -189,12 +194,22 @@ export function predictValue(protocol: Protocol, asOf: string, model: ValueModel
 }
 
 export function rankBoard(
-  entries: readonly BoardEntry[],
+  entries: readonly LaunchCandidate[],
   asOf: string,
   model: ValueModel,
 ): RankedRow[] {
   return entries
-    .map((entry) => ({ ...entry, ...predictValue(entry.protocol, asOf, model) }))
+    .map((entry) => {
+      const value = predictValue(entry.protocol, asOf, model);
+      return {
+        ...entry,
+        ...value,
+        implied_value_usd: Math.max(
+          1,
+          Math.round(value.launch_value_usd * entry.launchProbability12),
+        ),
+      };
+    })
     .sort(
       (a, b) =>
         b.implied_value_usd - a.implied_value_usd || compareText(a.protocol.slug, b.protocol.slug),

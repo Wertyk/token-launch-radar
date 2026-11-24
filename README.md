@@ -4,7 +4,7 @@
 [![rank](https://make.fun/badge/token-radar-01/Wertyk/token-launch-radar/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 [![reward](https://make.fun/badge/token-radar-01/Wertyk/token-launch-radar/reward.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 
-This offline radar scans a sealed DefiLlama snapshot of 758 protocols. It identifies protocols that record no token using the house rule’s published exclusions for wrapped, staked and bridged products, centralized venues and versioned names. The board includes those protocols and the required watchlist, ranks them by implied launch value and gives each a costed farm plan.
+This offline radar scans a sealed DefiLlama snapshot of 758 protocols. It identifies protocols that record no token using the house rule’s published exclusions for wrapped, staked and bridged products, centralized venues and versioned names. The board includes those protocols and the required watchlist, ranks them by 12-month implied value and gives each a costed farm plan.
 
 ## Value model
 
@@ -12,12 +12,13 @@ This offline radar scans a sealed DefiLlama snapshot of 758 protocols. It identi
 - Traded comparables’ TVL changes can reflect their own token prices, so the prediction applies seven-day TVL momentum through the fitted TVL slope.
 - `V` estimates total token market cap conditional on launch with the protocol’s record held fixed, independently of launch odds.
 - Each unrounded value decomposes into base × TVL × growth × age, with the last three terms shown as multipliers.
+- Implied value multiplies launch value by 12-month launch odds, estimated from the snapshot’s token records by listing age.
 
 ## Farm plans and dashboard
 
 Farm plans use category playbooks and choose the cheapest listed chain for the plan using gas assumptions dated 2026-11-14. Each step shows an estimated dollar cost and duration in minutes.
 
-The dashboard works from `file://` without network access. It has a sortable, filterable board, a protocol card with its value equation, and a census with linked status counts. On load, it recomputes the board from the embedded snapshot and reports whether the slugs, ranks, values and farm steps match the published `board.json` rows in the page data.
+The dashboard works from `file://` without network access. It has a sortable, filterable board, a protocol card with its value equation, and a census with linked status counts. On load, it recomputes the board from the embedded snapshot and checks launch values, odds, implied values, ranks, plans and farm economics against the published rows.
 
 ## Architecture and checks
 

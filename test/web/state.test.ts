@@ -1,10 +1,10 @@
 import { expect, test } from "vitest";
+import { parsePlanState, planHash } from "../../src/presentation/web/plan-state.ts";
 import {
   boardHash,
   censusHash,
   defaultState,
   parseRoute,
-  planHash,
   protocolHash,
 } from "../../src/presentation/web/state.ts";
 
@@ -37,6 +37,16 @@ test("uses the default board for an empty hash and tolerates invalid sort settin
   });
 });
 
+test.each(["launchValue", "odds"] as const)("round-trips the %s board sort", (sort) => {
+  const state = { ...defaultState, sort, dir: "desc", wl: true } as const;
+  expect(parseRoute(boardHash(state))).toEqual({ page: "board", state });
+  expect(parseRoute(protocolHash("candidate", state))).toEqual({
+    page: "protocol",
+    slug: "candidate",
+    state,
+  });
+});
+
 test("recognizes unknown paths and malformed slug escapes", () => {
   for (const hash of ["#/about", "#/p/", "#/p/a/b", "#/p/%ZZ"]) {
     expect(parseRoute(hash)).toEqual({ page: "unknown", state: defaultState });
@@ -46,27 +56,32 @@ test("recognizes unknown paths and malformed slug escapes", () => {
 test("round-trips the planner budget, hours and selected chains", () => {
   const state = { budgetUsd: 5_000, hoursPerWeek: 3, chains: ["Base", "Solana"], sliders: {} };
   expect(planHash(state)).toBe("#/plan?budget=5000&hours=3&chains=Base,Solana");
-  expect(parseRoute(planHash(state))).toEqual({ page: "plan", state });
+  expect(parsePlanState(planHash(state))).toEqual(state);
 
   const other = { budgetUsd: 0, hoursPerWeek: 1.5, chains: ["A, B", "C & D"], sliders: {} };
-  expect(parseRoute(planHash(other))).toEqual({ page: "plan", state: other });
+  expect(parsePlanState(planHash(other))).toEqual(other);
 });
 
 test("round-trips planner limits in exponent notation", () => {
   const state = { budgetUsd: 1e21, hoursPerWeek: 1e22, chains: ["Base"], sliders: {} };
-  expect(parseRoute(planHash(state))).toEqual({ page: "plan", state });
+  expect(parsePlanState(planHash(state))).toEqual(state);
 });
 
 test("defaults invalid planner limits and accepts an empty chain selection", () => {
   for (const hash of ["#/plan", "#/plan?budget=NaN&hours=-1", "#/plan?budget=&hours=Infinity"]) {
-    expect(parseRoute(hash)).toEqual({
-      page: "plan",
-      state: { budgetUsd: 5_000, hoursPerWeek: 3, chains: [], sliders: {} },
+    expect(parseRoute(hash)).toEqual({ page: "plan" });
+    expect(parsePlanState(hash)).toEqual({
+      budgetUsd: 5_000,
+      hoursPerWeek: 3,
+      chains: [],
+      sliders: {},
     });
   }
-  expect(parseRoute("#/plan?budget=0&hours=0&chains=Base,Base")).toEqual({
-    page: "plan",
-    state: { budgetUsd: 0, hoursPerWeek: 0, chains: ["Base"], sliders: {} },
+  expect(parsePlanState("#/plan?budget=0&hours=0&chains=Base,Base")).toEqual({
+    budgetUsd: 0,
+    hoursPerWeek: 0,
+    chains: ["Base"],
+    sliders: {},
   });
 });
 
@@ -96,9 +111,11 @@ test("round-trips the five assumption settings and ignores invalid slider values
     chains: ["Base"],
     sliders: { share: 31, haircut: 0, rate: 75, yield: 12, carry: 4.5 },
   };
-  expect(parseRoute(planHash(state))).toEqual({ page: "plan", state });
-  expect(parseRoute("#/plan?share=101&haircut=&rate=Infinity&yield=-1&carry=51")).toEqual({
-    page: "plan",
-    state: { budgetUsd: 5_000, hoursPerWeek: 3, chains: [], sliders: {} },
+  expect(parsePlanState(planHash(state))).toEqual(state);
+  expect(parsePlanState("#/plan?share=101&haircut=&rate=Infinity&yield=-1&carry=51")).toEqual({
+    budgetUsd: 5_000,
+    hoursPerWeek: 3,
+    chains: [],
+    sliders: {},
   });
 });

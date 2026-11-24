@@ -1,5 +1,6 @@
 import type { farmAssumptions, formatUsd } from "../../application/browser-api.ts";
 import type { RadarResult } from "../../application/build-radar.ts";
+import { formatOdds as pct } from "./format.ts";
 import type { HouseRuleEvidence } from "./integrity.ts";
 import { multiplier } from "./integrity.ts";
 import { table } from "./render.ts";
@@ -32,10 +33,9 @@ export function methodView(
   const section = (title: string, headers: string[], rows: string[][], note = "") =>
     `<section class="panel"><h3>${title}</h3>${table(headers, rows)}${note ? `<p class="caption">${note}</p>` : ""}</section>`;
   const { truePositives, falsePositives, falseNegatives } = houseRule;
-  const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
   return `<h2>Method</h2><div class="method compact">
     ${section(
-      "Value model",
+      "Launch value model",
       ["Term in ln V", "Coefficient"],
       [
         ["Intercept", intercept.toFixed(6)],
@@ -58,7 +58,7 @@ export function methodView(
         label,
         ...[fitted, flatMultiple, categoryMultiple].map((s) => score(s).join(" · ")),
       ]),
-      "Cells show median error ×k and Spearman ρ.",
+      "Launch value on traded families · median error ×k and Spearman ρ.",
     )}
     ${section(
       "Leave-one-family-out ablation",
@@ -81,7 +81,7 @@ export function methodView(
       intervalCounts
         ? [[intervalCounts.missLow, intervalCounts.covered, intervalCounts.missHigh].map(String)]
         : [],
-      "Jackknife+ bands.",
+      "Jackknife+ launch value bands on traded families.",
     )}
     ${section(
       "Launch clock F(t)",
@@ -91,13 +91,13 @@ export function methodView(
         pct(share),
         String(count),
       ]),
-      "P12 estimates the next year conditional on recording no token.",
+      "The clock estimates 12-month odds. Its tail uses the last rising segment’s constant conditional hazard, or the pooled annual rate for a flat fit. The snapshot cannot validate future launch odds.",
     )}
     ${section(
       "House watchlist rule",
       ["TP", "FP", "FN"],
       [[truePositives.length, falsePositives.length, falseNegatives.length].map(String)],
-      "DefiLlama marks the extra matches with parentProtocol, absent from the snapshot.",
+      "DefiLlama marks extra matches with parentProtocol, absent from the snapshot.",
     )}
     ${section(
       `Farm assumptions · ${farm.asOf}`,

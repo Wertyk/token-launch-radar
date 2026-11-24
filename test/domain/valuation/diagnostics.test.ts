@@ -105,11 +105,12 @@ test("rank influence reports the signed rank change and is stable under input re
     [],
   );
   const model = fitValueModel(rows, 1);
-  const ranked = rankBoard(entries, "2024-01-01", model);
+  const candidates = entries.map((entry) => ({ ...entry, launchProbability12: 1 }));
+  const ranked = rankBoard(candidates, "2024-01-01", model);
   const refits = leaveOneFamilyOut(rows, model.lambda);
   // Leaving out either endpoint makes the fit flat and changes the ranks by one.
   const reversedRankings = refits.flatMap(({ comparable: { slug }, model }) =>
-    rankBoard(entries, "2024-01-01", model)[0]?.protocol.slug === "alpha-low" ? [slug] : [],
+    rankBoard(candidates, "2024-01-01", model)[0]?.protocol.slug === "alpha-low" ? [slug] : [],
   );
   expect(reversedRankings).toEqual(["a", "d"]);
   const described = describeBoardValues(ranked, rows, refits, "2024-01-01");
@@ -136,6 +137,42 @@ test("rank influence reports the signed rank change and is stable under input re
   ).toEqual(described);
 });
 
+test("P10–P90 and rank influence use each row's fixed odds across valuation refits", () => {
+  const asOf = "2024-01-04";
+  const family = comparable("family", 0, Math.log(100));
+  const flat = fitValueModel([family], 1);
+  const model = { ...flat, coefficients: { ...flat.coefficients, lnTvl: 1 } };
+  const entries = boardEntries(
+    buildCensus([
+      protocol({ slug: "high-tvl", tvl_usd: 4 }),
+      protocol({ slug: "low-tvl", tvl_usd: 1 }),
+    ]),
+    [],
+  ).map((entry) => ({
+    ...entry,
+    launchProbability12: entry.protocol.tvl_usd === 4 ? 0.2 : 0.6,
+  }));
+  const ranked = rankBoard(entries, asOf, model);
+  const described = describeBoardValues(
+    ranked,
+    [family],
+    Array.from({ length: 9 }, (_, i) => ({
+      comparable: { ...family, slug: String(i) },
+      model: flat,
+      residual: Math.log(2),
+    })),
+    asOf,
+  );
+  expect(ranked.map(({ implied_value_usd }) => implied_value_usd)).toEqual([80, 60]);
+  expect(described.map(({ diagnostics }) => diagnostics.influence?.rank_delta)).toEqual([1, -1]);
+  for (const [i, bound] of [40, 120].entries()) {
+    expect(described[i]?.diagnostics.interval_p10_usd).toBeLessThanOrEqual(bound);
+    expect(described[i]?.diagnostics.interval_p10_usd).toBeGreaterThanOrEqual(bound - 1);
+    expect(described[i]?.diagnostics.interval_p90_usd).toBeGreaterThanOrEqual(bound);
+    expect(described[i]?.diagnostics.interval_p90_usd).toBeLessThanOrEqual(bound + 1);
+  }
+});
+
 test("twins use standardized distances, then slug for ties, and stop at five", () => {
   const rows = [
     comparable("b", 50, 4, 2),
@@ -150,7 +187,11 @@ test("twins use standardized distances, then slug for ties, and stop at five", (
     [],
   );
   const model = fitValueModel(rows, 1);
-  const ranked = rankBoard(entries, "2024-01-04", model);
+  const ranked = rankBoard(
+    entries.map((entry) => ({ ...entry, launchProbability12: 1 })),
+    "2024-01-04",
+    model,
+  );
   const [row] = describeBoardValues(
     ranked,
     rows,
@@ -165,7 +206,11 @@ test("rank influence names a family when every deletion leaves the rank unchange
   const entries = boardEntries(buildCensus([protocol()]), []);
   const asOf = "2024-01-04";
   const model = fitValueModel(rows, 1);
-  const ranked = rankBoard(entries, asOf, model);
+  const ranked = rankBoard(
+    entries.map((entry) => ({ ...entry, launchProbability12: 1 })),
+    asOf,
+    model,
+  );
   const refits = leaveOneFamilyOut(rows, model.lambda).toReversed();
   const [row] = describeBoardValues(ranked, rows, refits, asOf);
   expect(row?.diagnostics.influence).toEqual({ family_key: "gecko:a", slug: "a", rank_delta: 0 });

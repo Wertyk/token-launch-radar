@@ -1,19 +1,11 @@
 import type { BoardRow } from "./board.ts";
-import { escapeHtml as esc, formatInteger, formatPercent } from "./format.ts";
-import { options, svg, table, tableBody } from "./render.ts";
+import { escapeHtml as esc, formatInteger, formatOdds, formatPercent } from "./format.ts";
+import { svg, table, tableBody } from "./render.ts";
 import type { BoardState } from "./state.ts";
 import { columns, protocolHash } from "./state.ts";
 
-export function boardView(rows: readonly BoardRow[]): string {
-  const categories = rows.flatMap(({ category }) => category ?? []);
-  return `<form class="filters" aria-label="Board filters">
-<label class="field">Search protocol<input type="search" name="q" autocomplete="off"></label>
-<label class="field">Category<select name="cat"><option value="">All categories</option>${options(categories)}</select></label>
-<label class="field">Chain<select name="chain"><option value="">All chains</option>${options(rows.flatMap(({ chains }) => chains))}</select></label>
-<label class="toggle"><input type="checkbox" name="wl"> Watchlist only</label>
-<output id="results" aria-live="polite"></output>
-</form>
-<section class="table-window" aria-label="Protocol rankings" tabindex="0">${table(Object.entries(columns), [], { className: "ranking" })}</section>`;
+export function boardTable(): string {
+  return `<section class="table-window" aria-label="Protocol rankings" tabindex="0">${table(Object.entries(columns), [], { className: "ranking" })}</section>`;
 }
 
 export function chip(label: string, className = "chip"): string {
@@ -50,6 +42,8 @@ export function boardRows(
          .join("")}${remaining > 0 ? chip(`+${remaining}`) : ""}</div>`,
         `<div class="value" ${row.interval ? `title="P10–P90: ${usd(low)}–${usd(high)}"` : ""}><strong>${usd(row.value)}</strong>
         ${svg(100, 8, `<rect width="${scale(row.value).toFixed(2)}" height="3"></rect>${band}`)}</div>`,
+        usd(row.launchValue),
+        formatOdds(row.odds),
         usd(row.tvl),
         growthText(row.growth),
         formatInteger(row.age),

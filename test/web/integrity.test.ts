@@ -12,6 +12,7 @@ const farm = { deposits, launchProbability12: 0.42, breakEvenDepositUsd: 1200 };
 const row = {
   slug: "a",
   rank: 1,
+  launch_value_usd: 48,
   implied_value_usd: 20,
   farm_steps: ["plan"],
   airdrop_yield_apr: 0.03,
@@ -41,11 +42,11 @@ test("reports live board equality, watchlist coverage and matching diagnostic po
   const checks = integrityChecks([computed], [row], ["a", "a"], data);
   expect(checks.map(({ pass }) => pass)).toEqual([true, true, true, true, true]);
   expect(checks.map(({ label }) => label)).toEqual([
-    "Recompute = board.json: values, ranks, plans, economics (1)",
+    "Recompute = board.json · launch values, odds, implied values, ranks, plans, economics (1)",
     "Watchlist 1/1 on board",
     "House rule 1/1 recall · 1 extra explained by parentProtocol",
-    "104/128 inside P10–P90",
-    "LOO median error ×3.46 vs ×5.07 flat",
+    "104/128 launch values inside P10–P90",
+    "Launch value LOO error ×3.46 vs ×5.07 flat",
   ]);
 });
 
@@ -82,7 +83,7 @@ test("flags the row whose published $10K cost increased by $1,000", () => {
   );
   expect(checks[0]?.pass).toBe(false);
   expect(integrityStrip(checks)).toContain(
-    '<li class="check-failed">✗ Recompute ≠ board.json: values, ranks, plans, economics (1 mismatched: a)</li>',
+    '<li class="check-failed">✗ Recompute ≠ board.json · launch values, odds, implied values, ranks, plans, economics (1 mismatched · a)</li>',
   );
 });
 

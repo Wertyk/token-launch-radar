@@ -1,21 +1,20 @@
-import type { ClockPoint } from "../../domain/launch-clock/clock.ts";
 import { svg } from "./render.ts";
 
-export function ageSparkline(points: readonly ClockPoint[], age: number, share: number): string {
-  const last = points.at(-1);
-  const first = points[0];
-  if (!first || !last) return "";
-  const maxAge = Math.max(1, last.ageDays, age);
-  const x = (days: number) => ((days * 100) / maxAge).toFixed(2);
+export function ageSparkline(
+  maxAge: number,
+  age: number,
+  odds: number,
+  oddsAt: (age: number) => number,
+): string {
   const y = (fraction: number) => ((1 - fraction) * 40).toFixed(2);
-  const line = [
-    `0.00,${y(first.share)}`,
-    ...points.map((point) => `${x(point.ageDays)},${y(point.share)}`),
-    `100.00,${y(last.share)}`,
-  ].join(" ");
+  const marker = (age / maxAge) * 100;
+  const line = Array.from({ length: 33 }, (_, index) => {
+    const x = (index / 32) * 100;
+    return `${x.toFixed(2)},${y(oddsAt((x / 100) * maxAge))}`;
+  }).join(" ");
   return svg(
     100,
     40,
-    `<polyline points="${line}"></polyline><circle cx="${x(age)}" cy="${y(share)}" r="2" class="age-point"></circle>`,
+    `<polyline points="${line}"></polyline><circle cx="${marker.toFixed(2)}" cy="${y(odds)}" r="2" class="age-point"></circle>`,
   );
 }

@@ -3,6 +3,7 @@ import { appendFileSync, cpSync, mkdtempSync, readFileSync, rmSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runInNewContext, Script } from "node:vm";
 import { expect, test } from "vitest";
 
 const root = new URL("../../", import.meta.url);
@@ -25,9 +26,25 @@ test("checks the generated bundles byte for byte without writing them", () => {
       /fitCategoryModel|categoryGroup|categoryPenalty|selectLambda|fitLaunchClock|pava/,
     );
     expect(core).not.toMatch(/parseSnapshot|duplicate slug|Log the supply rate|Ethereum:\[3,8\]/);
+    expect(core).toContain("function planPortfolio");
+    const planner = readFileSync(join(cwd, "dashboard/5-planner.js"), "utf8");
+    expect(planner).toContain("function mountPlanner");
+    expect(planner).toContain("function parsePlanState");
+    const window: Record<string, unknown> = {};
+    runInNewContext(`${core}\n${planner}`, { window });
+    expect(Object.keys(window)).toEqual(["Radar"]);
+    expect(window.Radar).toMatchObject({
+      buildRadar: expect.any(Function),
+      planPortfolio: expect.any(Function),
+      mountPlanner: expect.any(Function),
+    });
 
     const bundle = join(cwd, "dashboard/3-ui.js");
     const original = readFileSync(bundle, "utf8");
+    expect(() => new Script(original)).not.toThrow();
+    expect(original).not.toMatch(
+      /function (mountPlanner|parsePlanState)|Farm assumptions<\/legend>/,
+    );
     appendFileSync(bundle, "\n// Changed bundle\n");
     const check = run("--check");
     expect(check.status).toBe(1);
@@ -43,6 +60,13 @@ test("checks the generated bundles byte for byte without writing them", () => {
   }
 });
 
+test("loads the offline resources in dependency order", () => {
+  const html = readFileSync(new URL("dashboard/index.html", root), "utf8");
+  expect(
+    [...html.matchAll(/(?:src|href)="([^"#]+\.(?:js|css))"/g)].map((match) => match[1]),
+  ).toEqual(["../data.js", "1-tokens.css", "4-app.css", "2-core.js", "5-planner.js", "3-ui.js"]);
+});
+
 test("keeps the guide, design tokens and browser bundles within the judge's source budget", () => {
   const bytes = ["0-guide.md", "1-tokens.css", "2-core.js", "3-ui.js"].reduce(
     (total, file) => total + readFileSync(new URL(`dashboard/${file}`, root)).length,
@@ -51,10 +75,25 @@ test("keeps the guide, design tokens and browser bundles within the judge's sour
   expect(bytes).toBeLessThanOrEqual(64_850);
 });
 
-test("keeps the judge's guide within 1,900 bytes and free of URLs", () => {
-  const guide = readFileSync(new URL("dashboard/0-guide.md", root));
-  expect(guide.length).toBeLessThanOrEqual(1_900);
-  expect(guide.toString("utf8")).not.toMatch(/https?:\/\//i);
+test("keeps five screenshot-backed rubric bullets with their code references in the judge's guide", () => {
+  const guide = readFileSync(new URL("dashboard/0-guide.md", root), "utf8");
+  expect(Buffer.byteLength(guide)).toBeGreaterThanOrEqual(1_250);
+  expect(Buffer.byteLength(guide)).toBeLessThanOrEqual(1_450);
+  expect(guide).not.toMatch(/https?:\/\//i);
+  const bullets = guide.trim().split("\n");
+  expect(bullets).toHaveLength(5);
+  const functions = [
+    ["buildRadar", "integrityChecks"],
+    ["fitValueModel", "launchProbability12", "buildCensus"],
+    ["makeFarmPlan", "estimateFarmEconomics"],
+    ["selectRows", "selectCensus"],
+    ["boardTable", "protocolView"],
+  ];
+  for (const [index, names] of functions.entries()) {
+    const bullet = bullets[index];
+    expect(bullet).toMatch(new RegExp(`^- \\*\\*Criterion ${index + 1} \\([^)]*\\d-\\w+`));
+    for (const name of names) expect(bullet).toContain(`\`${name}\``);
+  }
 });
 
 test("attributes the examples in the guide to their house-rule categories", () => {

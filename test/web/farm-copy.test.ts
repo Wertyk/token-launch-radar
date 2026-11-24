@@ -1,21 +1,23 @@
 import { expect, test } from "vitest";
 import {
-  clockShareAt,
   farmAssumptions,
   formatUsd,
+  launchProbability12,
   logValue,
 } from "../../src/application/browser-api.ts";
 import { buildRadar, recomputeRadar } from "../../src/application/build-radar.ts";
 import { farmTables } from "../../src/domain/farming/playbook-data.ts";
 import type { BoardRow } from "../../src/presentation/web/board.ts";
-import { boardRows, boardView } from "../../src/presentation/web/board-view.ts";
+import { boardRows, boardTable } from "../../src/presentation/web/board-view.ts";
 import { methodView } from "../../src/presentation/web/method-view.ts";
 import { protocolView } from "../../src/presentation/web/protocol-view.ts";
 import { defaultState } from "../../src/presentation/web/state.ts";
 import { protocol } from "../domain/protocol-fixture.ts";
 
-test("labels the board fee column with its horizon", () => {
-  expect(boardView([])).toContain('data-sort="cost">12-mo fees');
+test("labels the board fee horizon and places both launch inputs next to implied value", () => {
+  const html = boardTable();
+  expect(html).toContain('data-sort="cost">12-mo fees');
+  expect(html).toMatch(/Implied value<\/button>.*Launch value<\/button>.*Odds 12m<\/button>/);
 });
 
 test("renders the labor rate and farmer haircut beside the protocol verdicts", () => {
@@ -54,10 +56,10 @@ test("renders the labor rate and farmer haircut beside the protocol verdicts", (
     },
     families: new Map([["tracked", { representative: tracked, mcap_usd: 8_000_000 }]]),
     launchClock: { points: [{ ageDays: 100, share: 0.4, count: 2 }], medianAgeDays: 80 },
-    clockShareAt,
+    launchProbability12,
   };
   const html = protocolView(
-    { ...row, economics: { ...row.economics, launchProbability12: 0.625 } },
+    { ...row, launchProbability12: 0.625 },
     { ...card, diagnostics: { ...card.diagnostics, ...{ launch_p12: 0.25 } } },
   );
   expect(html).toMatch(/\$10,000 SKIP<\/span><\/div>\s*<p[^>]*>\$25\/h[^<]*50%[^<]*haircut/);
@@ -66,7 +68,7 @@ test("renders the labor rate and farmer haircut beside the protocol verdicts", (
   expect(html).toContain("Without Traded &amp; Co, rank moves by 2");
   expect(html).not.toContain("gecko:tracked");
   expect(html).toContain("$8,000,000");
-  expect(html).toContain("P12 · 62.5%");
+  expect(html).toContain("P₁₂ · 62.5%");
   expect(html).toContain("80 days");
   expect(html).not.toContain("xmlns");
 
@@ -87,6 +89,8 @@ test("draws a separate P10–P90 band below the board value", () => {
     name: "Sample",
     rank: 1,
     value: 10,
+    launchValue: 20,
+    odds: 0.5,
     tvl: 100,
     growth: null,
     age: null,
@@ -155,6 +159,8 @@ test("shows the published validation, ablation, coverage and dated assumptions i
     "OLS",
     "P10–P90",
     "F(t)",
+    "last rising segment’s constant conditional hazard",
+    "The snapshot cannot validate future launch odds.",
     "parentProtocol",
     farmAssumptions.asOf,
   ]) {

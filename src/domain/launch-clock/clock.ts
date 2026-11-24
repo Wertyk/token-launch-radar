@@ -44,6 +44,19 @@ export function fitLaunchClock(protocols: readonly Protocol[], asOf: string): La
   return { points, medianAgeDays: median(ages) ?? null };
 }
 
+function tailHazard(points: readonly ClockPoint[]): number {
+  // Extend the last point at the last rising segment's constant conditional hazard,
+  // or use the pooled token share as the annual rate if the curve never rises.
+  for (let i = points.length - 1; i > 0; i--) {
+    const left = points[i - 1];
+    const right = points[i];
+    if (left && right && right.share > left.share) {
+      return Math.log((1 - left.share) / (1 - right.share)) / (right.ageDays - left.ageDays);
+    }
+  }
+  return -Math.log1p(-(points[0]?.share ?? 0)) / YEAR_DAYS;
+}
+
 export function shareAt(points: readonly ClockPoint[], age: number): number {
   let left = points[0];
   if (!left) return 0;
@@ -55,12 +68,15 @@ export function shareAt(points: readonly ClockPoint[], age: number): number {
     }
     left = right;
   }
-  return left.share;
+  return left.share + (1 - left.share) * -Math.expm1(-tailHazard(points) * (age - left.ageDays));
 }
 
 export function launchProbability12(points: readonly ClockPoint[], age: number): number {
+  const last = points.at(-1);
+  if (!last) return 0;
+  if (age >= last.ageDays) return -Math.expm1(-tailHazard(points) * YEAR_DAYS);
   const now = shareAt(points, age);
-  // At saturation there is no remaining mass to condition on and no modeled increase.
-  if (now === 1) return 0;
+  // A saturated share corresponds to the limiting case of certain launch.
+  if (now === 1) return 1;
   return clamp((shareAt(points, age + YEAR_DAYS) - now) / (1 - now), 0, 1);
 }

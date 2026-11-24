@@ -6,6 +6,7 @@ export function toBoardRows(result: Pick<RadarResult, "board" | "houseRule">) {
     slug: row.protocol.slug,
     name: row.protocol.name,
     rank: row.rank,
+    launch_value_usd: row.launch_value_usd,
     implied_value_usd: row.implied_value_usd,
     farm_steps: row.farm_steps,
     category: row.protocol.category,

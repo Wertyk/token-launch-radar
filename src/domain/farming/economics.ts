@@ -86,10 +86,9 @@ export function estimateFarmEconomics(
 }
 
 export function renderEconomics({
-  deposits: [atDeposit],
+  deposits: [{ depositUsd, expectedValueUsd, costUsd, verdict }],
   breakEvenDepositUsd,
 }: FarmEconomics): string {
-  const { depositUsd, expectedValueUsd, costUsd, verdict } = atDeposit;
   const breakEven =
     breakEvenDepositUsd === "never" ? "never" : `≈ ${formatUsd(breakEvenDepositUsd)}`;
   return `Economics at ${formatUsd(depositUsd)} over ${assumptions.horizonMonths} months · expected airdrop ≈ ${formatUsd(expectedValueUsd)} vs cost ≈ ${formatUsd(costUsd)} → ${verdict}. Break-even deposit ${breakEven}. Assumes ${assumptions.airdropShareOfLaunchCap * 100}% of circulating launch cap because a mostly unlocked airdrop can account for much of a small launch float.`;

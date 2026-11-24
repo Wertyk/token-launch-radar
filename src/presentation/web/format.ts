@@ -11,6 +11,10 @@ export function signedTerm(value: number, decimals = 3): string {
   return `${value < 0 ? "−" : "+"} ${Math.abs(value).toFixed(decimals)}`;
 }
 
+export function formatOdds(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
 export function formatPercent(value: number | null): string {
   if (value === null) return "—";
   const magnitude = Math.abs(value).toFixed(1);

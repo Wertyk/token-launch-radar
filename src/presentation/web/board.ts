@@ -5,6 +5,8 @@ export interface BoardRow {
   name: string;
   rank: number;
   value: number;
+  launchValue: number;
+  odds: number;
   interval: readonly [number, number] | null;
   tvl: number;
   growth: number | null;

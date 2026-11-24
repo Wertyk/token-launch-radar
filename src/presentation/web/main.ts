@@ -5,22 +5,17 @@ import type { Protocol, Snapshot } from "../../domain/snapshot.ts";
 import type { ValueDiagnostics } from "../../domain/valuation/diagnostics.ts";
 import type { BoardRow } from "./board.ts";
 import { selectRows } from "./board.ts";
-import { boardRows, boardView } from "./board-view.ts";
+import { boardRows, boardTable } from "./board-view.ts";
 import { censusSummary, censusView } from "./census-view.ts";
+import { element } from "./dom.ts";
 import { escapeHtml as esc, formatInteger, signedTerm } from "./format.ts";
 import { integrityChecks, integrityStrip } from "./integrity.ts";
 import { methodView } from "./method-view.ts";
-import { plannerForm, plannerResults, plannerSettings, sliderValues } from "./plan-view.ts";
+import type { MountPlanner } from "./planner.ts";
 import { protocolView } from "./protocol-view.ts";
-import type { BoardState, PlanState, Sliders } from "./state.ts";
-import {
-  boardHash,
-  censusHash,
-  isCensusSortKey,
-  isSortKey,
-  parseRoute,
-  planHash,
-} from "./state.ts";
+import { options } from "./render.ts";
+import type { BoardState } from "./state.ts";
+import { boardHash, censusHash, isCensusSortKey, isSortKey, parseRoute } from "./state.ts";
 
 type PublishedRow = BrowserApi.BoardRows["rows"][number] &
   ValueDiagnostics & { launch_p12: number };
@@ -34,48 +29,31 @@ interface RadarData
 
 declare global {
   interface Window {
-    Radar: typeof BrowserApi;
+    Radar: typeof BrowserApi.browserApi & { mountPlanner: MountPlanner };
     RADAR_DATA?: RadarData;
   }
-}
-
-function element<T extends HTMLElement>(selector: string, root: ParentNode = document): T {
-  const found = root.querySelector<T>(selector);
-  if (!found) throw new Error(`Missing dashboard element ${selector}`);
-  return found;
-}
-
-function header(
-  counts: readonly (readonly [string, string])[],
-  coefficients: ReturnType<typeof BrowserApi.buildRadar>["model"]["coefficients"],
-  checks: ReturnType<typeof integrityChecks>,
-): string {
-  const { intercept, lnTvl, lnAge } = coefficients;
-  return `
-<dl class="kpis">${counts.map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("")}</dl>
-<section class="model" aria-label="Value model">
-<p class="equation">ln V = ${intercept.toFixed(3)} ${signedTerm(lnTvl)}·ln(TVL·(1+g₇)) ${signedTerm(lnAge)}·ln(age)</p>
-<p class="caption">Implied value is conditional market cap at launch if the record stays as it is. Launch odds are separate.
-Age is days since listing (min 1). g₇ is 7-day TVL growth clipped to −50%…+100%.</p>
-${integrityStrip(checks)}
-</section>`;
 }
 
 function mountBoard(
   main: HTMLElement,
   rows: readonly BoardRow[],
   summary: string,
-  maxLogValue: number,
   usd: typeof BrowserApi.formatUsd,
 ) {
-  main.innerHTML = summary + boardView(rows);
+  main.innerHTML =
+    summary + element<HTMLTemplateElement>("#board-filters").innerHTML + boardTable();
   const search = element<HTMLInputElement>('[name="q"]', main);
   const category = element<HTMLSelectElement>('[name="cat"]', main);
   const chain = element<HTMLSelectElement>('[name="chain"]', main);
+  category.insertAdjacentHTML("beforeend", options(rows.flatMap(({ category }) => category ?? [])));
+  chain.insertAdjacentHTML("beforeend", options(rows.flatMap(({ chains }) => chains)));
   const watchlist = element<HTMLInputElement>('[name="wl"]', main);
   const results = element("#results", main);
   const body = element("tbody", main);
   const buttons = main.querySelectorAll<HTMLButtonElement>("button[data-sort]");
+  const maxLogValue = Math.log1p(
+    Math.max(1, ...rows.flatMap(({ value, interval }) => [value, interval?.[1] ?? 0])),
+  );
 
   function setSelect(select: HTMLSelectElement, value: string): void {
     select.querySelector("[data-temporary]")?.remove();
@@ -108,12 +86,7 @@ function mountBoard(
   };
 }
 
-function start(
-  main: HTMLElement,
-  snapshot: Snapshot,
-  data: RadarData,
-  api: typeof BrowserApi,
-): void {
+function start(main: HTMLElement, snapshot: Snapshot, data: RadarData, api: Window["Radar"]): void {
   const { buildRadar, daysBetween, farmAssumptions, formatUsd } = api;
   const { launchClock, meta } = data;
   const radar = buildRadar(snapshot, data.model.lambda, launchClock, meta);
@@ -131,7 +104,15 @@ function start(
   const age = ({ listed_at }: Protocol) =>
     listed_at === null ? null : daysBetween(listed_at, snapshot.as_of);
   const rows: BoardRow[] = radar.board.map(
-    ({ protocol, rank, status, implied_value_usd, plan }) => {
+    ({
+      protocol,
+      rank,
+      status,
+      implied_value_usd: value,
+      launch_value_usd: launchValue,
+      launchProbability12: odds,
+      plan,
+    }) => {
       const { slug, name, tvl_usd, change_7d, category, chains } = protocol;
       const diagnostics = evidence.get(slug);
       return {
@@ -140,7 +121,9 @@ function start(
         rank,
         category,
         chains,
-        value: implied_value_usd,
+        value,
+        launchValue,
+        odds,
         tvl: tvl_usd,
         growth: change_7d,
         interval: diagnostics ? [diagnostics.interval_p10_usd, diagnostics.interval_p90_usd] : null,
@@ -151,102 +134,19 @@ function start(
       };
     },
   );
-  const maxLogValue = Math.log1p(
-    Math.max(1, ...rows.map((row) => Math.max(row.value, row.interval?.[1] ?? 0))),
-  );
   element("#snapshot-date").textContent = `Snapshot · ${snapshot.as_of}`;
-  element("#summary").innerHTML = header(
-    [
-      ["Protocols scanned", formatInteger(snapshot.protocols.length)],
-      ["Traded comparables", formatInteger(radar.model.n)],
-      ["Board rows", formatInteger(rows.length)],
-    ],
-    radar.model.coefficients,
-    checks,
-  );
+  const counts = [snapshot.protocols.length, radar.model.n, rows.length];
+  document.querySelectorAll("#summary dd").forEach((count, i) => {
+    count.textContent = formatInteger(counts[i] ?? null);
+  });
+  const { intercept, lnTvl, lnAge } = radar.model.coefficients;
+  element("#formula").textContent =
+    `ln V = ${intercept.toFixed(3)} ${signedTerm(lnTvl)}·ln(TVL·(1+g₇)) ${signedTerm(lnAge)}·ln(age)`;
+  element("#checks").innerHTML = integrityStrip(checks);
 
   let updateBoard: ReturnType<typeof mountBoard> | undefined;
-  let updatePlan: ReturnType<typeof mountPlanner> | undefined;
+  let updatePlan: ReturnType<MountPlanner> | undefined;
   let lastPage: string | undefined;
-
-  function mountPlanner() {
-    main.innerHTML = plannerForm(rows.flatMap((row) => row.chains));
-    const form = element<HTMLFormElement>("form", main);
-    const budget = element<HTMLInputElement>('[name="budget"]', form);
-    const hours = element<HTMLInputElement>('[name="hours"]', form);
-    const select = element<HTMLSelectElement>('[name="chains"]', form);
-    const results = element("#portfolio-results", main);
-    const sliders = form.querySelectorAll<HTMLInputElement>('input[type="range"]');
-    let state: PlanState;
-
-    const save = () => {
-      if (!form.checkValidity()) return;
-      location.hash = planHash({
-        budgetUsd: budget.valueAsNumber,
-        hoursPerWeek: hours.valueAsNumber,
-        chains: Array.from(select.selectedOptions, (option) => option.value),
-        sliders: state.sliders,
-      });
-    };
-    form.onchange = save;
-    form.onsubmit = (event) => {
-      event.preventDefault();
-      save();
-    };
-    const setSliders = (sliders: Sliders) => {
-      const next = { ...state, sliders };
-      history.replaceState(null, "", planHash(next));
-      update(next);
-    };
-    form.oninput = ({ target }) => {
-      if (target instanceof HTMLInputElement && target.type === "range") {
-        setSliders({ ...state.sliders, [target.name]: target.valueAsNumber });
-      }
-    };
-    element("[data-reset]", form).onclick = () => setSliders({});
-
-    function update(next: PlanState): void {
-      state = next;
-      budget.value = String(state.budgetUsd);
-      hours.value = String(state.hoursPerWeek);
-      for (const chain of state.chains) {
-        if (![...select.options].some((option) => option.value === chain)) {
-          select.add(new Option(chain, chain));
-        }
-      }
-      for (const option of select.options) option.selected = state.chains.includes(option.value);
-      const { budgetUsd, hoursPerWeek } = state;
-      const values = { ...sliderValues(farmAssumptions), ...state.sliders };
-      for (const slider of sliders) {
-        slider.value = String(values[slider.name as keyof Sliders]);
-        const output = slider.previousElementSibling as HTMLOutputElement;
-        output.value = slider.value;
-      }
-      const assumptions = { ...plannerSettings(farmAssumptions, state.sliders), tables: meta };
-      const economics = radar.board.map((row) =>
-        api.estimateFarmEconomics(
-          row.plan,
-          row.implied_value_usd,
-          row.protocol.tvl_usd,
-          row.economics.launchProbability12,
-          assumptions,
-        ),
-      );
-      const result = api.planPortfolio(radar.board, {
-        budgetUsd,
-        hoursPerWeek,
-        assumptions,
-        ...(state.chains.length ? { chains: state.chains } : {}),
-      });
-      results.innerHTML = plannerResults(
-        result,
-        economics,
-        (slug) => protocols.get(slug)?.protocol.name ?? slug,
-        formatUsd,
-      );
-    }
-    return update;
-  }
 
   function draw(): void {
     delete main.dataset.ready;
@@ -257,17 +157,11 @@ function start(
     if (route.page !== "board") updateBoard = undefined;
     if (route.page !== "plan") updatePlan = undefined;
     if (route.page === "board") {
-      updateBoard ??= mountBoard(
-        main,
-        rows,
-        censusSummary(data.census, protocols),
-        maxLogValue,
-        formatUsd,
-      );
+      updateBoard ??= mountBoard(main, rows, censusSummary(data.census, protocols), formatUsd);
       updateBoard(route.state);
     } else if (route.page === "plan") {
-      updatePlan ??= mountPlanner();
-      updatePlan(route.state);
+      updatePlan ??= api.mountPlanner(main, radar.board, meta, api);
+      updatePlan(location.hash);
     } else if (route.page === "census") {
       main.innerHTML = censusView(data.census, route.state, formatUsd, protocols);
     } else if (route.page === "method") {
@@ -290,7 +184,7 @@ function start(
             diagnostics: evidence.get(detail.protocol.slug),
             families,
             launchClock,
-            clockShareAt: api.clockShareAt,
+            launchProbability12: api.launchProbability12,
           })
         : `<h2>Page unavailable</h2><a href="${esc(back)}">Back to board</a>`;
     }
@@ -305,14 +199,12 @@ function start(
     if (!(event.target instanceof Element)) return;
     const sort = event.target.closest<HTMLButtonElement>("button[data-sort]")?.dataset.sort;
     const route = parseRoute(location.hash);
+    const dir =
+      "state" in route && route.state.sort === sort && route.state.dir === "asc" ? "desc" : "asc";
     if (route.page === "board" && isSortKey(sort)) {
-      const { state } = route;
-      const dir = state.sort === sort && state.dir === "asc" ? "desc" : "asc";
-      location.hash = boardHash({ ...state, sort, dir });
+      location.hash = boardHash({ ...route.state, sort, dir });
     } else if (route.page === "census" && isCensusSortKey(sort)) {
-      const { state } = route;
-      const dir = state.sort === sort && state.dir === "asc" ? "desc" : "asc";
-      location.hash = censusHash({ ...state, sort, dir });
+      location.hash = censusHash({ ...route.state, sort, dir });
     } else if (
       !event.target.closest("a") &&
       !event.metaKey &&

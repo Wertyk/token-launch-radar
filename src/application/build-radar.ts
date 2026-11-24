@@ -59,16 +59,18 @@ function rankRadar(
   const { protocols, watchlist, as_of } = snapshot;
   const entries = buildCensus(protocols, families);
   const model = fitValueModel(comparables, lambda);
-  const ranked = rankBoard(boardEntries(entries, watchlist), as_of, model);
-  const board = ranked.map((row) => {
-    const { protocol, implied_value_usd } = row;
+  const candidates = boardEntries(entries, watchlist).map((entry) => {
+    const { protocol } = entry;
     const age =
       protocol.listed_at === null
         ? (launchClock.medianAgeDays ?? 0)
         : Math.max(0, daysBetween(protocol.listed_at, as_of));
-    const p12 = launchProbability12(launchClock.points, age);
+    return { ...entry, launchProbability12: launchProbability12(launchClock.points, age) };
+  });
+  const board = rankBoard(candidates, as_of, model).map((row) => {
+    const { protocol, launch_value_usd, launchProbability12: p12 } = row;
     const plan = makeFarmPlan(protocol, tables);
-    const economics = estimateFarmEconomics(plan, implied_value_usd, protocol.tvl_usd, p12);
+    const economics = estimateFarmEconomics(plan, launch_value_usd, protocol.tvl_usd, p12);
     return {
       ...row,
       plan,

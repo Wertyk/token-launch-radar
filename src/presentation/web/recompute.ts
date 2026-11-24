@@ -1,7 +1,10 @@
 import type { RadarRow } from "../../application/browser-api.ts";
 
 type Economics = RadarRow["economics"];
-type RankedFields = Pick<RadarRow, "rank" | "implied_value_usd" | "farm_steps">;
+type RankedFields = Pick<
+  RadarRow,
+  "rank" | "launch_value_usd" | "implied_value_usd" | "farm_steps"
+>;
 export type RecomputedRow = RankedFields & {
   protocol: Pick<RadarRow["protocol"], "slug">;
   economics: Omit<Economics, "deposits"> & { deposits: Readonly<Economics["deposits"]> };
@@ -33,6 +36,7 @@ export function boardMismatches(
       !other ||
       row.protocol.slug !== other.slug ||
       row.rank !== other.rank ||
+      row.launch_value_usd !== other.launch_value_usd ||
       row.implied_value_usd !== other.implied_value_usd ||
       row.farm_steps.length !== other.farm_steps.length ||
       row.farm_steps.some((step, i) => step !== other.farm_steps[i]) ||

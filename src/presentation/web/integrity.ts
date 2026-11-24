@@ -40,7 +40,7 @@ export function integrityChecks(
   return [
     {
       pass: count === 0,
-      label: `Recompute ${count ? "≠" : "="} board.json: values, ranks, plans, economics (${count ? `${count} mismatched: ${mismatches[0]}` : published.length})`,
+      label: `Recompute ${count ? "≠" : "="} board.json · launch values, odds, implied values, ranks, plans, economics (${count ? `${count} mismatched · ${mismatches[0]}` : published.length})`,
     },
     { pass: covered === unique.length, label: `Watchlist ${covered}/${unique.length} on board` },
     {
@@ -49,7 +49,7 @@ export function integrityChecks(
     },
     {
       pass: samples === fitted && inside / samples >= 0.8,
-      label: `${inside}/${samples} inside P10–P90${samples === fitted ? "" : ` · ${samples}/${fitted} families`}`,
+      label: `${inside}/${samples} launch values inside P10–P90${samples === fitted ? "" : ` · ${samples}/${fitted} families`}`,
     },
     {
       pass:
@@ -57,7 +57,7 @@ export function integrityChecks(
         model.medianMultiplier !== null &&
         flat.medianMultiplier !== null &&
         model.medianMultiplier < flat.medianMultiplier,
-      label: `LOO median error ${multiplier(model.medianMultiplier)} vs ${multiplier(flat.medianMultiplier)} flat${samePopulation ? "" : ` · model n=${model.n}/${fitted}, flat n=${flat.n}/${fitted}`}`,
+      label: `Launch value LOO error ${multiplier(model.medianMultiplier)} vs ${multiplier(flat.medianMultiplier)} flat${samePopulation ? "" : ` · model n=${model.n}/${fitted}, flat n=${flat.n}/${fitted}`}`,
     },
   ];
 }

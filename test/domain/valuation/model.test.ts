@@ -131,7 +131,7 @@ test("base, TVL, momentum and age reconstruct the unrounded prediction", () => {
   expect(multipliers.lnTvl).toBeCloseTo(2, 5);
   expect(multipliers.growth).toBeCloseTo(Math.SQRT2, 5);
   expect(multipliers.lnAge).toBeCloseTo(Math.SQRT2, 5);
-  expect(row.implied_value_usd).toBe(Math.round(row.valueUsd));
+  expect(row.launch_value_usd).toBe(Math.round(row.valueUsd));
 });
 
 test("changing only category affects neither the production fit nor the prediction", () => {
@@ -167,14 +167,18 @@ test.each([
   },
 );
 
-test("clamps rounded values and ranks tied values by slug", () => {
+test("ranks rounded launch values times odds, with clamping and slug ties", () => {
   const model = fitFixture(comparables);
   const candidates = [
     protocol({ slug: "z", tvl_usd: 1e100 }),
     protocol({ slug: "small", tvl_usd: 1e-80 }),
     protocol({ slug: "a", tvl_usd: 1e90 }),
   ];
-  const ranked = rankBoard(boardEntries(buildCensus(candidates), []), asOf, model);
+  const entries = boardEntries(buildCensus(candidates), []).map((entry) => ({
+    ...entry,
+    launchProbability12: 0.25,
+  }));
+  const ranked = rankBoard(entries, asOf, model);
   expect(
     ranked.map(({ rank, implied_value_usd, protocol: { slug } }) => [
       rank,
@@ -182,8 +186,8 @@ test("clamps rounded values and ranks tied values by slug", () => {
       implied_value_usd,
     ]),
   ).toEqual([
-    [1, "a", 1e14],
-    [2, "z", 1e14],
+    [1, "a", 2.5e13],
+    [2, "z", 2.5e13],
     [3, "small", 1],
   ]);
 });

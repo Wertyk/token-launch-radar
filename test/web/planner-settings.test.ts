@@ -4,8 +4,8 @@ import * as api from "../../src/application/browser-api.ts";
 import { buildRadar } from "../../src/application/build-radar.ts";
 import { farmTables } from "../../src/domain/farming/playbook-data.ts";
 import { parseSnapshot } from "../../src/domain/snapshot.ts";
+import { parsePlanState, planHash } from "../../src/presentation/web/plan-state.ts";
 import { plannerSettings } from "../../src/presentation/web/plan-view.ts";
-import { parseRoute, planHash } from "../../src/presentation/web/state.ts";
 import { readKitSnapshot } from "../radar-fixtures.ts";
 
 test("recomputes verdicts and the portfolio through the core, then resets to published defaults", () => {
@@ -16,17 +16,16 @@ test("recomputes verdicts and the portfolio through the core, then resets to pub
   const radar = api.buildRadar(snapshot, published.model.lambda, published.launchClock, tables);
 
   function calculate(hash: string) {
-    const route = parseRoute(hash);
-    if (route.page !== "plan") throw new Error("Expected a planner route.");
-    const { budgetUsd, hoursPerWeek, sliders } = route.state;
+    const state = parsePlanState(hash);
+    const { budgetUsd, hoursPerWeek, sliders } = state;
     const assumptions = { ...plannerSettings(api.farmAssumptions, sliders), tables };
     return {
-      state: route.state,
+      state,
       plan: api.planPortfolio(radar.board, { budgetUsd, hoursPerWeek, assumptions }),
-      economics: radar.board.map(({ plan, implied_value_usd, protocol, economics }) =>
+      economics: radar.board.map(({ plan, launch_value_usd, protocol, economics }) =>
         api.estimateFarmEconomics(
           plan,
-          implied_value_usd,
+          launch_value_usd,
           protocol.tvl_usd,
           economics.launchProbability12,
           assumptions,

@@ -12,7 +12,7 @@ const deposits = [1_000, 2_500, 5_000, 10_000];
 interface PortfolioRow {
   protocol: Pick<Protocol, "slug" | "name" | "category" | "chains" | "tvl_usd">;
   rank: number;
-  implied_value_usd: number;
+  launch_value_usd: number;
   plan: FarmPlan;
   economics: { launchProbability12: number };
 }
@@ -48,7 +48,7 @@ export function planPortfolio(
   const usedMinutesByWeek = Array<number>(FARM_ASSUMPTIONS.weeksPerYear).fill(0);
   const weeklyCapMinutes = hoursPerWeek * assumptions.minutesPerHour;
   const minutesPerAverageWeeklyHour = usedMinutesByWeek.length * assumptions.minutesPerHour;
-  const candidates = rows.map(({ protocol, rank, plan, economics, implied_value_usd }) => {
+  const candidates = rows.map(({ protocol, rank, plan, economics, launch_value_usd }) => {
     const supported = [...new Set(protocol.chains)].sort(compareText);
     const choices = supported.length ? supported : [null];
     const plans = choices.flatMap((chain) => {
@@ -63,7 +63,7 @@ export function planPortfolio(
       slug: protocol.slug,
       rank,
       plans,
-      valueUsd: implied_value_usd,
+      valueUsd: launch_value_usd,
       tvlUsd: protocol.tvl_usd,
       probability: economics.launchProbability12,
     };

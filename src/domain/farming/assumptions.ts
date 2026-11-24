@@ -6,7 +6,7 @@ export const ASSUMPTIONS_AS_OF = "2026-11-14";
  * 5–10% of total supply can represent a large share of the launch float.
  * Assume a conservative 25% of circulating launch cap for the airdrop pool.
  */
-export const FARM_ASSUMPTIONS = {
+const defaults = {
   asOf: ASSUMPTIONS_AS_OF,
   airdropShareOfLaunchCap: 0.25,
   farmerHaircut: 0.5,
@@ -24,3 +24,5 @@ export const FARM_ASSUMPTIONS = {
   setupMinutes: 5,
   bridgeMinutes: 10,
 } as const;
+
+export { defaults as FARM_ASSUMPTIONS };

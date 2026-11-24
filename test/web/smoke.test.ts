@@ -57,12 +57,16 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
     await goTo("#/?cat=Unknown&chain=Unknown");
     await page
       .locator(".integrity .check")
-      .filter({ hasText: "Recompute = board.json: values, ranks, plans, economics" })
+      .filter({ hasText: "Recompute = board.json · launch values, odds, implied values, ranks" })
       .waitFor({ timeout: 4_000 });
     expect(await page.locator(".integrity .check").count()).toBe(5);
-    expect(
-      await page.getByText(/^Implied value is conditional market cap at launch/).isVisible(),
-    ).toBe(true);
+    const definition = page.locator("#summary .model > .caption");
+    await definition.waitFor({ state: "visible", timeout: 4_000 });
+    expect((await definition.textContent())?.replace(/\s+/g, " ").trim()).toBe(
+      "Launch value is the conditional market cap at launch. " +
+        "Launch odds come from the clock fitted to the snapshot's token records by listing age. " +
+        "Age is days since listing (min 1). g₇ is 7-day TVL growth clipped to −50%…+100%.",
+    );
     await ready.getByRole("link", { name: "144 excluded", exact: true }).click();
     await heading("Protocol census");
     expect(await ready.locator(".census-summary").textContent()).toBe(
@@ -86,6 +90,8 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
     await ready.getByRole("checkbox", { name: "Watchlist only" }).check();
     await expect.poll(() => rows.count()).toBeLessThan(originalCount);
     expect(await rows.count()).toBeGreaterThan(0);
+    await ready.getByRole("button", { name: "Odds 12m", exact: true }).click();
+    await expect.poll(() => new URL(page.url()).hash).toBe("#/?sort=odds&dir=asc&wl=1");
 
     const firstLink = rows.first().getByRole("link");
     const protocol = await firstLink.textContent();

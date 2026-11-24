@@ -20,7 +20,7 @@ function row(
   return {
     protocol: record,
     rank,
-    implied_value_usd: value,
+    launch_value_usd: value,
     plan: makeFarmPlan(record, tables),
     economics: { launchProbability12: 1 },
   };

@@ -4,6 +4,8 @@ export const columns = {
   rank: "Rank",
   name: "Protocol",
   value: "Implied value",
+  launchValue: "Launch value",
+  odds: "Odds 12m",
   tvl: "TVL",
   growth: "7d %",
   age: "Days with no token",
@@ -23,9 +25,6 @@ export interface BoardState {
   q: string;
 }
 
-export const sliderLimits = { share: 100, haircut: 100, rate: 250, yield: 50, carry: 50 };
-export type Sliders = Partial<Record<keyof typeof sliderLimits, number>>;
-
 export const statusLabels: Record<TokenStatus, string> = {
   traded: "Token trades",
   "token-unpriced": "Records an unpriced token",
@@ -42,17 +41,10 @@ export interface CensusState {
 
 export const defaultCensus: CensusState = { status: "", sort: "tvl", dir: "desc" };
 
-export interface PlanState {
-  budgetUsd: number;
-  hoursPerWeek: number;
-  chains: string[];
-  sliders: Sliders;
-}
-
 type Route =
   | { page: "board" | "unknown"; state: BoardState }
   | { page: "protocol"; state: BoardState; slug: string }
-  | { page: "plan"; state: PlanState }
+  | { page: "plan" }
   | { page: "method" }
   | { page: "census"; state: CensusState };
 
@@ -73,15 +65,11 @@ export function isCensusSortKey(value: string | null | undefined): value is Cens
   return value === "tvl" || value === "name" || value === "status" || value === "reason";
 }
 
-function limit(value: string | null, fallback: number): number {
-  const number = Number(value);
-  return value?.trim() && Number.isFinite(number) && number >= 0 ? number : fallback;
-}
-
 export function parseRoute(hash: string): Route {
   const [path, query] = hash.slice(1).split(/\?(.*)/s, 2);
-  const params = new URLSearchParams(query);
   if (path === "/method") return { page: "method" };
+  if (path === "/plan") return { page: "plan" };
+  const params = new URLSearchParams(query);
   if (path === "/census") {
     const status = params.get("status");
     const sort = params.get("sort");
@@ -92,25 +80,6 @@ export function parseRoute(hash: string): Route {
         sort: isCensusSortKey(sort) ? sort : "tvl",
         dir: params.get("dir") === "asc" ? "asc" : "desc",
         unranked: params.get("unranked") === "1",
-      },
-    };
-  }
-  if (path === "/plan") {
-    // Split the raw list so an encoded comma can be part of a chain name.
-    const list = /(?:^|&)chains=([^&]*)/.exec(query ?? "")?.[1] ?? "";
-    const chains = list.split(",").map((part) => new URLSearchParams(`c=${part}`).get("c") ?? "");
-    const sliders: Sliders = {};
-    for (const key of Object.keys(sliderLimits) as (keyof Sliders)[]) {
-      const value = limit(params.get(key), -1);
-      if (value >= 0 && value <= sliderLimits[key]) sliders[key] = value;
-    }
-    return {
-      page: "plan",
-      state: {
-        budgetUsd: limit(params.get("budget"), 5_000),
-        hoursPerWeek: limit(params.get("hours"), 3),
-        chains: [...new Set(chains.filter(Boolean))],
-        sliders,
       },
     };
   }
@@ -133,15 +102,6 @@ export function parseRoute(hash: string): Route {
     }
   }
   return { page: "unknown", state };
-}
-
-export function planHash({ budgetUsd, hoursPerWeek, chains, sliders }: PlanState): string {
-  const list = chains.map(encodeURIComponent).join(",");
-  const params = new URLSearchParams({ budget: String(budgetUsd), hours: String(hoursPerWeek) });
-  for (const key of Object.keys(sliderLimits) as (keyof Sliders)[]) {
-    if (sliders[key] !== undefined) params.set(key, String(sliders[key]));
-  }
-  return `#/plan?${params}${list ? `&chains=${list}` : ""}`;
 }
 
 export function censusHash({ status, sort, dir, unranked }: CensusState): string {

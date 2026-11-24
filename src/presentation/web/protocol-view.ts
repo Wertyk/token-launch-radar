@@ -1,4 +1,4 @@
-import type { clockShareAt, RadarRow } from "../../application/browser-api.ts";
+import type { launchProbability12, RadarRow } from "../../application/browser-api.ts";
 import type { ProtocolFamily } from "../../domain/census/families.ts";
 import type { EconomicsAssumptions } from "../../domain/farming/economics.ts";
 import type { LaunchClock } from "../../domain/launch-clock/clock.ts";
@@ -6,7 +6,13 @@ import type { ValueDiagnostics } from "../../domain/valuation/diagnostics.ts";
 import type { ValueModel } from "../../domain/valuation/model.ts";
 import { chip, growthText } from "./board-view.ts";
 import { ageSparkline } from "./clock-view.ts";
-import { escapeHtml as esc, formatCompactUsd, formatInteger, signedTerm } from "./format.ts";
+import {
+  escapeHtml as esc,
+  formatCompactUsd,
+  formatInteger,
+  formatOdds,
+  signedTerm,
+} from "./format.ts";
 import { svg, table } from "./render.ts";
 
 import { statusLabels } from "./state.ts";
@@ -26,21 +32,29 @@ type FormatUsd = (value: number) => string;
 
 function decomposition(row: RadarRow, usd: FormatUsd): string {
   const { base, multipliers } = row.decomposition;
-  const afterTvl = base * multipliers.lnTvl;
-  const afterGrowth = afterTvl * multipliers.growth;
+  const { lnTvl, growth, lnAge } = multipliers;
+  const afterTvl = base * lnTvl;
   const stages = [
-    { label: "Base", value: base },
-    { label: "TVL", factor: multipliers.lnTvl, value: afterTvl },
-    { label: "7d growth", factor: multipliers.growth, value: afterGrowth },
-    { label: "Age", factor: multipliers.lnAge, value: row.valueUsd },
-    { label: "Board value", value: row.implied_value_usd },
-  ];
-  const largest = Math.max(1, ...stages.map(({ value }) => (Number.isFinite(value) ? value : 0)));
+    ["Base", base],
+    ["TVL", afterTvl, lnTvl],
+    ["7d growth", afterTvl * growth, growth],
+    ["Age", row.valueUsd, lnAge],
+    ["Launch value", row.launch_value_usd],
+    ["× launch odds 12m", null, row.launchProbability12],
+    ["Implied value", row.implied_value_usd],
+  ] as const;
+  const largest = Math.max(
+    1,
+    ...stages.map(([, value]) => (Number.isFinite(value) ? (value ?? 0) : 0)),
+  );
   return `<ol class="waterfall">${stages
-    .map(({ label, factor, value }) => {
+    .map(([label, value, factor]) => {
+      if (value === null)
+        return `<li><span>${label}</span><span>(${formatOdds(factor)})</span></li>`;
       const finite = Number.isFinite(value);
       const width = finite ? ((value / largest) * 100).toFixed(2) : "0";
-      return `<li><span>${label}</span><span>${factor === undefined ? "" : `×${factor.toPrecision(4)}`}</span>${svg(100, 6, `<rect width="${width}" height="6"></rect>`)}<strong>${finite ? usd(Math.round(value)) : "—"}</strong></li>`;
+      const term = factor === undefined ? "" : `×${factor.toPrecision(4)}`;
+      return `<li><span>${label}</span><span>${term}</span>${svg(100, 6, `<rect width="${width}" height="6"></rect>`)}<strong>${finite ? usd(Math.round(value)) : "—"}</strong></li>`;
     })
     .join("")}</ol>`;
 }
@@ -55,19 +69,19 @@ interface CardOptions {
   diagnostics: ValueDiagnostics | undefined;
   families: ReadonlyMap<string, Pick<ProtocolFamily, "representative" | "mcap_usd">>;
   launchClock: LaunchClock;
-  clockShareAt: typeof clockShareAt;
+  launchProbability12: typeof launchProbability12;
 }
 
 function valueEquation(
   row: RadarRow,
   { intercept, lnTvl, lnAge }: ValueModel["coefficients"],
   lnValue: number,
+  clockAge: number,
   usd: FormatUsd,
 ): string {
   const growth = Math.exp(row.features.growth).toFixed(3);
   const days = Math.exp(row.features.lnAge).toFixed(0);
-  const limit = Math.round(row.valueUsd) === row.implied_value_usd ? "" : " (board limit)";
-  return `<p class="value-equation">ln V ≈ ${intercept.toFixed(4)} ${signedTerm(lnTvl, 4)} × ln(${formatCompactUsd(row.protocol.tvl_usd)} × ${growth}) ${signedTerm(lnAge, 4)} × ln(${days} d) ≈ ${lnValue.toFixed(3)}${limit} → ${usd(row.implied_value_usd)}</p>`;
+  return `<p class="value-equation">ln V ≈ ${intercept.toFixed(4)} ${signedTerm(lnTvl, 4)} × ln(${formatCompactUsd(row.protocol.tvl_usd)} × ${growth}) ${signedTerm(lnAge, 4)} × ln(${days} d) ≈ ${lnValue.toFixed(3)} → ${usd(row.launch_value_usd)} × P₁₂(${clockAge.toFixed(0)} d) ${formatOdds(row.launchProbability12)} → ${usd(row.implied_value_usd)}</p>`;
 }
 
 export function protocolView(
@@ -82,7 +96,7 @@ export function protocolView(
     diagnostics,
     families,
     launchClock,
-    clockShareAt,
+    launchProbability12,
   }: CardOptions,
 ): string {
   const { protocol, plan, economics, status } = row;
@@ -112,7 +126,8 @@ export function protocolView(
         : "";
   const clockAge = Math.max(0, age ?? launchClock.medianAgeDays ?? 0);
   const { points } = launchClock;
-  const p12 = economics.launchProbability12;
+  const p12 = row.launchProbability12;
+  const maxAge = Math.max(1, clockAge, points.at(-1)?.ageDays ?? 0);
   const twins = (diagnostics?.twins ?? []).map((slug) => {
     const family = families.get(slug);
     return [
@@ -136,11 +151,11 @@ export function protocolView(
     </div>${chip(`Board rank ${row.rank}`, "badge")}</header>
     <div class="detail-grid">
       <div class="detail-facts">
-        <section class="panel"><h3>Conditional value at launch</h3>
+        <section class="panel"><h3>Implied value</h3>
           <p class="figure">${usd(row.implied_value_usd)}</p>
           <p>P10–P90 · ${interval}</p>
           ${decomposition(row, usd)}
-          ${valueEquation(row, coefficients, lnValue, usd)}
+          ${valueEquation(row, coefficients, lnValue, clockAge, usd)}
           ${influenceLine ? `<p class="caption">${influenceLine}</p>` : ""}
         </section>
         <section class="panel"><h3>Protocol record</h3>
@@ -149,9 +164,9 @@ export function protocolView(
           <p class="muted">Included · ${row.boardReasons.map((reason) => reasonLabels[reason]).join(" · ")}</p>
           ${row.flags.length ? `<ul class="flags">${row.flags.map((flag) => `<li>${flagLabels[flag]}</li>`).join("")}</ul>` : ""}
         </section>
-        <section class="panel clock"><h3>Launch clock F(t)</h3>
-          ${ageSparkline(points, clockAge, clockShareAt(points, clockAge))}
-          <p><strong>P12 · ${(p12 * 100).toFixed(1)}%</strong></p>
+        <section class="panel clock"><h3>Launch clock</h3>
+          ${ageSparkline(maxAge, clockAge, p12, (days) => launchProbability12(points, days))}
+          <p><strong>P₁₂ · ${formatOdds(p12)}</strong></p>
           <p class="caption">Age marker · ${formatInteger(clockAge)} days${age === null ? " (median proxy)" : ""}</p>
         </section>
       </div>

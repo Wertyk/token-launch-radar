@@ -529,7 +529,7 @@ button[data-sort]::after {
 
 .waterfall li {
   display: grid;
-  grid-template-columns: 84px 64px minmax(24px, 1fr) minmax(92px, auto);
+  grid-template-columns: 110px 52px minmax(24px, 1fr) minmax(92px, auto);
   align-items: center;
   gap: var(--s2);
   padding: var(--s1) 0;
@@ -613,14 +613,14 @@ button[data-sort]::after {
   margin-top: var(--s4);
 }
 
-@media (max-width: 1140px) {
+@media (max-width: 1244px) {
   .table-window {
     max-height: 70vh;
     overflow: auto;
   }
 
   .ranking:not(.census) {
-    min-width: 1010px;
+    min-width: 1180px;
   }
 }
 
@@ -644,7 +644,7 @@ button[data-sort]::after {
   }
 
   .waterfall li {
-    grid-template-columns: 66px 54px minmax(24px, 1fr) minmax(72px, auto);
+    grid-template-columns: 82px 48px minmax(24px, 1fr) minmax(72px, auto);
     gap: var(--s1);
   }
 

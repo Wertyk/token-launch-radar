@@ -13,6 +13,7 @@ const economics = {
 const first = {
   slug: "a",
   rank: 1,
+  launch_value_usd: 48,
   implied_value_usd: 20,
   farm_steps: ["plan", "exit"],
   launch_p12: 0.42,
@@ -36,6 +37,7 @@ test("matches the board fields while ignoring unrelated metadata", () => {
 test.each([
   { slug: "c" },
   { rank: 3 },
+  { launch_value_usd: 47 },
   { implied_value_usd: 19 },
   { farm_steps: ["exit", "plan"] },
   { farm_steps: ["plan"] },

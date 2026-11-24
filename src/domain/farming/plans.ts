@@ -107,49 +107,49 @@ export function makeFarmPlan(
   const tradingFees =
     group === "derivatives" ? assumptions.tradeVolumeUsd * assumptions.tradingFeeRate : 0;
   const deposit = formatUsd(depositUsd);
+  const step = (
+    action: string,
+    costUsd: number,
+    minutes: number,
+    cadence: Cadence = "once",
+  ): FarmStep => ({
+    action,
+    chain,
+    costUsd,
+    minutes,
+    cadence,
+  });
   const fundingStep: FarmStep | null = bridge
     ? null
-    : {
-        action: "If funding from another chain, verify the receiving asset and bridge funds.",
-        chain,
-        costUsd: bridgeUsd,
-        minutes: assumptions.bridgeMinutes,
-        cadence: "once",
-      };
-  const steps: FarmStep[] = [
-    {
-      action:
-        chain === null
-          ? `Verify a supported chain before setting aside ${deposit} and gas.`
-          : `Set aside ${deposit} in a compatible wallet or account and check its gas balance.`,
-      chain,
-      costUsd: 0,
-      minutes: assumptions.setupMinutes,
-      cadence: "once",
-    },
+    : step(
+        "If funding from another chain, verify the receiving asset and bridge funds.",
+        bridgeUsd,
+        assumptions.bridgeMinutes,
+      );
+  const steps = [
+    step(
+      chain === null
+        ? `Verify a supported chain before setting aside ${deposit} and gas.`
+        : `Set aside ${deposit} in a compatible wallet or account and check its gas balance.`,
+      0,
+      assumptions.setupMinutes,
+    ),
   ];
   if (fundingStep) steps.push(fundingStep);
   steps.push(
+    step(
+      `${shorten(protocol.name, 140)} — ${playbook.enter}`,
+      roundUsd(entryTransactions * (bridge ? bridgeUsd : transactionUsd)),
+      entryMinutes,
+    ),
+    step(
+      playbook.review,
+      roundUsd(tradingFees + reviewTransactions * transactionUsd),
+      reviewMinutes,
+      playbook.cadence,
+    ),
     {
-      action: `${shorten(protocol.name, 140)} — ${playbook.enter}`,
-      chain,
-      costUsd: roundUsd(entryTransactions * (bridge ? bridgeUsd : transactionUsd)),
-      minutes: entryMinutes,
-      cadence: "once",
-    },
-    {
-      action: playbook.review,
-      chain,
-      costUsd: roundUsd(tradingFees + reviewTransactions * transactionUsd),
-      minutes: reviewMinutes,
-      cadence: playbook.cadence,
-    },
-    {
-      action: playbook.exit,
-      chain,
-      costUsd: roundUsd(exitTransactions * transactionUsd),
-      minutes: exitMinutes,
-      cadence: "once",
+      ...step(playbook.exit, roundUsd(exitTransactions * transactionUsd), exitMinutes),
       exitCondition: playbook.exitCondition,
     },
   );
@@ -199,9 +199,14 @@ export function scheduleFarmMinutes({ steps }: FarmPlan): number[] {
   return weeks;
 }
 
-export function renderFarmStep(step: FarmStep): string {
-  const action = shorten(step.action, 280);
-  const chain = shorten(step.chain ?? "Chain unlisted", 110);
-  const exit = step.exitCondition ? ` | Exit · ${shorten(step.exitCondition, 100)}` : "";
-  return `${action} | ${chain} | Est. fee ${formatUsd(step.costUsd)} | ${step.minutes} minutes | ${step.cadence}${exit}`;
+export function renderFarmStep({
+  action,
+  chain,
+  costUsd,
+  minutes,
+  cadence,
+  exitCondition,
+}: FarmStep): string {
+  const exit = exitCondition ? ` | Exit · ${shorten(exitCondition, 100)}` : "";
+  return `${shorten(action, 280)} | ${shorten(chain ?? "Chain unlisted", 110)} | Est. fee ${formatUsd(costUsd)} | ${minutes} minutes | ${cadence}${exit}`;
 }

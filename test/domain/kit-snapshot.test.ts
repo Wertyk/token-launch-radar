@@ -7,7 +7,7 @@ import { farmTables } from "../../src/domain/farming/playbook-data.ts";
 import { planPortfolio } from "../../src/domain/farming/portfolio.ts";
 import type { Snapshot } from "../../src/domain/snapshot.ts";
 import { parseSnapshot } from "../../src/domain/snapshot.ts";
-import { parseRoute } from "../../src/presentation/web/state.ts";
+import { parsePlanState } from "../../src/presentation/web/plan-state.ts";
 
 const snapshotPath =
   process.env.RADAR_SNAPSHOT ?? "../token-radar-kit/token-radar-01-kit/input/snapshot.json";
@@ -164,7 +164,7 @@ test("kit farm plans vary in costs and time and publish two verdicts per protoco
   for (const row of rows) {
     expect(row.farm_steps.at(-1)).toMatch(/^Economics at \$1,000 over 12 months/);
     expect(row.airdrop_yield_apr).toBeCloseTo(
-      (row.implied_value_usd / row.tvl_usd) * 0.25 * 0.5 * row.farm_economics.launchProbability12,
+      (row.launch_value_usd / row.tvl_usd) * 0.25 * 0.5 * row.farm_economics.launchProbability12,
       12,
     );
     expect(row.farm_economics.deposits.map(({ depositUsd }) => depositUsd)).toEqual([
@@ -177,9 +177,7 @@ test("kit farm plans vary in costs and time and publish two verdicts per protoco
 });
 
 test("the kit planner rejects BTCFi CDP when the route allows 2.4 minutes per week", () => {
-  const route = parseRoute("#/plan?budget=10001&hours=0.04");
-  if (route.page !== "plan") throw new Error("Expected a planner route.");
-  const { budgetUsd, hoursPerWeek } = route.state;
+  const { budgetUsd, hoursPerWeek } = parsePlanState("#/plan?budget=10001&hours=0.04");
   const { positions, closest } = planPortfolio(result.board, {
     budgetUsd,
     hoursPerWeek,

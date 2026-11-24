@@ -67,8 +67,15 @@ test("runs the ports in order and publishes the kit board and browser data", () 
 
   const board = JSON.parse(output.text("board.json")) as ReturnType<typeof toBoardRows>;
   const { rows } = board;
+  // Project the launch values back onto the v3 board to verify that V stayed identical.
   const valuationBytes = JSON.stringify(
-    rows.map(({ slug, rank, implied_value_usd }) => ({ slug, rank, implied_value_usd })),
+    [...rows]
+      .sort((a, b) => b.launch_value_usd - a.launch_value_usd || (a.slug < b.slug ? -1 : 1))
+      .map(({ slug, launch_value_usd }, index) => ({
+        slug,
+        rank: index + 1,
+        implied_value_usd: launch_value_usd,
+      })),
   );
   expect(createHash("sha256").update(valuationBytes).digest("hex")).toBe(
     "f4468f70d48b3e318dbf9655d0269bdd7954dedf619a04b54e15d77363e5e240",
@@ -135,8 +142,9 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     expect(interval_p90_usd).toBeGreaterThanOrEqual(row.implied_value_usd);
     expect(influence === null || Number.isInteger(influence.rank_delta)).toBe(true);
     expect(new Set(twins).size).toBe(5);
-    expect(launch_p12).toBeGreaterThanOrEqual(0);
+    expect(launch_p12).toBeGreaterThan(0);
     expect(launch_p12).toBeLessThanOrEqual(1);
+    expect(row.implied_value_usd).toBe(Math.round(row.launch_value_usd * launch_p12));
     expect(published.flags).toEqual(row.flags);
   }
   const radar = buildRadar(snapshot);
@@ -230,6 +238,7 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     "slug",
     "name",
     "rank",
+    "launch_value_usd",
     "implied_value_usd",
     "farm_steps",
     "category",
@@ -271,6 +280,15 @@ test("runs the ports in order and publishes the kit board and browser data", () 
       breakEvenDepositUsd: row.economics.breakEvenDepositUsd,
     },
   });
+}, 20_000);
+
+test("preserves v3 airdrop EV where the clock window stays inside the fitted points", () => {
+  const { board } = buildRadar(parseSnapshot(readKitSnapshot()));
+  const row = board.find(({ protocol: { slug } }) => slug === "sentora-curator");
+  expect(row?.economics.launchProbability12).toBe(0.20903935200201257);
+  expect(row?.economics.deposits.map(({ expectedValueUsd }) => expectedValueUsd)).toEqual([
+    1.001131156813365, 10.01131156813365,
+  ]);
 }, 20_000);
 
 test("fits a traded family once using its summed TVL, market cap and representative age", () => {
