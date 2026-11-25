@@ -31,7 +31,13 @@ class Select {
   }
 }
 
-function open(data: Record<string, unknown>, hash = "#/", loadEnhancements = true, loadUi = true) {
+function open(
+  data: Record<string, unknown>,
+  hash = "#/",
+  loadEnhancements = true,
+  loadUi = true,
+  beforeUi?: string,
+) {
   const location = { hash };
   const markup = new Map<string, { innerHTML: string; textContent?: string; href?: string }>();
   const listeners = new Map<string, (event: { target: Select }) => void>();
@@ -81,11 +87,11 @@ function open(data: Record<string, unknown>, hash = "#/", loadEnhancements = tru
   });
   for (const { file, source } of scripts) {
     if (!loadUi && file === "3-ui.js") continue;
+    if (file === "3-ui.js" && beforeUi) runInContext(beforeUi, context);
     runInContext(source, context);
     if (!loadEnhancements && file === "5-extras.js")
       runInContext(
-        `for (const name of ["boardFarmSteps", "mountPlanner", "protocolFacts",
-        "protocolClock", "nearestComparables", "methodNotes", "boardControls", "bindControls", "boardHash"])
+        `for (const name of ["boardFarmSteps", "mountPlanner", "boardControls", "bindControls", "boardHash"])
         delete window.Radar[name];`,
         context,
       );
@@ -154,7 +160,7 @@ test.each([true, false])(
     expect
       .soft(page.main.innerHTML)
       .toContain(`≈ ${lnValue.toFixed(3)} → ${formatUsd(Math.round(Math.exp(lnValue)))}`);
-    expect.soft(checks?.match(/class="check"/g)).toHaveLength(6);
+    expect.soft(checks?.match(/class="check"/g)).toHaveLength(7);
     expect.soft(checks).toContain('class="check">✓ Recompute = board.json');
     expect.soft(checks).toContain('class="check">✓ 104/128 held-out traded caps inside P10–P90');
 
@@ -181,6 +187,73 @@ test("flags a changed TVL trigger in the published exit step", () => {
   );
   const page = open(payload);
   expect(page.markup.get("#checks")?.innerHTML).toContain(`1 mismatched · ${row.slug}`);
+});
+
+test("flags tampering with the published eligibility step", () => {
+  const payload = data();
+  const row = payload.board.rows[0];
+  const step = row.farm_steps.findIndex((line: string) => line.includes("points or rewards page"));
+  expect(step).toBeGreaterThanOrEqual(0);
+  row.farm_steps[step] = "Assume the wallet is eligible without checking the terms.";
+  expect(open(payload).markup.get("#checks")?.innerHTML).toContain(`1 mismatched · ${row.slug}`);
+});
+
+test("shows fitted input effects in the KPI, Method and protocol card", () => {
+  const payload = data();
+  const page = open(payload, "#/method");
+  const tile = (opened: typeof page) =>
+    opened.markup
+      .get("#kpis")
+      ?.innerHTML.match(/<dt>Inputs in implied value<\/dt><dd>(.+?)<\/dd>/)?.[1];
+  expect(tile(page)).toBe("TVL +6.5% · growth −10.6% · age +57.7%");
+  expect(page.markup.get("#kpis")?.innerHTML).toContain(
+    "<small>per +10% TVL, +10pp 7-day growth, +1 yr with no token · board medians</small>",
+  );
+  expect(page.markup.get("#checks")?.innerHTML).toContain(
+    'class="check">✓ Finite median input effects',
+  );
+  expect(page.main.innerHTML).toContain("How each input moves the implied value");
+  expect(page.main.innerHTML).toContain("198 rows");
+  expect(page.main.innerHTML).toContain("<td>+57.7%</td><td>−34.4% to +393.4%</td>");
+  page.navigate(`#/p/${radar.board[0]?.protocol.slug}`);
+  expect(page.main.innerHTML).toMatch(
+    /<\/p>\s*<p class="caption">\+10% TVL → [^<]+ · \+1 yr → [^<]+/,
+  );
+
+  const changed = open(
+    payload,
+    "#/",
+    true,
+    true,
+    `
+    const originalFit = window.Radar.buildRadar;
+    window.Radar.buildRadar = (...args) => {
+      const radar = originalFit(...args);
+      radar.odds.coefficients[radar.odds.terms.indexOf("growth") + 2] *= -1;
+      return radar;
+    };
+  `,
+  );
+  expect(tile(changed)).toMatch(/growth \+[\d.]+%/);
+  expect(tile(changed)).not.toBe(tile(page));
+
+  const nonfinite = open(
+    payload,
+    "#/",
+    true,
+    true,
+    `
+    const originalFit = window.Radar.buildRadar;
+    window.Radar.buildRadar = (...args) => {
+      const radar = originalFit(...args);
+      radar.model.coefficients.lnTvl = NaN;
+      return radar;
+    };
+  `,
+  );
+  expect(nonfinite.markup.get("#checks")?.innerHTML).toContain(
+    'class="check-failed">✗ Finite median input effects',
+  );
 });
 
 test.each([undefined, -2])("rejects P10=%s on the board and detail card", (low) => {
@@ -339,7 +412,7 @@ test.each([true, false])("renders all required routes with loadExtras=%s", (load
     page.navigate(hash);
     expect(page.main.innerHTML).toContain(marker);
     const checks = page.markup.get("#checks")?.innerHTML;
-    expect(checks?.match(/class="check"/g)).toHaveLength(6);
+    expect(checks?.match(/class="check"/g)).toHaveLength(7);
   }
   if (!loadExtras) {
     const checks = page.markup.get("#checks")?.innerHTML;
@@ -350,7 +423,7 @@ test.each([true, false])("renders all required routes with loadExtras=%s", (load
     expect(page.main.dataset).toHaveProperty("ready");
   }
   page.navigate("#/method");
-  expect(page.main.innerHTML.includes("Verdict test deposits")).toBe(loadExtras);
+  expect(page.main.innerHTML).toContain("Verdict test deposits");
 });
 
 test("uses board filters and sort order without extras", () => {

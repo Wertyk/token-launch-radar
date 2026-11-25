@@ -33,6 +33,8 @@ test("checks the generated bundles byte for byte without writing them", () => {
       "medianLogError",
       "meanBrier",
       "validateOdds",
+      "impliedValueEffects",
+      "summarizeEffects",
     ]) {
       expect(core).toContain(`function ${name}(`);
     }
@@ -66,11 +68,11 @@ test("checks the generated bundles byte for byte without writing them", () => {
     }
     expect(extras).toContain("function parsePlanState");
     expect(extras).toContain("function censusHash(");
-    expect(extras).toContain("function ageSparkline");
     expect(extras).toContain("function boardFarmSteps");
     expect(extras).toContain("function boardHash");
-    expect(extras).toContain("function protocolFacts");
-    expect(extras).toContain("Nearest comparables");
+    expect(extras).not.toMatch(
+      /impliedValueEffects|effectLine|ageSparkline|Protocol record|Nearest comparables|methodNotes/,
+    );
     expect(extras).not.toMatch(/launchValueScatter|Predicted launch value vs current market cap/);
     const window: Record<string, unknown> = {};
     runInNewContext(`${extras}\n${core}`, { window });
@@ -79,9 +81,6 @@ test("checks the generated bundles byte for byte without writing them", () => {
       buildRadar: expect.any(Function),
       planPortfolio: expect.any(Function),
       mountPlanner: expect.any(Function),
-      protocolClock: expect.any(Function),
-      protocolFacts: expect.any(Function),
-      nearestComparables: expect.any(Function),
     });
 
     const bundle = join(cwd, "dashboard/3-ui.js");
@@ -90,9 +89,18 @@ test("checks the generated bundles byte for byte without writing them", () => {
     expect(original).not.toContain("function compareText(");
     expect(original).not.toContain("function censusHash(");
     expect(original).not.toMatch(
-      /function (mountPlanner|parsePlanState|ageSparkline|protocolFacts)|Farm assumptions<\/legend>|Nearest comparables/,
+      /function (mountPlanner|parsePlanState)|Farm assumptions<\/legend>/,
     );
-    expect(extras).toContain("Protocol record");
+    for (const name of [
+      "ageSparkline",
+      "protocolFacts",
+      "protocolClock",
+      "nearestComparables",
+      "effectLine",
+      "methodNotes",
+    ]) {
+      expect(original).toContain(`function ${name}(`);
+    }
     appendFileSync(bundle, "\n// Changed bundle\n");
     const check = run("--check");
     expect(check.status).toBe(1);
@@ -132,7 +140,7 @@ test("protects input construction and documents the numeric kernels in extras", 
   ]) {
     expect(core).toContain(`function ${name}(`);
   }
-  expect(core).toContain("categories =");
+  expect(core).toMatch(/categories\s*=/);
   expect(extras).not.toContain("categories =");
   expect(extras).not.toContain("function categoryDesign(");
   expect(core).toContain(
@@ -169,7 +177,7 @@ test("emits each shared function in one bundle", () => {
     readFileSync(new URL(`dashboard/${file}`, root), "utf8"),
   );
   const names = sources.flatMap((source) =>
-    Array.from(source.matchAll(/^function (\w+)\(/gm), ([, name]) => name),
+    Array.from(source.matchAll(/\bfunction\s+(\w+)\s*\(/g), ([, name]) => name),
   );
   expect(names).toHaveLength(new Set(names).size);
 });
@@ -184,7 +192,7 @@ test("keeps the guide, design tokens and browser bundles within the judge's sour
 
 test("keeps five screenshot-backed rubric bullets with v9b evidence", () => {
   const guide = readFileSync(new URL("dashboard/0-guide.md", root), "utf8");
-  expect(Buffer.byteLength(guide)).toBeLessThanOrEqual(1_100);
+  expect(Buffer.byteLength(guide)).toBeLessThanOrEqual(700);
   expect(guide).not.toMatch(/https?:\/\//i);
   const bullets = guide.trim().split("\n");
   expect(bullets).toHaveLength(5);
@@ -194,11 +202,10 @@ test("keeps five screenshot-backed rubric bullets with v9b evidence", () => {
   for (const text of [
     "758 protocols",
     "40/40 watchlist recall",
-    "63/128",
-    "104/128",
-    "0/3 and 3/4 kept",
-    "3/200 and 0/200",
-    "200 refits",
+    "+6.5%, −10.6%, +57.7%",
+    "×3.15",
+    "0.1700/0.2123",
+    "9–10 steps",
     "cross-section behaves like a cohort",
   ]) {
     expect(guide).toContain(text);
@@ -211,7 +218,7 @@ function unresolvedGuideReferences(guide: string): string[] {
     .join("\n");
   const declared = new Set(
     Array.from(
-      bundles.matchAll(/^\s*(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)\b/gm),
+      bundles.matchAll(/\b(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)\b/g),
       ([, name]) => name,
     ),
   );

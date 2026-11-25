@@ -11,10 +11,9 @@ import { element } from "./dom.ts";
 import { escapeHtml as esc, formatInteger, formatOdds } from "./format.ts";
 import { integrityChecks, integrityStrip } from "./integrity.ts";
 import { kpiStrip, termCounts } from "./kpis.ts";
-import type { methodNotes } from "./method-extras.ts";
+import { methodNotes } from "./method-extras.ts";
 import { methodView } from "./method-view.ts";
 import type { MountPlanner } from "./planner.ts";
-import type { ProtocolExtras } from "./protocol-extras.ts";
 import { protocolView, valueFormula } from "./protocol-view.ts";
 import { matchesFields, prepareBoard } from "./recompute.ts";
 import { isCensusSortKey, isSortKey, parseRoute } from "./route.ts";
@@ -26,18 +25,15 @@ import { type ViewTools, viewTools } from "./view-tools.ts";
 declare global {
   interface Window {
     Radar: typeof BrowserApi.browserApi &
-      Partial<
-        ProtocolExtras & {
-          mountPlanner: MountPlanner;
-          planPortfolio: typeof planPortfolio;
-          bindControls: typeof bindControls;
-          boardControls: typeof boardControls;
-          boardFarmSteps: (row: Parameters<typeof boardFarmSteps>[0]) => string[];
-          boardHash: typeof boardHash;
-          methodNotes: typeof methodNotes;
-          view: ViewTools & { element: typeof element };
-        }
-      >;
+      Partial<{
+        mountPlanner: MountPlanner;
+        planPortfolio: typeof planPortfolio;
+        bindControls: typeof bindControls;
+        boardControls: typeof boardControls;
+        boardFarmSteps: (row: Parameters<typeof boardFarmSteps>[0]) => string[];
+        boardHash: typeof boardHash;
+        view: ViewTools & { element: typeof element };
+      }>;
     RADAR_DATA?: RadarData;
   }
 }
@@ -105,6 +101,13 @@ function start(
   const { meta } = data;
   const radar = buildRadar(snapshot, data.model.fit, data.odds.terms, meta);
   const { model, odds, houseRule } = radar;
+  const effects = new Map(
+    radar.board.map(({ protocol }) => [
+      protocol.slug,
+      api.impliedValueEffects(protocol, snapshot.as_of, model, odds),
+    ]),
+  );
+  const effectSummary = api.summarizeEffects(effects);
   const {
     census,
     board: { rows: published },
@@ -142,10 +145,15 @@ function start(
   });
   if (!matchesFields(rangeHonesty, data.rangeHonesty))
     checks.push({ pass: false, label: "Held-out coverage totals differ from published data" });
+  checks.push({
+    pass: effectSummary.every(([median]) => Number.isFinite(median)),
+    label: "Finite median input effects",
+  });
   element("#kpis").innerHTML = kpiStrip(
     valueModel,
     selection.odds,
     rangeHonesty,
+    effectSummary,
     rows,
     snapshot.protocols.length,
     new Set(snapshot.watchlist).size,
@@ -184,30 +192,28 @@ function start(
             rangeHonesty,
             bootstrap: data.bootstrap,
             placebo: data.placebo,
+            effectSummary,
+            boardSize: rows.length,
           },
-          (panel) =>
-            api.methodNotes?.(houseRule, farmAssumptions, formatUsd, formatOdds, panel) ?? "",
+          (panel) => methodNotes(houseRule, farmAssumptions, formatUsd, formatOdds, panel),
         );
       } else {
         const back = api.boardHash?.(route.state) ?? "#/";
         const detail = route.page === "protocol" ? protocols.get(route.slug) : undefined;
         const listed = detail?.protocol.listed_at;
         main.innerHTML = detail
-          ? protocolView(
-              detail,
-              {
-                age: listed ? daysBetween(listed, snapshot.as_of) : null,
-                model,
-                lnValue: api.logValue(detail.features, model),
-                back,
-                usd: formatUsd,
-                farm: farmAssumptions,
-                diagnostics: diagnostics.get(detail.protocol.slug),
-                families,
-                maxOddsAge: odds.maxAgeDays,
-              },
-              api,
-            )
+          ? protocolView(detail, {
+              age: listed ? daysBetween(listed, snapshot.as_of) : null,
+              model,
+              lnValue: api.logValue(detail.features, model),
+              back,
+              usd: formatUsd,
+              farm: farmAssumptions,
+              diagnostics: diagnostics.get(detail.protocol.slug),
+              families,
+              maxOddsAge: odds.maxAgeDays,
+              effects: effects.get(detail.protocol.slug),
+            })
           : `<h2>Page unavailable</h2><a href="${esc(back)}">Back to board</a>`;
       }
       if (changedPage) {

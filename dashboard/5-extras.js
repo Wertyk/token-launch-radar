@@ -147,32 +147,6 @@ function boardControls(main, {element, escapeHtml}, rows) {
 	}
 }
 
-function methodFarmAssumptions(farm, usd, pct) {
-	return {
-		title: `Farm assumptions · ${farm.asOf}`,
-		rows: [
-			["Hold", "Until launch or one year, whichever comes first. Count whole review periods."],
-			["Airdrop share of launch cap", pct(farm.airdropShareOfLaunchCap)],
-			["Farmer haircut (retained)", pct(farm.farmerHaircut)],
-			["Labor", `${usd(farm.hourlyRateUsd)}/h`],
-			["Capital APR", `${pct(farm.capitalApr.yieldBearing)} yield-bearing · ${pct(farm.capitalApr.nonYielding)} non-yielding`],
-			["Verdict test deposits", farm.depositsUsd.map(usd).join(" · ")],
-			["Verdicts", `FARM > ${usd(farm.hourlyRateUsd)}/h · THIN if net > $0 · SKIP if net ≤ $0`]
-		]
-	}
-}
-function methodNotes(houseRule, farm, usd, pct, panel) {
-	const assumptions = methodFarmAssumptions(farm, usd, pct)
-	const rule = panel(
-		"House watchlist rule",
-		["TP", "FP", "FN"],
-		[[houseRule.truePositives, houseRule.falsePositives, houseRule.falseNegatives].map(({length}) => String(length))],
-		"DefiLlama marks extra matches with parentProtocol, absent from the snapshot."
-	)
-	const farmPanel = panel(assumptions.title, ["Input", "Default"], assumptions.rows)
-	return `<details class="panel"><summary>Watchlist and farm assumptions</summary>${rule}${farmPanel}</details>`
-}
-
 var sliderLimits = {share: 100, haircut: 100, rate: 250, yield: 50, carry: 50}
 function limit(value, fallback) {
 	const number = Number(value)
@@ -355,61 +329,10 @@ function mountPlanner(main, board, tables, api) {
 	return hash => update(parsePlanState(hash))
 }
 
-function ageSparkline(maxAge, age, odds, oddsAt, svgView) {
-	const y = fraction => ((1 - fraction) * 40).toFixed(2)
-	const marker = (age / maxAge) * 100
-	const line = Array.from({length: 33}, (_, index) => {
-		const x = (index / 32) * 100
-		return `${x.toFixed(2)},${y(oddsAt((x / 100) * maxAge))}`
-	}).join(" ")
-	return svgView(100, 40, `<polyline points="${line}"></polyline><circle cx="${marker.toFixed(2)}" cy="${y(odds)}" r="2" class="age-point"></circle>`)
-}
-
-var reasonLabels = {
-	"pre-token": "Meets the pre-token rule",
-	watchlist: "House watchlist"
-}
-var flagLabels = {
-	"growth-missing": "Missing TVL change. The model uses zero growth.",
-	"age-missing": "Missing listing date. The model uses median comparable age.",
-	"outside-comps-range": "TVL or age falls outside the comparable range."
-}
-function protocolFacts({protocol, status, reason, boardReasons, flags}, age, usd, {escapeHtml: esc, formatInteger, growthText, statusLabels: statusLabels2}) {
-	const facts = [
-		["TVL", usd(protocol.tvl_usd)],
-		["7d TVL change", growthText(protocol.change_7d)],
-		["Listed", esc(protocol.listed_at ?? "Unlisted")],
-		[status === "traded" || status === "token-unpriced" ? "Days since listing" : "Days with no token", formatInteger(age)]
-	]
-	return `<section class="panel"><h3>Protocol record</h3><dl class="facts">${facts.map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("")}</dl>
-    <p><strong>${statusLabels2[status]}</strong>${status === "pre-token" ? "" : ` · ${esc(reason)}`}</p>
-    <p class="muted">Included · ${boardReasons.map(key => reasonLabels[key]).join(" · ")}</p>
-    ${flags.length ? `<ul class="flags">${flags.map(flag => `<li>${flagLabels[flag]}</li>`).join("")}</ul>` : ""}</section>`
-}
-function protocolClock(populationMaxAge, clockAge, odds, usesMedianAge, oddsAt, {formatInteger, formatOdds, svg}) {
-	const maxAge = Math.max(1, clockAge, populationMaxAge)
-	return `<section class="panel clock"><h3>12-month launch odds</h3>
-    ${ageSparkline(maxAge, clockAge, odds, oddsAt, svg)}
-    <p><strong>P₁₂ · ${formatOdds(odds)}</strong></p>
-    <p class="caption">Age marker · ${formatInteger(clockAge)} days${usesMedianAge ? " (population median)" : ""}</p>
-  </section>`
-}
-function nearestComparables(slugs, families, usd, {escapeHtml: esc, table}) {
-	const rows = slugs.map(slug => {
-		const family = families.get(slug)
-		return [esc(family?.representative.name ?? slug), family?.mcap_usd ? usd(family.mcap_usd) : "—"]
-	})
-	return `<section class="panel compact"><h3>Nearest comparables</h3>${table(["Twin", "Family market cap"], rows)}</section>`
-}
-
 window.Radar = Object.assign(window.Radar ?? {}, {
 	bindControls,
 	boardControls,
-	methodNotes,
 	mountPlanner,
-	protocolFacts,
-	protocolClock,
-	nearestComparables,
 	boardHash
 })
 
@@ -653,9 +576,11 @@ function formatFarmStep({action, chain, costUsd, minutes, cadence, exitCondition
 	return `${shorten(action, 190)} | ${shorten(chain ?? "Chain unlisted", 100)} | Est. fee ${usd(costUsd)} | ${minutes} minutes | ${cadence}${exit}`
 }
 function formatEconomics({deposits: deposits2, breakEvenDepositUsd}, holdWeeks, usd, {airdropShareOfLaunchCap}) {
-	const net = deposits2.map(({depositUsd, netUsd, netPerHourUsd, verdict}) => `${usd(depositUsd)}: ${usd(netUsd)} net, ${usd(netPerHourUsd)}/h ${verdict}`)
+	const net = deposits2.map(
+		({depositUsd, expectedValueUsd, netUsd, netPerHourUsd, verdict}) => `${usd(depositUsd)} deposit: ${usd(expectedValueUsd)} expected drop, ${usd(netUsd)} net, ${usd(netPerHourUsd)}/h ${verdict}`
+	)
 	const breakEven = breakEvenDepositUsd === "never" ? "never" : `≈ ${usd(breakEvenDepositUsd)}`
-	return `Economics for an expected ${holdWeeks.toFixed(1)}-week hold · ${net.join(" · ")}. Break-even deposit ${breakEven} (net reaches $0 after cash fees and capital carry). Assumes ${airdropShareOfLaunchCap * 100}% of circulating launch cap for the drop pool. Hold until launch or one year, whichever comes first.`
+	return `Economics for an expected ${holdWeeks.toFixed(1)}-week hold · ${net.join(" · ")}. Break-even deposit ${breakEven} (net reaches $0 after fees and capital carry). Claim gas weighted by launch odds. Drop pool ${airdropShareOfLaunchCap * 100}% of circulating launch cap. Hold until launch or one year, whichever comes first.`
 }
 function boardFarmSteps({plan, economics}, {formatUsd: usd, farmAssumptions}) {
 	return [...plan.steps.map(step => formatFarmStep(step, usd)), formatEconomics(economics, plan.holdWeeks, usd, farmAssumptions)]
@@ -666,8 +591,8 @@ function scheduleFarmMinutes({steps, reviewCounts, holdWeeks}, settings) {
 	const weeks = Array(Math.max(1, Math.ceil(holdWeeks))).fill(0)
 	const weeksPerMonth = settings.weeksPerYear / settings.monthsPerYear
 	for (const {cadence, minutes, exitCondition} of steps) {
-		if (cadence === "once") {
-			const week = exitCondition ? weeks.length - 1 : 0
+		if (cadence === "once" || cadence === "at launch") {
+			const week = exitCondition || cadence === "at launch" ? weeks.length - 1 : 0
 			weeks[week] = (weeks[week] ?? 0) + minutes
 			continue
 		}

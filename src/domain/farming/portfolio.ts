@@ -44,8 +44,8 @@ export function scheduleFarmMinutes(
   const weeks = Array<number>(Math.max(1, Math.ceil(holdWeeks))).fill(0);
   const weeksPerMonth = settings.weeksPerYear / settings.monthsPerYear;
   for (const { cadence, minutes, exitCondition } of steps) {
-    if (cadence === "once") {
-      const week = exitCondition ? weeks.length - 1 : 0;
+    if (cadence === "once" || cadence === "at launch") {
+      const week = exitCondition || cadence === "at launch" ? weeks.length - 1 : 0;
       weeks[week] = (weeks[week] ?? 0) + minutes;
       continue;
     }

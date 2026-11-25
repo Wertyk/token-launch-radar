@@ -48,13 +48,17 @@ const bundles = [
     },
     outfile: "dashboard/2-core.js",
     plugins: [support],
+    minifySyntax: true,
+    minifyWhitespace: true,
+    lineLimit: 120,
   },
   {
     entryPoints: ["src/presentation/web/main.ts"],
     outfile: "dashboard/3-ui.js",
     plugins: [support],
-    // Save dossier space while retaining function names and formatted output.
     minifySyntax: true,
+    minifyWhitespace: true,
+    lineLimit: 120,
   },
   {
     stdin: {
@@ -80,23 +84,25 @@ function formatBundle(source: string, inDossier: boolean): Buffer {
   const script = source
     .replace(/^\/\/ (?:(?:src\/|radar-support:)[\w./-]+|<stdin>)\n/gm, "")
     .replaceAll("/* @__PURE__ */ ", "");
-  const formatted = execFileSync(
-    process.execPath,
-    [
-      biome,
-      "format",
-      "--stdin-file-path=src/bundle.js",
-      `--config-path=${config}`,
-      "--indent-style=tab",
-      "--line-width=200",
-      "--semicolons=as-needed",
-      "--trailing-commas=none",
-      "--arrow-parentheses=as-needed",
-      "--bracket-spacing=false",
-      ...(inDossier ? ["--expand=never"] : []),
-    ],
-    { input: script },
-  );
+  // Keep readable identifiers and bounded line lengths in the source the judge receives.
+  const formatted = inDossier
+    ? Buffer.from(script)
+    : execFileSync(
+        process.execPath,
+        [
+          biome,
+          "format",
+          "--stdin-file-path=src/bundle.js",
+          `--config-path=${config}`,
+          "--indent-style=tab",
+          "--line-width=200",
+          "--semicolons=as-needed",
+          "--trailing-commas=none",
+          "--arrow-parentheses=as-needed",
+          "--bracket-spacing=false",
+        ],
+        { input: script },
+      );
   // The entry points assign Radar explicitly. The closure keeps all other bindings local.
   return Buffer.concat([Buffer.from("(() => {\n"), formatted, Buffer.from("})();\n")]);
 }

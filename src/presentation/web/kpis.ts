@@ -1,9 +1,22 @@
 import type { RadarResult } from "../../application/build-radar.ts";
+import type { InputEffects, summarizeEffects } from "../../domain/valuation/input-effects.ts";
 import type { BoardRow } from "./board.ts";
-import { formatInteger, formatOdds } from "./format.ts";
+import { formatInteger, formatOdds, formatPercent } from "./format.ts";
 import { multiplier } from "./integrity.ts";
 
 export const brier = (value: number | null) => value?.toFixed(4) ?? "—";
+
+export const inputLabels = ["+10% TVL", "+10pp growth", "+1 yr"];
+export const effectPercent = (value: number) =>
+  formatPercent(Number.isFinite(value) ? value : null);
+export function effectLine(values: readonly number[]) {
+  return inputLabels
+    .map((label, index) => `${label} → ${effectPercent(values[index] ?? NaN)}`)
+    .join(" · ");
+}
+
+export type { InputEffects };
+export type EffectSummary = ReturnType<typeof summarizeEffects>;
 
 const actual = (covered: number, n: number) => (n ? formatOdds(covered / n) : "—");
 const nominal = (stated: number) => `${stated * 100}%`;
@@ -31,6 +44,7 @@ export function kpiStrip(
   model: RadarResult["model"],
   odds: RadarResult["odds"]["validation"],
   ranges: RadarResult["rangeHonesty"],
+  effects: EffectSummary,
   rows: readonly BoardRow[],
   protocols: number,
   watchlist: number,
@@ -55,7 +69,13 @@ export function kpiStrip(
       pair(odds.scores),
       `vs ${pair(odds.baselines.baseRate)} base · ${pair(odds.baselines.pava)} clock`,
     ],
-    ["Terms kept", `${termCounts(model.selection)} · ${termCounts(odds)} + clock`, "Value · odds"],
+    [
+      "Inputs in implied value",
+      ["TVL", "growth", "age"]
+        .map((label, index) => `${label} ${effectPercent(effects[index]?.[0] ?? NaN)}`)
+        .join(" · "),
+      "per +10% TVL, +10pp 7-day growth, +1 yr with no token · board medians",
+    ],
     ["Worth farming at $10K", Object.values(counts).join(" / "), "FARM / THIN / SKIP"],
     [
       "Accounted",

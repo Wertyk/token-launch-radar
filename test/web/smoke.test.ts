@@ -62,7 +62,7 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
       .locator(".integrity .check")
       .filter({ hasText: "Recompute = board.json · launch values, odds, implied values, ranks" })
       .waitFor({ timeout: 4_000 });
-    expect(await page.locator(".integrity .check").count()).toBe(6);
+    expect(await page.locator(".integrity .check").count()).toBe(7);
     expect(await page.locator("#kpis dt").count()).toBe(6);
     expect(await page.locator("#kpis").textContent()).toContain("40/40 watchlist");
     expect(await page.locator("#checks").textContent()).toContain("Term selection reproduced");

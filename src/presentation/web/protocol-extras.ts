@@ -68,9 +68,3 @@ export function nearestComparables(
   });
   return `<section class="panel compact"><h3>Nearest comparables</h3>${table(["Twin", "Family market cap"], rows)}</section>`;
 }
-
-export interface ProtocolExtras {
-  protocolFacts: typeof protocolFacts;
-  protocolClock: typeof protocolClock;
-  nearestComparables: typeof nearestComparables;
-}

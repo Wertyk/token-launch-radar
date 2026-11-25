@@ -12,6 +12,7 @@ interface Playbook {
   cadence: "weekly" | "monthly";
   exit: string;
   exitCondition: string;
+  sizing?: { action: string; extraMinutes: number };
 }
 
 type ChainFees = readonly [transactionUsd: number, bridgeUsd: number];
@@ -20,6 +21,13 @@ export interface FarmTables {
   playbooks: Readonly<Record<string, Playbook>> & { generic: Playbook };
   gas: { chains: Readonly<Record<string, ChainFees>>; fallback: ChainFees };
   funding: { wallet: string; unlisted: string; bridge: string };
+  checklist: {
+    eligibility: string;
+    size: string;
+    claim: string;
+    records: string;
+    minutes: readonly [eligibility: number, size: number, claim: number, records: number];
+  };
   uncollateralized: Pick<Playbook, "enter" | "review" | "exit" | "exitCondition">;
 }
 
@@ -154,6 +162,11 @@ export function farmTables(): FarmTables {
       exit: "Request withdrawal from the allocator and check which underlying vaults determine when the funds settle.",
       exitCondition:
         "Request withdrawal sooner if concentration or redemption delays breach your limits.",
+      sizing: {
+        action:
+          "Compare {deposit} with the allocator's size and any published deposit caps in underlying vaults. It is {share}.",
+        extraMinutes: 2,
+      },
     },
     staking: {
       label: "Staking and restaking",
@@ -231,6 +244,11 @@ export function farmTables(): FarmTables {
       cadence: "monthly",
       exit: "Reconcile the destination balance once the transfer settles. Save both transaction IDs.",
       exitCondition: "Stop sending new funds if finality exceeds the documented window.",
+      sizing: {
+        action:
+          "Compare {deposit} with any published route liquidity and transfer limits. This amount is {share}.",
+        extraMinutes: 2,
+      },
     },
     generic: {
       label: "Other products",
@@ -258,5 +276,15 @@ export function farmTables(): FarmTables {
     exit: "Withdraw the supplied funds through an eligible redemption route.",
     exitCondition: "Request withdrawal sooner if a borrower misses payments.",
   };
-  return { playbooks, gas, funding, uncollateralized };
+  const checklist: FarmTables["checklist"] = {
+    eligibility:
+      "Check whether there is an official points or rewards page. If so, verify the wallet, chain and actions meet its eligibility terms.",
+    size: "Compare {deposit} with the pool, vault or market size if published. This deposit is {share}.",
+    claim:
+      "If eligible at launch, claim on the plan chain. Compare the claim's USD value with the expected drop, then decide whether to hold or sell.",
+    records:
+      "Keep deposit, withdrawal and claim receipts with dates, USD values and fees for cost basis.",
+    minutes: [2, 3, 3, 2],
+  };
+  return { playbooks, gas, funding, uncollateralized, checklist };
 }

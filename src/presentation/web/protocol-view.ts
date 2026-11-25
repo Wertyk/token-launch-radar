@@ -11,7 +11,8 @@ import {
   formatOdds,
   signedTerm,
 } from "./format.ts";
-import type { ProtocolExtras } from "./protocol-extras.ts";
+import { effectLine, type InputEffects } from "./kpis.ts";
+import { nearestComparables, protocolClock, protocolFacts } from "./protocol-extras.ts";
 import { boardInterval } from "./recompute.ts";
 import { table } from "./render.ts";
 import { viewTools } from "./view-tools.ts";
@@ -28,6 +29,7 @@ interface CardOptions {
   diagnostics: ValueDiagnostics | undefined;
   families: ReadonlyMap<string, Pick<ProtocolFamily, "representative" | "mcap_usd">>;
   maxOddsAge: number;
+  effects: InputEffects | undefined;
 }
 
 export function valueFormula(model: ValueModel, row?: RadarRow): string {
@@ -48,8 +50,7 @@ export function valueFormula(model: ValueModel, row?: RadarRow): string {
 
 export function protocolView(
   row: RadarRow,
-  { age, model, lnValue, back, usd, farm, diagnostics, families, maxOddsAge }: CardOptions,
-  { nearestComparables, protocolClock, protocolFacts }: Partial<ProtocolExtras>,
+  { age, model, lnValue, back, usd, farm, diagnostics, families, maxOddsAge, effects }: CardOptions,
 ): string {
   const { protocol, plan, oddsAge, oddsAt, launchProbability12: p12 } = row;
   const { airdropYieldApr, breakEvenDepositUsd, deposits } = row.economics;
@@ -83,17 +84,19 @@ export function protocolView(
           <p class="figure">${implied}</p>
           <p>P10–P90 · ${interval}</p>
           <p class="value-equation">ln V ≈ ${valueFormula(model, row)} ≈ ${lnValue.toFixed(3)} → ${usd(row.launch_value_usd)} × P₁₂(${oddsAge.toFixed(0)} d) ${formatOdds(p12)} → ${implied}</p>
+          ${effects ? `<p class="caption">${effectLine(effects)}</p>` : ""}
           ${influenceLine ? `<p class="caption">${influenceLine}</p>` : ""}
         </section>
-        ${protocolFacts?.(row, age, usd, viewTools) ?? ""}
-        ${protocolClock?.(maxOddsAge, oddsAge, p12, age === null, oddsAt, viewTools) ?? ""}
+        ${protocolFacts(row, age, usd, viewTools)}
+        ${protocolClock(maxOddsAge, oddsAge, p12, age === null, oddsAt, viewTools)}
       </div><div class="detail-facts">
         <section class="panel farm"><h3>Farm plan</h3>
           <p class="plan-meta"><strong>${esc(plan.chain ?? "Chain unlisted")}</strong> · ${usd(plan.depositUsd)} plan · ${plan.holdWeeks.toFixed(1)} weeks expected</p>
           ${table(
-            ["Deposit", "Net", "Net per hour", "Verdict"],
-            deposits.map(({ depositUsd, netUsd, netPerHourUsd, verdict }) => [
+            ["Deposit", "Expected drop", "Net", "Net per hour", "Verdict"],
+            deposits.map(({ depositUsd, expectedValueUsd, netUsd, netPerHourUsd, verdict }) => [
               usd(depositUsd),
+              usd(expectedValueUsd),
               usd(netUsd),
               usd(netPerHourUsd),
               verdict,
@@ -105,9 +108,9 @@ export function protocolView(
           <p>Break-even deposit · ${breakEvenDepositUsd === "never" ? "never" : usd(breakEvenDepositUsd)}</p>
           <p class="caption">${esc(plan.steps.at(-1)?.exitCondition ?? "")}</p>
           ${steps}
-          <p class="caption">Per-occurrence fees and minutes. Assumptions ${plan.assumptionsAsOf}${plan.flags.length ? " · fallback fees" : ""}.</p>
+          <p class="caption">Fees and minutes per occurrence. Claim gas weighted by launch odds in totals. Assumptions ${plan.assumptionsAsOf}${plan.flags.length ? " · fallback fees" : ""}.</p>
         </section>
-        ${nearestComparables?.(diagnostics?.twins ?? [], families, usd, viewTools) ?? ""}
+        ${nearestComparables(diagnostics?.twins ?? [], families, usd, viewTools)}
       </div>
     </div>`;
 }

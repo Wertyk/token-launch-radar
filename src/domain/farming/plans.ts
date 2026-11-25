@@ -7,7 +7,7 @@ import { type ExitThreshold, farmGroup } from "./exit-rules.ts";
 import { expectedHoldYears } from "./hold.ts";
 import type { FarmTables } from "./playbook-data.ts";
 
-type Cadence = "once" | "weekly" | "monthly";
+type Cadence = "once" | "weekly" | "monthly" | "at launch";
 
 interface FarmStep {
   action: string;
@@ -59,9 +59,23 @@ function roundUsd(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+function formatEntryShare(depositUsd: number, tvlUsd: number): string {
+  const percent = (100 * depositUsd) / tvlUsd;
+  const rounded = percent.toPrecision(2);
+  const [, exponent] = rounded.split("e");
+  const decimals = Math.max(0, 1 - Number(exponent));
+  const display = exponent && decimals <= 20 ? Number(rounded).toFixed(decimals) : rounded;
+  const share = `${display}% of snapshot TVL`;
+  if (percent >= 0.001) return share;
+
+  const ratio = Number((tvlUsd / depositUsd).toPrecision(2));
+  const scale = Math.min(4, Math.floor(Math.log10(ratio) / 3));
+  return `${share} (about 1 in ${ratio / 1000 ** scale}${" KMBT"[scale]} of TVL)`;
+}
+
 export function makeFarmPlan(
   protocol: Pick<Protocol, "category" | "chains" | "tvl_usd">,
-  { playbooks, gas, funding, uncollateralized }: FarmTables,
+  { playbooks, gas, funding, uncollateralized, checklist }: FarmTables,
   {
     depositUsd = assumptions.depositsUsd[0],
     launchProbability12 = 0,
@@ -85,6 +99,7 @@ export function makeFarmPlan(
   const holdWeeks = holdYears * assumptions.weeksPerYear;
   const reviewCounts = {
     once: 1,
+    "at launch": 1,
     weekly: Math.floor(holdWeeks),
     monthly: Math.floor(assumptions.monthsPerYear * holdYears),
   };
@@ -100,9 +115,8 @@ export function makeFarmPlan(
   const fields: Record<string, string> = {
     deposit: formatUsd(depositUsd),
     chain: chain ?? "a verified chain",
-    gas: gasTransactions
-      ? `about ${formatUsd(gasTransactions * transactionUsd)} for gas`
-      : "gas as needed",
+    gas: `about ${formatUsd((gasTransactions + 1) * transactionUsd)} for gas`,
+    share: formatEntryShare(depositUsd, protocol.tvl_usd),
   };
   const step = (
     action: string,
@@ -117,6 +131,7 @@ export function makeFarmPlan(
     cadence,
   });
   const [entryMinutes, reviewMinutes, exitMinutes] = playbook.minutes;
+  const [eligibilityMinutes, sizeMinutes, claimMinutes, recordMinutes] = checklist.minutes;
   const tradingFees =
     group === "derivatives" ? assumptions.tradeVolumeUsd * assumptions.tradingFeeRate : 0;
   const fundingStep = bridge ? null : step(funding.bridge, bridgeUsd, assumptions.bridgeMinutes);
@@ -126,24 +141,43 @@ export function makeFarmPlan(
     reviewMinutes,
     playbook.cadence,
   );
+  const claim = step(checklist.claim, transactionUsd, claimMinutes, "at launch");
   const floor = `TVL drops under ${formatUsd(protocol.tvl_usd / 2)}`;
   const drawdown = exitThreshold?.change.toFixed(1).replace("-", "−");
   const trigger = exitThreshold
     ? `Exit if 7-day TVL change falls below ${drawdown}% (bottom tenth of ${exitThreshold.label} in this snapshot) or ${floor}.`
     : `Exit if ${floor}. No listed pre-token 7-day TVL data.`;
   const steps = [
-    step(chain === null ? funding.unlisted : funding.wallet, 0, assumptions.setupMinutes),
+    step(
+      chain === null ? funding.unlisted : funding.wallet,
+      0,
+      assumptions.setupMinutes - eligibilityMinutes,
+    ),
+    step(checklist.eligibility, 0, eligibilityMinutes),
+    step(
+      playbook.sizing?.action ?? checklist.size,
+      0,
+      sizeMinutes + (playbook.sizing?.extraMinutes ?? 0),
+    ),
     ...(fundingStep ? [fundingStep] : []),
-    step(copy.enter, entry * (bridge ? bridgeUsd : transactionUsd), entryMinutes),
+    step(
+      copy.enter,
+      entry * (bridge ? bridgeUsd : transactionUsd),
+      entryMinutes - sizeMinutes - recordMinutes,
+    ),
     recurring,
+    step(checklist.records, 0, recordMinutes),
+    claim,
     {
-      ...step(copy.exit, exit * transactionUsd, exitMinutes),
+      ...step(copy.exit, exit * transactionUsd, exitMinutes - claimMinutes),
       exitCondition: `${trigger} ${copy.exitCondition}`,
     },
   ];
-  const oneTimeCostUsd = roundUsd(
-    steps.reduce((sum, item) => sum + item.costUsd, 0) - recurring.costUsd,
-  );
+  // Reserve claim time at the end of the hold and weight its gas by the chance of launch.
+  const fixedCost = steps
+    .filter(({ cadence }) => cadence === "once")
+    .reduce((sum, { costUsd }) => sum + costUsd, 0);
+  const oneTimeCostUsd = roundUsd(fixedCost + claim.costUsd * launchProbability12);
   const recurringCostUsd = roundUsd(recurring.costUsd * repeats);
   return {
     chain,

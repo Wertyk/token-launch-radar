@@ -118,7 +118,7 @@ body:has(main .portfolio) nav a[href="#/plan"] {
 
 .kpis {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 2fr) repeat(2, minmax(0, 0.8fr));
   margin-top: var(--s4);
   border: 1px solid var(--line);
   border-radius: var(--radius) var(--radius) 0 0;
@@ -583,6 +583,12 @@ button[data-sort]::after {
 
 :where(.detail-grid) .farm :is(th, td) {
   padding-block: var(--s1);
+}
+
+.detail-grid .farm table:not(.deposit-grid) td {
+  padding-block: 2px;
+  font-size: var(--font-small);
+  line-height: 1.25;
 }
 
 .farm :is(th, td):first-child {

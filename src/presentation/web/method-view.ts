@@ -1,7 +1,7 @@
 import type { RadarResult } from "../../application/build-radar.ts";
 import { formatOdds } from "./format.ts";
 import { multiplier } from "./integrity.ts";
-import { brier, rangeRows } from "./kpis.ts";
+import { brier, type EffectSummary, effectPercent, inputLabels, rangeRows } from "./kpis.ts";
 import { table } from "./render.ts";
 
 export function methodPanel(title: string, headers: string[], rows: string[][], note?: string) {
@@ -34,7 +34,12 @@ export function methodView(
     rangeHonesty,
     bootstrap,
     placebo,
-  }: Pick<RadarResult, "model" | "odds" | "rangeHonesty" | "bootstrap" | "placebo">,
+    effectSummary,
+    boardSize,
+  }: Pick<RadarResult, "model" | "odds" | "rangeHonesty" | "bootstrap" | "placebo"> & {
+    effectSummary: EffectSummary;
+    boardSize: number;
+  },
   notes?: (panel: typeof methodPanel) => string,
 ): string {
   const {
@@ -50,6 +55,11 @@ export function methodView(
   const categoryNote = category
     ? `Category trial λ ${category.lambda} × ${category.categoryPenaltyMultiple} for group effects.`
     : "Category trial parameters unavailable.";
+  const paths = [
+    ["Launch value", odds.terms.includes("lnTvl") && "odds"],
+    [model.momentum && "Launch value", odds.terms.includes("growth") && "odds"],
+    [lnAge && "Launch value", "odds clock"],
+  ].map((terms) => terms.filter(Boolean).join(" + ") || "—");
 
   const cards = [
     '<div class="method-value">',
@@ -98,6 +108,17 @@ export function methodView(
     ),
     termTrials("Odds", odds.validation),
     '</div><div class="method-evidence">',
+    methodPanel(
+      "How each input moves the implied value",
+      ["Input", "Median", "P10–P90", "Through"],
+      effectSummary.map(([median, low, high], i) => [
+        inputLabels[i] ?? "",
+        effectPercent(median ?? NaN),
+        `${effectPercent(low ?? NaN)} to ${effectPercent(high ?? NaN)}`,
+        paths[i] ?? "",
+      ]),
+      `${boardSize} rows, before dollar rounding. Growth is 7-day, clipped by the model. Age with no token shifts the clock forward. Missing growth starts at 0 and undated ages use the fitted medians.`,
+    ),
     methodPanel(
       "Held-out token status",
       ["Model", "10-fold Brier", "Walk-forward Brier"],

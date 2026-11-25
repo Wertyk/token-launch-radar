@@ -128,22 +128,22 @@ test("rescores after paying for funding and charges its fee and time once per ch
   expect(result.totals.hoursPerWeek).toBeCloseTo((109 + 99 + 109) / (52 * 60), 12);
 });
 
-test("requires $20,016 for two Ethereum protocols with their own $8 transfers", () => {
-  // At 3.75% drop yield and about 3.61% carry, only $10,000 covers the $8 fee.
+test("requires $20,019 for two Ethereum bridge plans with separate transfers and claim fees", () => {
+  // Only $10,000 covers the $8 transfer plus the $1.50 expected claim fee for each plan.
   const rows = [
     row("a", 1, 6_000_000, ["Ethereum"], "Bridge", 0.5),
     row("b", 2, 6_000_000, ["Ethereum"], "Canonical Bridge", 0.5),
   ];
   const options = { hoursPerWeek: 3, assumptions };
-  for (const budgetUsd of [20_008, 20_015.99]) {
+  for (const budgetUsd of [20_009.5, 20_018.99]) {
     expect(planPortfolio(rows, { ...options, budgetUsd }).positions).toHaveLength(1);
   }
-  const result = planPortfolio(rows, { ...options, budgetUsd: 20_016 });
+  const result = planPortfolio(rows, { ...options, budgetUsd: 20_019 });
   expect(result.positions).toMatchObject([
-    { slug: "a", depositUsd: 10_000, feesUsd: 8 },
-    { slug: "b", depositUsd: 10_000, feesUsd: 8 },
+    { slug: "a", depositUsd: 10_000, feesUsd: 9.5 },
+    { slug: "b", depositUsd: 10_000, feesUsd: 9.5 },
   ]);
-  expect(result.totals.cashUsd).toBe(20_016);
+  expect(result.totals.cashUsd).toBe(20_019);
 });
 
 test("a protocol transfer does not pay for funding a separate position", () => {

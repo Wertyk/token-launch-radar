@@ -12,6 +12,7 @@ import { compareText } from "../domain/shared/order.ts";
 import type { Snapshot } from "../domain/snapshot.ts";
 import { daysBetween } from "../domain/snapshot.ts";
 import { groupComparableCategories } from "../domain/valuation/categories.ts";
+import { impliedValueEffects, summarizeEffects } from "../domain/valuation/input-effects.ts";
 import { MIN_BAND_FAMILIES, rangeHonesty } from "../domain/valuation/jackknife.ts";
 import { logValue } from "../domain/valuation/model.ts";
 import { selectValueTerms, type ValueTrialFit } from "../domain/valuation/value-selection.ts";
@@ -60,6 +61,8 @@ function reproduceSelection(
 }
 
 export const browserApi = {
+  impliedValueEffects,
+  summarizeEffects,
   rangeHonesty,
   reproduceSelection,
   MIN_BAND_FAMILIES,

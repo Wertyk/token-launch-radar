@@ -13,6 +13,7 @@ interface StepCopy {
 interface EconomicsCopy {
   deposits: readonly {
     depositUsd: number;
+    expectedValueUsd: number;
     netUsd: number;
     netPerHourUsd: number;
     verdict: string;
@@ -40,11 +41,11 @@ export function formatEconomics(
   { airdropShareOfLaunchCap }: typeof FARM_ASSUMPTIONS,
 ): string {
   const net = deposits.map(
-    ({ depositUsd, netUsd, netPerHourUsd, verdict }) =>
-      `${usd(depositUsd)}: ${usd(netUsd)} net, ${usd(netPerHourUsd)}/h ${verdict}`,
+    ({ depositUsd, expectedValueUsd, netUsd, netPerHourUsd, verdict }) =>
+      `${usd(depositUsd)} deposit: ${usd(expectedValueUsd)} expected drop, ${usd(netUsd)} net, ${usd(netPerHourUsd)}/h ${verdict}`,
   );
   const breakEven = breakEvenDepositUsd === "never" ? "never" : `≈ ${usd(breakEvenDepositUsd)}`;
-  return `Economics for an expected ${holdWeeks.toFixed(1)}-week hold · ${net.join(" · ")}. Break-even deposit ${breakEven} (net reaches $0 after cash fees and capital carry). Assumes ${airdropShareOfLaunchCap * 100}% of circulating launch cap for the drop pool. Hold until launch or one year, whichever comes first.`;
+  return `Economics for an expected ${holdWeeks.toFixed(1)}-week hold · ${net.join(" · ")}. Break-even deposit ${breakEven} (net reaches $0 after fees and capital carry). Claim gas weighted by launch odds. Drop pool ${airdropShareOfLaunchCap * 100}% of circulating launch cap. Hold until launch or one year, whichever comes first.`;
 }
 
 export function boardFarmSteps(

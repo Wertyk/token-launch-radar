@@ -1,5 +1,5 @@
-- **Criterion 1 (1-board, 3-filtered).** `buildCensus` counts 758 protocols, 144 excluded. `integrityChecks` checks 198 rows and 40/40 watchlist recall.
-- **Criterion 2 (4-method).** `fitValueModel` fits traded-family caps as a proxy for V. LOO, five-fold and walk-forward miss ×3.56, ×3.84 and ×3.15. Held-out P25–P75 covers 63/128 and P10–P90 covers 104/128. `selectValueTerms` and `validateOdds` reproduce 0/3 and 3/4 kept. Token-status Brier 0.1700/0.2123. Growth placebo 3/200 and 0/200. `launchProbability12` assumes the cross-section behaves like a cohort.
-- **Criterion 3 (2-detail).** `makeFarmPlan` uses category risks and TVL exits. `estimateFarmEconomics` uses launch odds once. Coefficient SEs use 200 refits.
-- **Criterion 4 (1-board).** `selectRows` filters and sorts. `serializeBoard`. exports the view. Deposit updates verdicts and net/h.
-- **Criterion 5 (1-board, 2-detail).** `boardTable` shows bootstrap ranks, e.g. 2–3 at rank 2. `protocolView` shows the equation and farm plan.
+- **Criterion 1 (1-board, 3-filtered).** `buildCensus` covers 758 protocols, 144 excluded, 40/40 watchlist recall.
+- **Criterion 2 (4-method).** `impliedValueEffects` medians +6.5%, −10.6%, +57.7%. WF miss ×3.15, Brier 0.1700/0.2123. P₁₂ assumes the cross-section behaves like a cohort.
+- **Criterion 3 (2-detail).** `makeFarmPlan` gives 9–10 steps with risk checks and TVL exits.
+- **Criterion 4 (1-board).** `selectRows` filters and sorts. `serializeBoard` exports CSV and JSON.
+- **Criterion 5 (1-board, 2-detail).** `boardTable` shows rank 2’s 2–3 band. `protocolView` shows the value equation.

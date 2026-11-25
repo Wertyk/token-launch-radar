@@ -1,16 +1,90 @@
 import { expect, test } from "vitest";
 import { ASSUMPTIONS_AS_OF, FARM_ASSUMPTIONS } from "../../../src/domain/farming/assumptions.ts";
+import { boardFarmSteps } from "../../../src/domain/farming/board-steps.ts";
 import { estimateFarmEconomics, renderEconomics } from "../../../src/domain/farming/economics.ts";
 import { makeFarmPlan as buildPlan, renderFarmStep } from "../../../src/domain/farming/plans.ts";
 import { farmTables } from "../../../src/domain/farming/playbook-data.ts";
+import { formatUsd } from "../../../src/domain/shared/money.ts";
 import { protocol } from "../protocol-fixture.ts";
 
-const horizonOccurrences = { once: 1, weekly: 52, monthly: 12 };
+const horizonOccurrences = { once: 1, weekly: 52, monthly: 12, "at launch": 1 };
 const tables = farmTables();
+
+test.each(Object.values(tables.playbooks))(
+  "publishes the $label checklist with costed steps",
+  (playbook) => {
+    const name = "Fixture Protocol XYZ";
+    const record = protocol({
+      name,
+      category: playbook.categories[0] ?? null,
+      chains: ["Base"],
+      tvl_usd: 16_000_000,
+    });
+    const plan = buildPlan(record, tables, { depositUsd: 2_000, launchProbability12: 0.5 });
+    const economics = estimateFarmEconomics(plan, 8_000_000, record.tvl_usd, 0.5);
+    const lines = boardFarmSteps(
+      { plan, economics },
+      { formatUsd, farmAssumptions: FARM_ASSUMPTIONS },
+    );
+    expect(lines.length).toBeGreaterThanOrEqual(8);
+    expect(lines.length).toBeLessThanOrEqual(10);
+    for (const line of lines) {
+      expect(line).not.toContain(name);
+      expect(line.trim()).toHaveLength(line.length);
+      expect(line.length).toBeGreaterThanOrEqual(20);
+      expect(line.length).toBeLessThanOrEqual(600);
+    }
+    const eligibility = lines.findIndex((line) =>
+      /check whether.*points or rewards page.*eligibility/i.test(line),
+    );
+    expect(eligibility).toBeGreaterThanOrEqual(0);
+    expect(eligibility).toBeLessThan(
+      plan.steps.findIndex(({ action }) => action.includes(playbook.enter.split("{")[0] ?? "")),
+    );
+    const size = lines.find((line) => line.includes("of snapshot TVL"));
+    expect(size).toContain("0.013% of snapshot TVL.");
+    expect(size).toContain("$2,000");
+    const claim = lines.find((line) => /if eligible at launch/i.test(line));
+    expect(claim).toMatch(
+      /claim on the plan chain.*expected drop.*hold or sell.*Base.*Est. fee \$0.05.*minutes.*at launch/i,
+    );
+    expect(plan.oneTimeCostUsd).toBeCloseTo(
+      plan.steps.reduce((cost, step) => cost + (step.cadence === "once" ? step.costUsd : 0), 0) +
+        0.03,
+      10,
+    );
+    expect(lines.some((line) => /deposit, withdrawal and claim.*cost basis/i.test(line))).toBe(
+      true,
+    );
+    expect(lines.at(-1)).toContain("expected drop");
+  },
+);
 
 function makeFarmPlan(record: ReturnType<typeof protocol>, depositUsd = 1_000) {
   return buildPlan(record, tables, { depositUsd });
 }
+
+test.each([
+  [4_260, "23% of snapshot TVL."],
+  [42_600, "2.3% of snapshot TVL."],
+  [100_000_000, "0.0010% of snapshot TVL."],
+  [100_100_000, "0.0010% of snapshot TVL (about 1 in 100K of TVL)."],
+  [2_753_979_963, "0.000036% of snapshot TVL (about 1 in 2.8M of TVL)."],
+  [4_970_000_000_000, "0.000000020% of snapshot TVL (about 1 in 5B of TVL)."],
+])("formats the deposit share for TVL of %d dollars", (tvl_usd, expected) => {
+  const plan = makeFarmPlan(protocol({ tvl_usd }));
+  expect(plan.steps[2]?.action).toContain(expected);
+});
+
+test.each(["Onchain Capital Allocator", "Canonical Bridge"])(
+  "includes the ratio in the %s sizing step",
+  (category) => {
+    const plan = makeFarmPlan(protocol({ category, tvl_usd: 2_753_979_963 }));
+    expect(plan.steps.map(renderFarmStep)[2]).toContain(
+      "0.000036% of snapshot TVL (about 1 in 2.8M of TVL).",
+    );
+  },
+);
 
 const playbooks = [
   ["Dexs", /pool/i, 0],
@@ -41,13 +115,13 @@ test.each([
   (category, entry, review, exit) => {
     const plan = makeFarmPlan(protocol({ category, name: "Sample Finance", chains: ["Base"] }));
     const steps = plan.steps.map(renderFarmStep);
-    const gas = category === "Dexs" ? "$2.70" : "$0.10";
+    const gas = category === "Dexs" ? "$2.75" : "$0.15";
     expect(plan.steps[0]?.action).toBe(`Set aside $1,000 and keep about ${gas} for gas on Base.`);
-    expect(steps[1]).toContain("If your funds sit on another chain, bridge $1,000 to Base.");
-    expect(steps[1]).toContain("Est. fee $0.30 | 10 minutes | once");
-    expect(steps[2]).toContain(entry);
-    expect(steps[3]).toContain(review);
-    expect(steps[4]).toContain(exit);
+    expect(steps[3]).toContain("If your funds sit on another chain, bridge $1,000 to Base.");
+    expect(steps[3]).toContain("Est. fee $0.30 | 10 minutes | once");
+    expect(steps[4]).toContain(entry);
+    expect(steps[5]).toContain(review);
+    expect(steps.at(-1)).toContain(exit);
   },
 );
 
@@ -58,11 +132,11 @@ test("renders a chainless plan with the selected deposit and a chain verificatio
   );
   const steps = plan.steps.map(renderFarmStep);
   expect(steps[0]).toContain("Verify a supported chain");
-  expect(steps[1]).toContain(
+  expect(steps[3]).toContain(
     "If your funds sit on another chain, bridge $250 to a verified chain.",
   );
-  expect(steps[1]).toContain("Est. fee $2.50 | 10 minutes | once");
-  expect(steps[2]).toContain("Before depositing $250 into a vault on a verified chain");
+  expect(steps[3]).toContain("Est. fee $2.50 | 10 minutes | once");
+  expect(steps[4]).toContain("Before depositing $250 into a vault on a verified chain");
 });
 
 test("uses the bridge itself for the transfer action and estimates its fee once", () => {
@@ -70,7 +144,7 @@ test("uses the bridge itself for the transfer action and estimates its fee once"
     protocol({ name: "Sample Finance", category: "Bridge", chains: ["Base"] }),
   );
   expect(plan.fundingStep).toBeNull();
-  expect(plan.steps.map(renderFarmStep)[1]).toContain("Quote a $1,000 transfer from Base.");
+  expect(plan.steps.map(renderFarmStep)[3]).toContain("Quote a $1,000 transfer from Base.");
   expect(plan.oneTimeCostUsd).toBe(0.3);
 });
 
@@ -81,7 +155,7 @@ test("preserves the funding condition when long chain names shorten the rendered
       chains: ["Long chain label ".repeat(30)],
     }),
   );
-  expect(plan.steps.map(renderFarmStep)[1]).toMatch(
+  expect(plan.steps.map(renderFarmStep)[3]).toMatch(
     /^If your funds sit on another chain, bridge \$1,000 to Long chain label/,
   );
 });
@@ -94,8 +168,8 @@ test.each([" Uncollateralized Lending ", "Uncollateralized Credit"])(
     const baselineCategory = category.trim() === "Uncollateralized Lending" ? "Lending" : null;
     const baseline = makeFarmPlan({ ...record, category: baselineCategory }, 250);
     const steps = plan.steps.map(renderFarmStep);
-    expect(steps[2]).toContain("Supply $250 on Base");
-    expect(steps[4]).toContain("Withdraw the supplied funds");
+    expect(steps[4]).toContain("Supply $250 on Base");
+    expect(steps.at(-1)).toContain("Withdraw the supplied funds");
     expect(steps.join(" ")).not.toMatch(/\bcollateral\b|liquidation/i);
     expect(plan.steps.map(({ costUsd, minutes, cadence }) => [costUsd, minutes, cadence])).toEqual(
       baseline.steps.map(({ costUsd, minutes, cadence }) => [costUsd, minutes, cadence]),
@@ -137,7 +211,8 @@ for (const chains of [[], ["Unmapped Chain"]]) {
       let minutes = 0;
       for (const { cadence, costUsd, minutes: activeMinutes } of plan.steps) {
         if (cadence === "once") oneTime += costUsd;
-        else recurring += horizonOccurrences[cadence] * costUsd;
+        if (cadence === "weekly" || cadence === "monthly")
+          recurring += horizonOccurrences[cadence] * costUsd;
         minutes += horizonOccurrences[cadence] * activeMinutes;
       }
       expect(plan.oneTimeCostUsd).toBeCloseTo(oneTime, 8);

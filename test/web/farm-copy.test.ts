@@ -2,16 +2,12 @@ import { expect, test } from "vitest";
 import { farmAssumptions, formatUsd, logValue } from "../../src/application/browser-api.ts";
 import { buildRadar, recomputeRadar } from "../../src/application/build-radar.ts";
 import { farmTables } from "../../src/domain/farming/playbook-data.ts";
+import { impliedValueEffects, summarizeEffects } from "../../src/domain/valuation/input-effects.ts";
 import type { BoardRow } from "../../src/presentation/web/board.ts";
 import { boardRows, boardTable } from "../../src/presentation/web/board-view.ts";
 import { formatOdds } from "../../src/presentation/web/format.ts";
 import { methodNotes } from "../../src/presentation/web/method-extras.ts";
 import { methodView } from "../../src/presentation/web/method-view.ts";
-import {
-  nearestComparables,
-  protocolClock,
-  protocolFacts,
-} from "../../src/presentation/web/protocol-extras.ts";
 import { protocolView } from "../../src/presentation/web/protocol-view.ts";
 import { protocol } from "../domain/protocol-fixture.ts";
 
@@ -30,7 +26,7 @@ test("renders the labor rate and farmer haircut beside the protocol verdicts", (
     mcap_usd: 8_000_000,
     gecko_id: "tracked",
   });
-  const { board, model } = recomputeRadar(
+  const { board, model, odds } = recomputeRadar(
     {
       protocols: [
         tracked,
@@ -67,8 +63,8 @@ test("renders the labor rate and farmer haircut beside the protocol verdicts", (
     },
     families: new Map([["tracked", { representative: tracked, mcap_usd: 8_000_000 }]]),
     maxOddsAge: 100,
+    effects: impliedValueEffects(row.protocol, "2026-11-14", model, odds),
   };
-  const extras = { nearestComparables, protocolClock, protocolFacts };
   const html = protocolView(
     {
       ...row,
@@ -76,11 +72,11 @@ test("renders the labor rate and farmer haircut beside the protocol verdicts", (
       oddsAge: 80,
     },
     { ...card, diagnostics: { ...card.diagnostics, ...{ launch_p12: 0.25 } } },
-    extras,
   );
-  for (const { depositUsd, verdict, netUsd, netPerHourUsd } of row.economics.deposits) {
+  for (const { depositUsd, expectedValueUsd, verdict, netUsd, netPerHourUsd } of row.economics
+    .deposits) {
     expect(html).toContain(
-      `<td>${formatUsd(depositUsd)}</td><td>${formatUsd(netUsd)}</td><td>${formatUsd(netPerHourUsd)}</td><td>${verdict}</td>`,
+      `<td>${formatUsd(depositUsd)}</td><td>${formatUsd(expectedValueUsd)}</td><td>${formatUsd(netUsd)}</td><td>${formatUsd(netPerHourUsd)}</td><td>${verdict}</td>`,
     );
   }
   expect(html).toContain("$25/h for labor · 50% farmer haircut");
@@ -95,17 +91,13 @@ test("renders the labor rate and farmer haircut beside the protocol verdicts", (
   expect(html).toContain("Before depositing $1,000 into a vault on Base");
   expect(html).not.toContain("xmlns");
 
-  const noMovement = protocolView(
-    row,
-    {
-      ...card,
-      diagnostics: {
-        ...card.diagnostics,
-        influence: { ...card.diagnostics.influence, rank_delta: 0 },
-      },
+  const noMovement = protocolView(row, {
+    ...card,
+    diagnostics: {
+      ...card.diagnostics,
+      influence: { ...card.diagnostics.influence, rank_delta: 0 },
     },
-    extras,
-  );
+  });
   expect(noMovement).toContain("No single comparable moves this rank");
   expect(noMovement).not.toContain("Without Traded &amp; Co");
 });
@@ -176,8 +168,10 @@ test("shows whole validation tables in their Method columns with the dated assum
       ],
     },
   };
-  const html = methodView({ ...data, model }, (panel) =>
-    methodNotes(data.houseRule, farmAssumptions, formatUsd, formatOdds, panel),
+  const effectSummary = summarizeEffects(new Map([["sample", [6, -10, 55]]]));
+  const html = methodView(
+    { ...data, model, effectSummary, boardSize: data.board.length },
+    (panel) => methodNotes(data.houseRule, farmAssumptions, formatUsd, formatOdds, panel),
   );
   for (const text of [
     "λ",
@@ -202,7 +196,7 @@ test("shows whole validation tables in their Method columns with the dated assum
   ]) {
     expect(html).toContain(text);
   }
-  expect(html.match(/<table/g)).toHaveLength(9);
+  expect(html.match(/<table/g)).toHaveLength(10);
   const headings = (column: string) =>
     [...column.matchAll(/<h2>([^<]+)<\/h2>/g)].map(([, title]) => title);
   const [value, odds = "", evidence = ""] = html.split(/<div class="method-(?:odds|evidence)">/);
@@ -212,7 +206,8 @@ test("shows whole validation tables in their Method columns with the dated assum
     "Value term selection",
   ]);
   expect(headings(odds)).toEqual(["Token-status model", "Odds term selection"]);
-  expect(headings(evidence).slice(0, 3)).toEqual([
+  expect(headings(evidence).slice(0, 4)).toEqual([
+    "How each input moves the implied value",
     "Held-out token status",
     "Held-out range honesty",
     "Growth placebo",
