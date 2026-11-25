@@ -42,6 +42,15 @@ test("requires cash for the deposit and its fees, including at zero budget", () 
   expect(result.totals.cashUsd).toBe(budgetUsd);
 });
 
+test("considers the board's $25K deposit when every smaller option loses money", () => {
+  const { positions } = planPortfolio([row("a", 1, 2_000)], {
+    budgetUsd: 25_001,
+    hoursPerWeek: 3,
+    assumptions,
+  });
+  expect(positions).toMatchObject([{ slug: "a", depositUsd: 25_000 }]);
+});
+
 test("requires enough weekly time for a whole plan", () => {
   const result = planPortfolio([row("a", 1)], {
     budgetUsd: 5_000,
@@ -101,30 +110,30 @@ test("uses a supported chain from the filter, including when the published plan 
     chains: ["Solana"],
     assumptions,
   });
-  expect(result.positions).toMatchObject([{ slug: "b", chain: "Solana", depositUsd: 2_500 }]);
+  expect(result.positions).toMatchObject([{ slug: "b", chain: "Solana", depositUsd: 1_000 }]);
   expect(result.rejected).toEqual([{ slug: "a", reason: "chain-excluded" }]);
 });
 
 test("rescores after paying for funding and charges its fee and time once per chain", () => {
   const result = planPortfolio(
     [row("a", 3, 8_800_000), row("b", 2), row("c", 1, 8_010_000, ["Optimism"])],
-    { budgetUsd: 4_501, hoursPerWeek: 3, assumptions },
+    { budgetUsd: 7_001, hoursPerWeek: 3, assumptions },
   );
   expect(
     result.positions.map(({ slug, depositUsd, feesUsd }) => [slug, depositUsd, feesUsd]),
   ).toEqual([
-    ["a", 2_500, 0.4],
+    ["a", 5_000, 0.4],
     ["b", 1_000, 0.1],
     ["c", 1_000, 0.49],
   ]);
   const first = result.positions[0];
-  // $8.8M × 25% × 50% / $10M × $2,500 = $275 EV. Yield-bearing capital incurs no carry.
-  expect(first?.expectedValueUsd).toBe(275);
+  // $8.8M × 25% × 50% / $10M × $5,000 = $550 EV. Yield-bearing capital incurs no carry.
+  expect(first?.expectedValueUsd).toBe(550);
   expect(first?.costUsd).toBeCloseTo(0.4, 10);
-  expect(first?.netUsd).toBeCloseTo(275 - 0.4, 10);
+  expect(first?.netUsd).toBeCloseTo(550 - 0.4, 10);
   expect(result.positions[1]?.hoursPerWeek).toBeCloseTo(99 / (52 * 60), 12);
   expect(result.positions[1]?.costUsd).toBeCloseTo(0.1, 10);
-  expect(result.totals.cashUsd).toBe(4_500.99);
+  expect(result.totals.cashUsd).toBe(7_000.99);
   expect(result.totals.hoursPerWeek).toBeCloseTo((109 + 99 + 109) / (52 * 60), 12);
 });
 
@@ -180,7 +189,7 @@ test("reports up to five distinct feasible near misses and the top fifteen rejec
 
 test("breaks score ties by slug, independently of input and board rank", () => {
   const rows = [row("z", 1), row("a", 2)];
-  const options = { budgetUsd: 2_500.4, hoursPerWeek: 3, assumptions };
+  const options = { budgetUsd: 1_000.4, hoursPerWeek: 3, assumptions };
   const result = planPortfolio(rows, options);
   expect(result.positions.map(({ slug }) => slug)).toEqual(["a"]);
   expect(planPortfolio([...rows].reverse(), options)).toEqual(result);

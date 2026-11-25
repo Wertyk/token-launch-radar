@@ -8,7 +8,7 @@ export interface CategoryParameters {
 
 export function categoryDesign(
   rows: readonly CategoryComparable[],
-  { lambda, categoryPenaltyMultiple }: CategoryParameters,
+  penalty: number,
 ): CategoryDesign {
   const counts = categoryTotals();
   for (const { category } of rows) counts[category]++;
@@ -18,7 +18,6 @@ export function categoryDesign(
   // Use a separate unpenalized intercept and K−1 treatment contrasts. The
   // penalty applies to deviations from the family-weighted intercept.
   const contrastShares = shares.slice(1);
-  const penalty = lambda * categoryPenaltyMultiple;
   return {
     groups,
     groupBySlug: Object.fromEntries(

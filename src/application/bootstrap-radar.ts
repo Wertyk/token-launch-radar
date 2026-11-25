@@ -9,30 +9,33 @@ import { mulberry32 } from "../domain/shared/prng.ts";
 import { bootstrapSummary, resample } from "../domain/valuation/bootstrap.ts";
 import type { CategoryComparable } from "../domain/valuation/categories.ts";
 import { rankBoard, type ValueModel } from "../domain/valuation/model.ts";
-import { refitValueSubset, type ValueFit } from "../domain/valuation/value-fit.ts";
+import type { ValueTerm } from "../domain/valuation/selection.ts";
+import { refitValue } from "../domain/valuation/value-fit.ts";
 import type { RadarRow } from "./recompute-radar.ts";
 
 export const EVIDENCE_REPLICATES = 200;
+const BOOTSTRAP_SEEDS = [0x29b1, 0x29b2] as const;
 
 export function bootstrapRadar(
   board: readonly RadarRow[],
   comparables: readonly CategoryComparable[],
   population: readonly TokenStatusRow[],
   model: ValueModel,
-  fit: ValueFit,
+  terms: readonly ValueTerm[],
   odds: OddsModel,
   asOf: string,
   replicates = EVIDENCE_REPLICATES,
 ) {
-  const valueRandom = mulberry32(0x29b1);
-  const oddsRandom = mulberry32(0x29b2);
+  const [valueSeed, oddsSeed] = BOOTSTRAP_SEEDS;
+  const valueRandom = mulberry32(valueSeed);
+  const oddsRandom = mulberry32(oddsSeed);
   const valueNames = Object.keys(model.coefficients) as (keyof ValueModel["coefficients"])[];
   const categoryNames = Object.keys(model.categoryEffects ?? {}) as (keyof NonNullable<
     ValueModel["categoryEffects"]
   >)[];
   const { ranks, standardErrors } = bootstrapSummary(
     Array.from({ length: replicates }, () => {
-      const value = refitValueSubset(resample(comparables, valueRandom), fit);
+      const value = refitValue(resample(comparables, valueRandom), terms);
       const status = fitOddsModel(resample(population, oddsRandom), odds.terms);
       const candidates = board.map(
         ({ protocol, status: classification, boardReasons, reason, familyKey }) => ({
@@ -59,6 +62,7 @@ export function bootstrapRadar(
   return {
     ranks,
     replicates,
+    seeds: BOOTSTRAP_SEEDS,
     valueErrors: Object.fromEntries(
       [...valueNames, ...categoryNames].map((name, i) => [name, standardErrors[i] ?? null]),
     ),

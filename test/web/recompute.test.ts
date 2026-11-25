@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { boardMismatches } from "../../src/presentation/web/recompute.ts";
+import { boardMismatches, matchesFields } from "../../src/presentation/web/recompute.ts";
 
 const economics = {
   launchProbability12: 0.42,
@@ -85,6 +85,17 @@ function perturbFloats(fraction: number) {
 
 test("matches a published row with one or two ulps of drift in each floating-point field", () => {
   expect(boardMismatches(computed, [perturbFloats(Number.EPSILON), second])).toEqual([]);
+});
+
+test.each([
+  ["netUsd", 1, Number.EPSILON, true],
+  ["expectedValueUsd", 100, 1e-10, true],
+  ["launch_value_usd", first.launch_value_usd, 1, false],
+  ["depositUsd", 1_000, 1e-10, false],
+  ["rank", 1, Number.EPSILON, false],
+])("compares %s symmetrically by field type", (field, exact, drift, matches) => {
+  expect(matchesFields(exact, exact + drift, field)).toBe(matches);
+  expect(matchesFields(exact + drift, exact, field)).toBe(matches);
 });
 
 test("rejects the same row with one part per million of drift", () => {

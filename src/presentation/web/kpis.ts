@@ -35,7 +35,7 @@ export function rangeRows({ middle, broad }: RadarResult["rangeHonesty"]) {
 }
 
 export function termCounts(
-  selection: RadarResult["model"]["selection"] | RadarResult["odds"]["validation"],
+  selection: RadarResult["model"]["selection"] | RadarResult["odds"]["validation"]["selection"],
 ) {
   return `${selection.terms.length}/${selection.steps[0]?.trials.length ?? 0}`;
 }
@@ -49,23 +49,23 @@ export function kpiStrip(
   protocols: number,
   watchlist: number,
 ) {
-  const { walkForward: wf, leaveOneFamilyOut: loo } = model.validation;
-  const miss = ({ model, flatMultiple }: typeof loo) =>
-    `${multiplier(model.medianMultiplier)} vs ${multiplier(flatMultiple.medianMultiplier)}`;
+  const { leaveOneFamilyOut: loo, seededFiveFold: five, walkForward: wf } = model.validation;
+  const miss = (key: "model" | "flatMultiple") =>
+    [loo, five, wf].map((scheme) => multiplier(scheme[key].medianMultiplier)).join("/");
   const range = ({ stated, covered, n }: typeof ranges.middle) =>
     `${actual(covered, n)} / ${nominal(stated)}`;
   const counts = { FARM: 0, THIN: 0, SKIP: 0 };
   for (const { verdict } of rows) counts[verdict]++;
   const pair = (scores: readonly (number | null)[]) => scores.map(brier).join("/");
   return [
-    ["Held-out miss", `${miss(wf)} · ${miss(loo)}`, "Walk-forward · family LOO vs flat"],
+    ["Nested value error", miss("model"), `LOO/5-fold/WF · flat ${miss("flatMultiple")}`],
     [
       "Range honesty",
       `${range(ranges.middle)} · ${range(ranges.broad)}`,
       "P25–P75 · P10–P90, actual/stated",
     ],
     [
-      "Odds Brier · 10-fold / WF",
+      "Nested odds Brier · 10-fold / WF",
       pair(odds.scores),
       `vs ${pair(odds.baselines.baseRate)} base · ${pair(odds.baselines.pava)} clock`,
     ],
@@ -74,7 +74,7 @@ export function kpiStrip(
       ["TVL", "growth", "age"]
         .map((label, index) => `${label} ${effectPercent(effects[index]?.[0] ?? NaN)}`)
         .join(" · "),
-      "per +10% TVL, +10pp 7-day growth, +1 yr with no token · board medians",
+      "per +10% TVL, +10pp 7-day growth, +1 yr since listing · board medians",
     ],
     ["Worth farming at $10K", Object.values(counts).join(" / "), "FARM / THIN / SKIP"],
     [

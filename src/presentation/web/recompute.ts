@@ -37,15 +37,12 @@ export type CheckRow = RankedFields &
 // Different engines round transcendental functions differently, including capital carry in costUsd.
 // Plan fees use exact cents and must match exactly.
 const tolerance = 1e-9;
+const floatingField =
+  /^(launch_p12|airdrop_yield_apr|launchProbability12|breakEvenDepositUsd|expectedValueUsd|costUsd|netUsd|netPerHourUsd)$/;
 
 export function matchesFields(a: unknown, b: unknown, field = "", scores = false): boolean {
   if (a === b) return true;
-  if (
-    typeof a === "number" &&
-    typeof b === "number" &&
-    (scores || !Number.isInteger(a)) &&
-    !/^plan_/.test(field)
-  ) {
+  if (typeof a === "number" && typeof b === "number" && (scores || floatingField.test(field))) {
     const delta = Math.abs(a - b);
     return Number.isFinite(delta) && delta <= tolerance * Math.max(1, Math.abs(a), Math.abs(b));
   }
@@ -81,11 +78,10 @@ export function boardMismatches<Row extends RecomputedRow>(
       protocol: { slug },
     } = row;
     const saved = published[index];
-    const farm_steps = steps?.(row) ?? row.farm_steps ?? saved?.farm_steps;
+    const farm_steps = steps?.(row) ?? row.farm_steps;
     const { airdropYieldApr: airdrop_yield_apr, ...farm_economics } = row.economics;
-    const expected: Omit<CheckRow, keyof Interval | "farm_steps"> & {
-      farm_steps: typeof farm_steps;
-    } = {
+    const expected: Omit<CheckRow, keyof Interval | "farm_steps"> &
+      Partial<Pick<CheckRow, "farm_steps">> = {
       slug,
       rank,
       launch_value_usd,
@@ -98,10 +94,9 @@ export function boardMismatches<Row extends RecomputedRow>(
       plan_total_cost_usd: plan.totalCostUsd,
       plan_total_minutes: plan.totalMinutes,
       farm_economics,
-      farm_steps,
+      ...(farm_steps !== undefined && { farm_steps }),
     };
-    if (!boardInterval(saved) || !Array.isArray(farm_steps) || !matchesFields(expected, saved))
-      slugs.push(slug);
+    if (!boardInterval(saved) || !matchesFields(expected, saved)) slugs.push(slug);
   }
   return slugs;
 }
@@ -111,6 +106,7 @@ export function prepareBoard(
   published: readonly ((CheckRow & ValueDiagnostics & RankRange) | null)[],
   watchlist: readonly string[],
   age: (date: string) => number,
+  ranks: ReadonlyMap<string, RankRange>,
   steps?: (row: RadarRow) => string[],
 ) {
   const evidence = new Map(published.flatMap((row) => (row ? [[row.slug, row]] : [])));
@@ -124,13 +120,14 @@ export function prepareBoard(
     ),
     protocols: new Map(board.map((row) => [row.protocol.slug, row])),
     mismatches: boardMismatches(board, published, steps),
-    rows: boardViewRows(board, evidence, watchlist, age),
+    rows: boardViewRows(board, evidence, ranks, watchlist, age),
   };
 }
 
 function boardViewRows(
   board: readonly RadarRow[],
-  evidence: ReadonlyMap<string, Interval & RankRange>,
+  evidence: ReadonlyMap<string, Interval>,
+  ranks: ReadonlyMap<string, RankRange>,
   watchlist: readonly string[],
   age: (date: string) => number,
 ): BoardRow[] {
@@ -146,18 +143,7 @@ function boardViewRows(
       economics,
     }) => {
       const { slug, name, tvl_usd, change_7d, category, chains, listed_at } = protocol;
-      const saved = evidence.get(slug);
-      const { rank_p10: low, rank_p90: high } = saved ?? {};
-      const rankRange =
-        low != null &&
-        high != null &&
-        Number.isInteger(low) &&
-        Number.isInteger(high) &&
-        low >= 1 &&
-        low <= high &&
-        high <= board.length
-          ? ([low, high] as const)
-          : null;
+      const band = ranks.get(slug);
       const deposit = economics.deposits.find(({ depositUsd }) => depositUsd === 10_000);
       if (!deposit) throw new Error("Missing $10K farm economics.");
       return {
@@ -171,8 +157,8 @@ function boardViewRows(
         odds,
         tvl: tvl_usd,
         growth: change_7d,
-        interval: boardInterval(saved),
-        rankRange,
+        interval: boardInterval(evidence.get(slug)),
+        rankRange: band ? [band.rank_p10, band.rank_p90] : null,
         age: listed_at ? age(listed_at) : null,
         cost: plan.totalCostUsd,
         time: plan.totalMinutes,

@@ -35,26 +35,6 @@ export interface FarmPlan {
   totalMinutes: number;
 }
 
-function chooseChain(
-  chains: readonly string[],
-  transactions: number,
-  transfers: number,
-  gas: FarmTables["gas"],
-) {
-  const quote = (chain: string | null) => {
-    const fees = chain !== null && Object.hasOwn(gas.chains, chain) ? gas.chains[chain] : undefined;
-    const [transactionUsd, bridgeUsd] = fees ?? gas.fallback;
-    const cost = roundUsd(transfers * bridgeUsd + transactions * transactionUsd);
-    return { chain, transactionUsd, bridgeUsd, cost, feeAssumed: fees === undefined };
-  };
-  return (
-    chains
-      .map(quote)
-      .sort((a, b) => a.cost - b.cost || compareText(a.chain ?? "", b.chain ?? ""))[0] ??
-    quote(null)
-  );
-}
-
 function roundUsd(value: number): number {
   return Math.round(value * 100) / 100;
 }
@@ -106,12 +86,52 @@ export function makeFarmPlan(
   const repeats = reviewCounts[playbook.cadence];
   const [entry, review, exit] = playbook.transactions;
   const gasTransactions = (bridge ? 0 : entry) + review * repeats + exit;
-  const { chain, transactionUsd, bridgeUsd, feeAssumed } = chooseChain(
-    protocol.chains,
-    gasTransactions,
-    bridge ? entry : 1,
-    gas,
-  );
+  const tradingFees =
+    group === "derivatives" ? assumptions.tradeVolumeUsd * assumptions.tradingFeeRate : 0;
+  const quote = (chain: string | null) => {
+    const fees = chain !== null && Object.hasOwn(gas.chains, chain) ? gas.chains[chain] : undefined;
+    const [transactionUsd, bridgeUsd] = fees ?? gas.fallback;
+    const entryCost = roundUsd(entry * (bridge ? bridgeUsd : transactionUsd));
+    const reviewCost = roundUsd(tradingFees + review * transactionUsd);
+    const exitCost = roundUsd(exit * transactionUsd);
+    const claimCost = roundUsd(transactionUsd);
+    // Round the same step costs, then weight claim gas by the chance of launch.
+    const fixedCost = (bridge ? 0 : roundUsd(bridgeUsd)) + entryCost + exitCost;
+    const oneTimeCostUsd = roundUsd(fixedCost + claimCost * launchProbability12);
+    const recurringCostUsd = roundUsd(reviewCost * repeats);
+    const totalCostUsd = roundUsd(oneTimeCostUsd + recurringCostUsd);
+    return {
+      chain,
+      transactionUsd,
+      bridgeUsd,
+      entryCost,
+      reviewCost,
+      exitCost,
+      claimCost,
+      oneTimeCostUsd,
+      recurringCostUsd,
+      totalCostUsd,
+      feeAssumed: fees === undefined,
+    };
+  };
+  const {
+    chain,
+    transactionUsd,
+    bridgeUsd,
+    entryCost,
+    reviewCost,
+    exitCost,
+    claimCost,
+    oneTimeCostUsd,
+    recurringCostUsd,
+    totalCostUsd,
+    feeAssumed,
+  } =
+    protocol.chains
+      .map(quote)
+      .sort(
+        (a, b) => a.totalCostUsd - b.totalCostUsd || compareText(a.chain ?? "", b.chain ?? ""),
+      )[0] ?? quote(null);
   const fields: Record<string, string> = {
     deposit: formatUsd(depositUsd),
     chain: chain ?? "a verified chain",
@@ -132,16 +152,8 @@ export function makeFarmPlan(
   });
   const [entryMinutes, reviewMinutes, exitMinutes] = playbook.minutes;
   const [eligibilityMinutes, sizeMinutes, claimMinutes, recordMinutes] = checklist.minutes;
-  const tradingFees =
-    group === "derivatives" ? assumptions.tradeVolumeUsd * assumptions.tradingFeeRate : 0;
   const fundingStep = bridge ? null : step(funding.bridge, bridgeUsd, assumptions.bridgeMinutes);
-  const recurring = step(
-    copy.review,
-    tradingFees + review * transactionUsd,
-    reviewMinutes,
-    playbook.cadence,
-  );
-  const claim = step(checklist.claim, transactionUsd, claimMinutes, "at launch");
+  const recurring = step(copy.review, reviewCost, reviewMinutes, playbook.cadence);
   const floor = `TVL drops under ${formatUsd(protocol.tvl_usd / 2)}`;
   const drawdown = exitThreshold?.change.toFixed(1).replace("-", "−");
   const trigger = exitThreshold
@@ -160,25 +172,15 @@ export function makeFarmPlan(
       sizeMinutes + (playbook.sizing?.extraMinutes ?? 0),
     ),
     ...(fundingStep ? [fundingStep] : []),
-    step(
-      copy.enter,
-      entry * (bridge ? bridgeUsd : transactionUsd),
-      entryMinutes - sizeMinutes - recordMinutes,
-    ),
+    step(copy.enter, entryCost, entryMinutes - sizeMinutes - recordMinutes),
     recurring,
     step(checklist.records, 0, recordMinutes),
-    claim,
+    step(checklist.claim, claimCost, claimMinutes, "at launch"),
     {
-      ...step(copy.exit, exit * transactionUsd, exitMinutes - claimMinutes),
+      ...step(copy.exit, exitCost, exitMinutes - claimMinutes),
       exitCondition: `${trigger} ${copy.exitCondition}`,
     },
   ];
-  // Reserve claim time at the end of the hold and weight its gas by the chance of launch.
-  const fixedCost = steps
-    .filter(({ cadence }) => cadence === "once")
-    .reduce((sum, { costUsd }) => sum + costUsd, 0);
-  const oneTimeCostUsd = roundUsd(fixedCost + claim.costUsd * launchProbability12);
-  const recurringCostUsd = roundUsd(recurring.costUsd * repeats);
   return {
     chain,
     depositUsd,
@@ -192,7 +194,7 @@ export function makeFarmPlan(
     capitalApr: playbook.capitalApr,
     oneTimeCostUsd,
     recurringCostUsd,
-    totalCostUsd: roundUsd(oneTimeCostUsd + recurringCostUsd),
+    totalCostUsd,
     totalMinutes: steps.reduce((sum, item) => sum + item.minutes * reviewCounts[item.cadence], 0),
   };
 }

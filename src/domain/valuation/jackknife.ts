@@ -2,7 +2,8 @@ import { compareText } from "../shared/order.ts";
 import type { Comparable } from "./comparables.ts";
 import type { ValueModel } from "./model.ts";
 import { fitValueModel } from "./model.ts";
-import { predictComparable, selectLambda } from "./selection.ts";
+import { predictComparable } from "./selection.ts";
+import { VALUE_RIDGE_LAMBDA } from "./value-fit.ts";
 
 const TAIL_ALPHA = 0.1;
 // With one held-out family the finite lower rank first exists at floor(n × alpha) ≥ 1.
@@ -60,15 +61,15 @@ export function jackknifePlusBand(samples: readonly JackknifeSample[]) {
 
 export function jackknifePlusBands<Row extends Comparable>(
   rows: readonly Row[],
-  selectFit: (train: readonly Row[]) => number | Refit<Row> = selectLambda,
+  selectFit: (train: readonly Row[], heldOut: Row) => number | Refit<Row> = () =>
+    VALUE_RIDGE_LAMBDA,
 ) {
   const bands = new Map<string, ReturnType<typeof jackknifePlusBand>>();
   if (rows.length < 3) return bands;
 
   for (const heldOut of rows) {
     const train = rows.filter((row) => row !== heldOut);
-    // Select the penalty without the scored family and reuse it in every band refit.
-    const refits = leaveOneFamilyOut(train, selectFit(train));
+    const refits = leaveOneFamilyOut(train, selectFit(train, heldOut));
     const samples = refits.map(({ comparable, model, residual }) => ({
       slug: comparable.slug,
       prediction: predictComparable(heldOut, model),

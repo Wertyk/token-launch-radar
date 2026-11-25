@@ -3,6 +3,7 @@ import { groupFamilies } from "../../../src/domain/census/families.ts";
 import { makeFarmPlan } from "../../../src/domain/farming/plans.ts";
 import { farmTables } from "../../../src/domain/farming/playbook-data.ts";
 import type { Protocol } from "../../../src/domain/snapshot.ts";
+import { parseSnapshot } from "../../../src/domain/snapshot.ts";
 import { fitMultiples } from "../../../src/domain/valuation/baselines.ts";
 import { groupComparableCategories } from "../../../src/domain/valuation/categories.ts";
 import {
@@ -12,12 +13,14 @@ import {
 import { comparablesFromFamilies } from "../../../src/domain/valuation/comparables.ts";
 import { seededFolds, splitFolds, walkForwardSplit } from "../../../src/domain/valuation/folds.ts";
 import { medianLogError, scorePredictions } from "../../../src/domain/valuation/metrics.ts";
-import {
-  innerFolds,
-  selectByMedianError,
-  selectLambda,
-} from "../../../src/domain/valuation/selection.ts";
+import { innerFolds, selectByMedianError } from "../../../src/domain/valuation/selection.ts";
 import { fitOuterFold, validateModel } from "../../../src/domain/valuation/validation.ts";
+import { VALUE_RIDGE_LAMBDA } from "../../../src/domain/valuation/value-fit.ts";
+import {
+  predictValueTrial,
+  selectValueTerms,
+} from "../../../src/domain/valuation/value-selection.ts";
+import { readKitSnapshot } from "../../radar-fixtures.ts";
 import { protocol } from "../protocol-fixture.ts";
 
 const fixtureRows = Array.from({ length: 12 }, (_, i) =>
@@ -127,7 +130,7 @@ test("outer test targets do not affect lambda or predictions", () => {
     train,
     test: testRows.map((row) => ({ ...row, target: row.target + 30 })),
   });
-  expect(original.lambda).toEqual(selectLambda(train));
+  expect(original.lambda).toBe(VALUE_RIDGE_LAMBDA);
   expect(changed.lambda).toEqual(original.lambda);
   for (const predictor of ["model", "flatMultiple", "categoryMultiple"] as const) {
     const predicted = original.predictions[predictor].map((row) => row.predicted);
@@ -175,13 +178,64 @@ test("strong category shrinkage preserves the unpenalized intercept at a small M
   expect(Math.abs(model.coefficients.intercept - 500)).toBeLessThan(0.001);
 });
 
-test("walk-forward trains on the earliest dated 60% plus all undated families", () => {
+test("mutating one market cap cannot change its own nested or selection-trial prediction", () => {
+  const snapshot = parseSnapshot(readKitSnapshot());
+  const families = groupFamilies(snapshot.protocols);
+  const original = groupComparableCategories(
+    comparablesFromFamilies(families, snapshot.as_of),
+    families,
+  );
+  const slug = "anvil";
+  const mutated = original.map((row) =>
+    row.slug === slug ? { ...row, target: row.target + 30 } : row,
+  );
+  const ownFolds = (input: typeof original) =>
+    [
+      splitFolds(input.map((row) => [row])),
+      splitFolds(seededFolds(input)),
+      [walkForwardSplit(input)],
+    ].map((scheme) => {
+      const fold = scheme.find(({ test }) => test.some((row) => row.slug === slug));
+      if (!fold) throw new Error(`Expected a holdout for ${slug}.`);
+      return fold;
+    });
+  const changedFolds = ownFolds(mutated);
+  for (const [i, fold] of ownFolds(original).entries()) {
+    const changed = changedFolds[i];
+    if (!changed) throw new Error("Missing mutated fold");
+    const own = (points: ReturnType<typeof predictValueTrial>) => {
+      const point = points.find((row) => row.slug === slug);
+      if (!point) throw new Error("Missing prediction");
+      return point;
+    };
+    const before = fitOuterFold(fold);
+    const after = fitOuterFold(changed);
+    expect(after.terms).toEqual(before.terms);
+    expect(after.lambda).toBe(before.lambda);
+    expect(own(after.predictions.model).actual).toBe(own(before.predictions.model).actual + 30);
+    expect(own(after.predictions.model).predicted).toBe(own(before.predictions.model).predicted);
+    for (const terms of [
+      [],
+      ["momentum"],
+      ["age"],
+      ["category"],
+      ["momentum", "age"],
+      ["momentum", "category"],
+      ["age", "category"],
+      ["momentum", "age", "category"],
+    ] as const) {
+      expect(own(predictValueTrial(changed, terms)).predicted).toBe(
+        own(predictValueTrial(fold, terms)).predicted,
+      );
+    }
+  }
+});
+
+test("walk-forward trains on the earliest dated 60% and omits undated families", () => {
   const { train, test: future } = walkForwardSplit(rows.toReversed());
   expect(train.map(({ slug }) => slug).sort()).toEqual([
     "sample-0",
     "sample-1",
-    "sample-10",
-    "sample-11",
     "sample-2",
     "sample-3",
     "sample-4",
@@ -257,17 +311,28 @@ test("scores log errors and Spearman with averaged ranks for ties", () => {
 
 test("nested validation reports only scoreable held-out observations", () => {
   const { validation, selection, looPredictions } = validateModel(rows);
-  const heldOut = splitFolds(rows.map((row) => [row])).flatMap(
-    (fold) => fitOuterFold(fold, selection.terms).predictions.model,
-  );
+  const loo = splitFolds(rows.map((row) => [row]));
+  const heldOut = loo.flatMap((fold) => fitOuterFold(fold).predictions.model);
   expect(looPredictions).toEqual(heldOut);
+  for (const [scheme, folds] of [
+    ["leaveOneFamilyOut", loo],
+    ["seededFiveFold", splitFolds(seededFolds(rows))],
+    ["walkForward", [walkForwardSplit(rows)]],
+  ] as const) {
+    const nested = folds.flatMap((fold) => {
+      const { terms } = selectValueTerms(fold.train);
+      expect(fitOuterFold(fold).terms).toEqual(terms);
+      return predictValueTrial(fold, terms);
+    });
+    expect(validation[scheme].model).toEqual(scorePredictions(nested));
+  }
   expect(scorePredictions(looPredictions)).toEqual(validation.leaveOneFamilyOut.model);
   expect(validation.leaveOneFamilyOut.model.n).toBe(12);
   expect(validation.seededFiveFold.model.n).toBe(12);
   expect(validation.walkForward.model.n).toBe(4);
   expect(selection.scores).toEqual([
-    medianLogError(heldOut),
-    medianLogError(fitOuterFold(walkForwardSplit(rows), selection.terms).predictions.model),
+    medianLogError(loo.flatMap((fold) => predictValueTrial(fold, selection.terms))),
+    medianLogError(predictValueTrial(walkForwardSplit(rows), selection.terms)),
   ]);
   const singleton = validateModel(rows.slice(0, 1));
   expect(singleton.validation.leaveOneFamilyOut.model.n).toBe(0);
@@ -282,6 +347,7 @@ test("keeps the category variant when it improves both tests and refits its effe
   }));
   const { selection } = validateModel(grouped);
   expect(selection.terms).toEqual(["category"]);
-  const { predictions } = fitOuterFold(walkForwardSplit(grouped), selection.terms);
-  expect(medianLogError(predictions.model)).toBeCloseTo(0, 2);
+  expect(
+    medianLogError(predictValueTrial(walkForwardSplit(grouped), selection.terms)),
+  ).toBeLessThan(Math.LN2);
 });

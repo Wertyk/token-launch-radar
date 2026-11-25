@@ -1,4 +1,9 @@
-import { boardEntries, buildCensus, houseRuleMembership } from "../domain/census/census.ts";
+import {
+  boardEntries,
+  buildCensus,
+  censusRecords,
+  houseRuleMembership,
+} from "../domain/census/census.ts";
 import { groupFamilies } from "../domain/census/families.ts";
 import type { FarmEconomics } from "../domain/farming/economics.ts";
 import { estimateFarmEconomics } from "../domain/farming/economics.ts";
@@ -14,10 +19,11 @@ import {
   protocolOdds,
 } from "../domain/launch-odds/model.ts";
 import type { Snapshot } from "../domain/snapshot.ts";
+import { groupComparableCategories } from "../domain/valuation/categories.ts";
 import { comparablesFromFamilies } from "../domain/valuation/comparables.ts";
 import type { RankedRow, ValueModel } from "../domain/valuation/model.ts";
 import { rankBoard } from "../domain/valuation/model.ts";
-import type { ValueFit } from "../domain/valuation/value-fit.ts";
+import type { ValueTerm } from "../domain/valuation/selection.ts";
 import { refitValue } from "../domain/valuation/value-fit.ts";
 
 export interface RadarRow extends RankedRow, ReturnType<typeof protocolOdds> {
@@ -28,7 +34,7 @@ export interface RadarRow extends RankedRow, ReturnType<typeof protocolOdds> {
 export function radarInputs({ protocols, as_of }: Snapshot) {
   const families = groupFamilies(protocols);
   const entries = buildCensus(protocols, families);
-  const comparables = comparablesFromFamilies(families, as_of);
+  const comparables = groupComparableCategories(comparablesFromFamilies(families, as_of), families);
   return { families, entries, comparables, population: oddsPopulation(entries, as_of) };
 }
 
@@ -61,12 +67,12 @@ export function rankRadar(
 
 export function recomputeRadar(
   snapshot: Snapshot,
-  valueFit: ValueFit,
+  { terms }: { terms: readonly ValueTerm[] },
   oddsTerms: readonly OddsTerm[],
   tables: FarmTables,
 ) {
   const { families, entries, comparables, population } = radarInputs(snapshot);
-  const model = refitValue(comparables, valueFit);
+  const model = refitValue(comparables, terms);
   const odds = fitOddsModel(population, oddsTerms);
   return {
     model,
@@ -75,6 +81,7 @@ export function recomputeRadar(
     families,
     comparables,
     population,
+    census: censusRecords(entries),
     houseRule: houseRuleMembership(snapshot),
   };
 }

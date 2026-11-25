@@ -6,19 +6,48 @@ import { predictValue, type ValueModel } from "./model.ts";
 
 export type InputEffects = readonly [tvl: number, growth: number, age: number];
 
-export function impliedValueEffects(
+function inputEffectContrasts(
   protocol: Protocol,
   asOf: string,
   model: ValueModel,
   odds: OddsModel,
-): InputEffects {
+) {
   const baseOdds = protocolOdds(odds, protocol, asOf);
-  const base = predictValue(protocol, asOf, model).valueUsd * baseOdds.launchProbability12;
-  const effect = (value: number, probability: number) => ((value * probability) / base - 1) * 100;
-  const perturb = (record: Protocol) =>
+  const base = predictValue(protocol, asOf, model);
+  const p12 = baseOdds.launchProbability12;
+  const effect = (value: typeof base, probability: number, term?: "lnTvl" | "growth") => {
+    const a = base.features;
+    const b = value.features;
+    const { lnTvl, lnAge } = model.coefficients;
+    // Compare in log space to attribute direction to the fitted slopes and conditional odds.
+    // A positive clock slope does not force the next annual window to have higher odds.
+    const growth = model.momentum ? b.growth - a.growth : 0;
+    const i = term === undefined ? -1 : odds.terms.indexOf(term);
+    let oddsFromSlope = term === undefined ? probability : p12;
+    if (term !== undefined && i >= 0) {
+      const [intercept, ...slopes] = odds.coefficients;
+      const shift = (slopes[i + 1] ?? NaN) * (b[term] - a[term]);
+      oddsFromSlope = protocolOdds(
+        { ...odds, coefficients: [(intercept ?? NaN) + shift, ...slopes] },
+        protocol,
+        asOf,
+      ).launchProbability12;
+    }
+    return [
+      ((value.valueUsd * probability) / (base.valueUsd * p12) - 1) * 100,
+      100 *
+        Math.expm1(
+          lnTvl * (b.lnTvl - a.lnTvl + growth) +
+            lnAge * (b.lnAge - a.lnAge) +
+            Math.log(oddsFromSlope / p12),
+        ),
+    ] as const;
+  };
+  const perturb = (record: Protocol, term: "lnTvl" | "growth") =>
     effect(
-      predictValue(record, asOf, model).valueUsd,
+      predictValue(record, asOf, model),
       protocolOdds(odds, record, asOf).launchProbability12,
+      term,
     );
   const nextYear = new Date(Date.parse(asOf) + YEAR_DAYS * 86_400_000).toISOString();
   const agedModel =
@@ -26,13 +55,33 @@ export function impliedValueEffects(
       ? { ...model, medianLnAge: Math.log(Math.exp(model.medianLnAge) + YEAR_DAYS) }
       : model;
   return [
-    perturb({ ...protocol, tvl_usd: protocol.tvl_usd * 1.1 }),
-    perturb({ ...protocol, change_7d: (protocol.change_7d ?? 0) + 10 }),
+    perturb({ ...protocol, tvl_usd: protocol.tvl_usd * 1.1 }, "lnTvl"),
+    perturb({ ...protocol, change_7d: (protocol.change_7d ?? 0) + 10 }, "growth"),
     effect(
-      predictValue(protocol, nextYear, agedModel).valueUsd,
+      predictValue(protocol, nextYear, agedModel),
       baseOdds.oddsAt(baseOdds.oddsAge + YEAR_DAYS),
     ),
-  ];
+  ] as const;
+}
+
+export function impliedValueEffects(
+  protocol: Protocol,
+  asOf: string,
+  model: ValueModel,
+  odds: OddsModel,
+): InputEffects {
+  const [tvl, growth, age] = inputEffectContrasts(protocol, asOf, model, odds);
+  return [tvl[0], growth[0], age[0]];
+}
+
+export function coefficientEffects(
+  protocol: Protocol,
+  asOf: string,
+  model: ValueModel,
+  odds: OddsModel,
+): InputEffects {
+  const [tvl, growth, age] = inputEffectContrasts(protocol, asOf, model, odds);
+  return [tvl[1], growth[1], age[1]];
 }
 
 export function summarizeEffects(effects: ReadonlyMap<string, InputEffects>) {

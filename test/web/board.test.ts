@@ -118,7 +118,9 @@ test("sorts all three verdicts in economic order and breaks net-per-hour ties by
 
 test("exports exactly the filtered rows in display order", () => {
   const visible = selectRows([beta, alpha], { ...defaultState, wl: true });
-  expect(JSON.parse(serializeBoard(visible, "json"))).toEqual([alpha]);
-  expect(serializeBoard(visible, "csv")).toContain('"Alpha Capital"');
-  expect(serializeBoard(visible, "csv")).not.toContain("Beta Capital");
+  expect(JSON.parse(serializeBoard(visible, "json", 10_000))).toEqual([
+    { ...alpha, depositUsd: 10_000 },
+  ]);
+  expect(serializeBoard(visible, "csv", 10_000)).toContain('"Alpha Capital"');
+  expect(serializeBoard(visible, "csv", 10_000)).not.toContain("Beta Capital");
 });

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
-import { createContext, runInContext } from "node:vm";
-import { beforeAll, expect, test } from "vitest";
+import { createContext, runInContext, Script } from "node:vm";
+import { beforeAll, expect, test, vi } from "vitest";
 import { toBoardRows } from "../../src/application/board-rows.ts";
 import { formatUsd } from "../../src/application/browser-api.ts";
 import { buildRadar } from "../../src/application/build-radar.ts";
@@ -11,12 +11,15 @@ import { logValue } from "../../src/domain/valuation/model.ts";
 import { protocol } from "../domain/protocol-fixture.ts";
 import { readKitSnapshot } from "../radar-fixtures.ts";
 
+// Some cases load the full set of refits in several independent contexts.
+vi.setConfig({ testTimeout: 30_000 });
+
 const dashboard = new URL("../../dashboard/", import.meta.url);
 const html = readFileSync(new URL("index.html", dashboard), "utf8");
 const scripts = [...html.matchAll(/<script src="([^"]+\.js)"><\/script>/g)].flatMap(([, file]) =>
   file?.startsWith("../") || !file
     ? []
-    : [{ file, source: readFileSync(new URL(file, dashboard), "utf8") }],
+    : [{ file, script: new Script(readFileSync(new URL(file, dashboard), "utf8")) }],
 );
 
 class Select {
@@ -82,13 +85,14 @@ function open(
     },
     document: { querySelector: node, querySelectorAll: () => [] },
     location,
+    Math,
     URLSearchParams,
     HTMLSelectElement: Select,
   });
-  for (const { file, source } of scripts) {
+  for (const { file, script } of scripts) {
     if (!loadUi && file === "3-ui.js") continue;
     if (file === "3-ui.js" && beforeUi) runInContext(beforeUi, context);
-    runInContext(source, context);
+    script.runInContext(context);
     if (!loadEnhancements && file === "5-extras.js")
       runInContext(
         `for (const name of ["boardFarmSteps", "mountPlanner", "boardControls", "bindControls", "boardHash"])
@@ -178,12 +182,8 @@ test("fits only eligible traded family representatives in the build and page ref
     .toEqual(new Set(["dex", "lender"]));
   expect.soft(refitSlugs).toEqual(["dex", "lender"]);
   expect.soft(main.innerHTML).toContain("2 traded families.");
-  expect
-    .soft(main.innerHTML)
-    .toContain(
-      "Comparables exclude the house-excluded categories (exchange custody, bridged and staked products), the same rule the census applies.",
-    );
-  expect(markup.get("#checks")?.innerHTML).toContain('class="check">✓ Recompute = board.json');
+  expect.soft(main.innerHTML).toContain("Comparables pass the census product and category rules.");
+  expect(markup.get("#checks")?.innerHTML).toContain('class="check">✓ Recompute = published board');
 });
 
 test("clears the board link's unranked filter when changing census status", () => {
@@ -200,6 +200,98 @@ test("clears the board link's unranked filter when changing census status", () =
   expect(page.main.innerHTML).toContain('value="pre-token" selected>Records no token');
 }, 20_000);
 
+test("recomputes the census when a published classification changes the excluded count", () => {
+  const payload = data();
+  const published = payload.census.filter(
+    ({ status }: { status: string }) => status === "excluded",
+  );
+  expect(published).toHaveLength(144);
+  published[0].status = "token-unpriced";
+  expect(
+    payload.census.filter(({ status }: { status: string }) => status === "excluded"),
+  ).toHaveLength(143);
+  const page = open(payload);
+  expect(page.main.innerHTML).toContain("144 excluded");
+  expect(page.markup.get("#kpis")?.innerHTML).toContain("<dt>Accounted</dt><dd>758 protocols</dd>");
+  expect(page.markup.get("#checks")?.innerHTML).toContain('class="check-failed">✗ Census');
+  page.navigate("#/census?status=excluded");
+  expect(page.main.innerHTML).toContain("144 of 758 protocols");
+});
+
+test("marks step text unavailable when the generator is missing", () => {
+  const payload = data();
+  payload.board.rows[0].farm_steps = ["Changed step text"];
+  const page = open(payload, "#/", false);
+  expect(page.markup.get("#checks")?.innerHTML).toContain(
+    'class="check-unavailable">Step text comparison unavailable',
+  );
+});
+
+test.each([
+  [
+    "Validation",
+    (payload) => {
+      payload.model.validation.walkForward.model.medianMultiplier = 1.01;
+    },
+  ],
+  [
+    "Validation",
+    (payload) => {
+      payload.odds.validation.scores[0] = 0.1801;
+    },
+  ],
+  [
+    "Bootstrap",
+    (payload) => {
+      payload.bootstrap.valueErrors.intercept = 987;
+    },
+  ],
+  [
+    "Bootstrap",
+    (payload) => {
+      payload.odds.standardErrors[1] = 987;
+    },
+  ],
+  [
+    "Bootstrap",
+    (payload) => {
+      Object.assign(payload.board.rows[1], { rank_p10: 99, rank_p90: 107 });
+    },
+  ],
+  [
+    "Placebo",
+    (payload) => {
+      payload.placebo.shuffles = 999;
+    },
+  ],
+] as [string, (payload: ReturnType<typeof data>) => void][])(
+  "fails %s on a valid-looking replacement",
+  (label, mutate) => {
+    const payload = data();
+    mutate(payload);
+    const page = open(payload, "#/method");
+    expect(page.markup.get("#checks")?.innerHTML).toContain(`class="check-failed">✗ ${label}`);
+    expect(page.main.innerHTML).not.toMatch(/×1\.01|0\.1801|987\.000000|999 shuffles/);
+    if (label === "Bootstrap") {
+      page.navigate("#/");
+      expect(page.markup.get("tbody")?.innerHTML).not.toContain(">99–107</small>");
+    }
+  },
+);
+
+test.each(["value", "odds"])("checks each %s prediction's held-out identity", (kind) => {
+  const payload = data();
+  const point =
+    kind === "value"
+      ? payload.model.evidence.walkForward[0].model[0]
+      : payload.odds.validation.evidence.model[0][0][0];
+  point.slug = payload.board.rows[0].slug;
+  const page = open(payload, "#/method");
+  expect(page.markup.get("#checks")?.innerHTML).toContain(
+    'class="check-failed">✗ Validation = fold predictions',
+  );
+});
+
 test.each([true, false])(
   "uses the refits with loadExtras=%s even when the published fits change",
   (loadExtras) => {
@@ -207,6 +299,8 @@ test.each([true, false])(
     const row = radar.board[0];
     if (!row) throw new Error("Missing first board row");
     const { coefficients } = radar.model;
+    payload.model.fit.lambda = 64;
+    payload.model.fit.categoryPenalty = 1;
     payload.valueCoefficients = { ...coefficients, intercept: coefficients.intercept + 1 };
     payload.odds.coefficients = [0, -1];
     payload.odds.clock = [];
@@ -220,15 +314,15 @@ test.each([true, false])(
     expect
       .soft(page.main.innerHTML)
       .toContain(`≈ ${lnValue.toFixed(3)} → ${formatUsd(Math.round(Math.exp(lnValue)))}`);
-    expect.soft(checks?.match(/class="check"/g)).toHaveLength(7);
-    expect.soft(checks).toContain('class="check">✓ Recompute = board.json');
-    expect.soft(checks).toContain('class="check">✓ 76/94 held-out traded caps inside P10–P90');
+    expect.soft(checks?.match(/class="check"/g)).toHaveLength(11);
+    expect.soft(checks).toContain('class="check">✓ Recompute = published board · 198 rows');
+    expect.soft(checks).toContain('class="check">✓ 74/92 held-out caps in P10–P90');
 
     page.navigate("#/method");
     expect
       .soft(page.main.innerHTML)
       .toContain(`<td>Intercept</td><td>${radar.model.coefficients.intercept.toFixed(6)}</td>`);
-    expect.soft(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 76\/94<\/td>/);
+    expect.soft(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 74\/92<\/td>/);
     expect(page.main.innerHTML).toContain(
       `<td>logit(S(a))</td><td>${radar.odds.coefficients[1]?.toFixed(6)}</td>`,
     );
@@ -265,16 +359,16 @@ test("shows fitted input effects in the KPI, Method and protocol card", () => {
     opened.markup
       .get("#kpis")
       ?.innerHTML.match(/<dt>Inputs in implied value<\/dt><dd>(.+?)<\/dd>/)?.[1];
-  expect(tile(page)).toBe("TVL +5.3% · growth −10.6% · age +57.7%");
+  expect(tile(page)).toBe("TVL +5.3% · growth −16.5% · age +68.5%");
   expect(page.markup.get("#kpis")?.innerHTML).toContain(
-    "<small>per +10% TVL, +10pp 7-day growth, +1 yr with no token · board medians</small>",
+    "<small>per +10% TVL, +10pp 7-day growth, +1 yr since listing · board medians</small>",
   );
   expect(page.markup.get("#checks")?.innerHTML).toContain(
-    'class="check">✓ Finite median input effects',
+    'class="check">✓ Input effects = reference',
   );
   expect(page.main.innerHTML).toContain("How each input moves the implied value");
   expect(page.main.innerHTML).toContain("198 rows");
-  expect(page.main.innerHTML).toContain("<td>+57.7%</td><td>−34.4% to +393.4%</td>");
+  expect(page.main.innerHTML).toContain("<td>+68.5%</td><td>−38.0% to +298.0%</td>");
   page.navigate(`#/p/${radar.board[0]?.protocol.slug}`);
   expect(page.main.innerHTML).toMatch(
     /<\/p>\s*<p class="caption">\+10% TVL → [^<]+ · \+1 yr → [^<]+/,
@@ -296,6 +390,9 @@ test("shows fitted input effects in the KPI, Method and protocol card", () => {
   );
   expect(tile(changed)).toMatch(/growth \+[\d.]+%/);
   expect(tile(changed)).not.toBe(tile(page));
+  expect(changed.markup.get("#checks")?.innerHTML).toContain(
+    'class="check-failed">✗ Input effects = reference',
+  );
 
   const nonfinite = open(
     payload,
@@ -312,7 +409,28 @@ test("shows fitted input effects in the KPI, Method and protocol card", () => {
   `,
   );
   expect(nonfinite.markup.get("#checks")?.innerHTML).toContain(
-    'class="check-failed">✗ Finite median input effects',
+    'class="check-failed">✗ Input effects = reference',
+  );
+});
+
+test("checks the coefficient-implied sign even when the published median agrees with the UI", () => {
+  const payload = data();
+  payload.effectMedians[1] *= -1;
+  const page = open(
+    payload,
+    "#/",
+    true,
+    true,
+    `
+    const effects = window.Radar.impliedValueEffects;
+    window.Radar.impliedValueEffects = (...args) => {
+      const [tvl, growth, age] = effects(...args);
+      return [tvl, -growth, age];
+    };
+  `,
+  );
+  expect(page.markup.get("#checks")?.innerHTML).toContain(
+    'class="check-failed">✗ Input effects = reference',
   );
 });
 
@@ -345,8 +463,8 @@ test("updates both coverage displays when a published band changes the point's c
   point.p10 = point.actual + 1;
   point.p90 = point.actual + 2;
   const page = open(payload, "#/method");
-  expect(page.markup.get("#checks")?.innerHTML).toContain("75/94 held-out traded caps");
-  expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 75\/94<\/td>/);
+  expect(page.markup.get("#checks")?.innerHTML).toContain("73/92 held-out caps");
+  expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 73\/92<\/td>/);
 });
 
 test("ignores impossible counts injected into the payload", () => {
@@ -354,9 +472,9 @@ test("ignores impossible counts injected into the payload", () => {
   payload.intervalCounts = { missLow: -1, covered: 129, missHigh: 0 };
   const page = open(payload, "#/method");
   expect(page.markup.get("#checks")?.innerHTML).toContain(
-    'class="check">✓ 76/94 held-out traded caps',
+    'class="check">✓ 74/92 held-out caps in P10–P90',
   );
-  expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 76\/94<\/td>/);
+  expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 74\/92<\/td>/);
 });
 
 test.each(["missing", "non-finite", "reversed"])("flags a band with %s endpoints", (tampering) => {
@@ -367,9 +485,9 @@ test.each(["missing", "non-finite", "reversed"])("flags a band with %s endpoints
   else [point.p10, point.p90] = [point.p90, point.p10];
   const page = open(payload, "#/method");
   expect(page.markup.get("#checks")?.innerHTML).toContain(
-    'class="check-failed">✗ 75/93 held-out traded caps inside P10–P90 · 93/94 families',
+    'class="check-failed">✗ 73/91 held-out caps in P10–P90 · 91/92 families',
   );
-  expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 75\/93<\/td>/);
+  expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 73\/91<\/td>/);
 });
 
 test("flags invalid evidence even when the valid points account for the fitted population", () => {
@@ -377,9 +495,9 @@ test("flags invalid evidence even when the valid points account for the fitted p
   payload.looScatter.push({ ...insidePoint(payload), p10: null });
   const page = open(payload, "#/method");
   expect(page.markup.get("#checks")?.innerHTML).toContain(
-    'class="check-failed">✗ 76/94 held-out traded caps inside P10–P90 · 1 invalid',
+    'class="check-failed">✗ 74/92 held-out caps in P10–P90 · 1 invalid',
   );
-  expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 76\/94<\/td>/);
+  expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 74\/92<\/td>/);
 });
 
 test("rejects range evidence from a family in a house-excluded category", () => {
@@ -417,11 +535,11 @@ test.each([9, 10])("respects the publisher's held-out band decision at %i famili
     expect(checks).toContain(
       'class="check-unavailable">Coverage unavailable · too few traded families',
     );
-    expect(checks).not.toContain("0/0 held-out traded caps");
+    expect(checks).not.toContain("0/0 held-out caps");
     expect(page.main.innerHTML).toContain("P10–P90</td><td>— · 0/0</td>");
   } else {
     expect(payload.looScatter).toHaveLength(n);
-    expect(checks).toContain("/10 held-out traded caps");
+    expect(checks).toContain("/10 held-out caps");
     expect(checks).not.toContain("Coverage unavailable");
   }
 });
@@ -431,24 +549,24 @@ test("reports missing bands as a failure for a sample large enough to score", ()
   payload.looScatter = null;
   const page = open(payload, "#/method");
   expect(page.markup.get("#checks")?.innerHTML).toContain(
-    'class="check-failed">✗ 0/0 held-out traded caps',
+    'class="check-failed">✗ 0/0 held-out caps in P10–P90',
   );
 });
 
-test.each(["steakhouse-financial", "aave-v2", "across"])(
+test.each(["steakhouse-financial", "anvil", "across"])(
   "rejects a copy of across under the slug %s",
   (slug) => {
     const payload = data();
-    const index = payload.looScatter.findIndex((p: { slug: string }) => p.slug === "aave-v2");
+    const index = payload.looScatter.findIndex((p: { slug: string }) => p.slug === "anvil");
     const covered = payload.looScatter.find((p: { slug: string }) => p.slug === "across");
     expect(index).toBeGreaterThanOrEqual(0);
     expect(covered).toBeDefined();
     payload.looScatter[index] = { ...covered, slug };
     const page = open(payload, "#/method");
     expect(page.markup.get("#checks")?.innerHTML).toContain(
-      'class="check-failed">✗ 76/93 held-out traded caps inside P10–P90 · 93/94 families',
+      'class="check-failed">✗ 74/91 held-out caps in P10–P90 · 91/92 families',
     );
-    expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 76\/93<\/td>/);
+    expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 74\/91<\/td>/);
   },
 );
 
@@ -459,7 +577,7 @@ test("uses the computed Method selection if publication disappears after startup
   const { selection } = payload.model;
   delete payload.model.selection;
   page.navigate("#/method");
-  expect(page.main.innerHTML).toContain("Value term selection");
+  expect(page.main.innerHTML).toContain("Value selection trials (full data)");
   expect(page.main.dataset).toHaveProperty("ready");
   payload.model.selection = selection;
   page.navigate("#/");
@@ -479,17 +597,17 @@ test.each([true, false])("renders all required routes with loadExtras=%s", (load
   for (const [hash, marker] of [
     [`#/p/${slug}`, "Farm plan"],
     ["#/census", "758 of 758 protocols"],
-    ["#/method", "P10–P90</td><td>80.9% · 76/94</td>"],
+    ["#/method", "P10–P90</td><td>80.4% · 74/92</td>"],
     ["#/", "198 ranked"],
   ] as const) {
     page.navigate(hash);
     expect(page.main.innerHTML).toContain(marker);
     const checks = page.markup.get("#checks")?.innerHTML;
-    expect(checks?.match(/class="check"/g)).toHaveLength(7);
+    expect(checks?.match(/class="check"/g)).toHaveLength(11);
   }
   if (!loadExtras) {
     const checks = page.markup.get("#checks")?.innerHTML;
-    expect(checks).toContain('class="check">✓ Recompute = board.json');
+    expect(checks).toContain('class="check">✓ Recompute = published board · 198 rows');
     expect(checks).not.toContain("published fits");
     page.navigate("#/plan");
     expect(page.main.innerHTML).toContain("Farm portfolio");
@@ -545,14 +663,17 @@ test.each([
 test("reproduces both selections and renders recomputed trials if a published trial is tampered", () => {
   const payload = data();
   const clean = open(payload, "#/method", false);
-  const label = "Term selection reproduced · value 0/3 kept · odds 3/4 kept";
+  const label = "Term selection reproduced · 0/3 · 3/4";
   expect(clean.markup.get("#checks")?.innerHTML).toContain(`class="check">✓ ${label}`);
-  expect(clean.main.innerHTML).toContain("Value term selection");
+  expect(clean.main.innerHTML).toContain("Value selection trials (full data)");
   expect(clean.main.innerHTML).toContain(
-    "<td>category</td><td>1.3080</td><td>0.7163</td><td>Not kept</td>",
+    "<td>category</td><td>1.2592</td><td>0.8145</td><td>Not kept</td>",
   );
-  expect(clean.main.innerHTML).toContain("Category trial λ 16 × 4");
-  expect(clean.main.innerHTML).toContain("Odds term selection");
+  expect(clean.main.innerHTML).toContain("Fixed group penalty 64");
+  expect(clean.main.innerHTML).toContain("Odds selection trials (full data)");
+  expect(clean.main.innerHTML).toContain("<td>Nested model</td><td>0.2053</td><td>0.2170</td>");
+  expect(clean.markup.get("#kpis")?.innerHTML).toContain("0.2053/0.2170");
+  expect(clean.markup.get("#kpis")?.innerHTML).toContain("×3.32/×3.14/×2.26");
   payload.model.selection.steps[0].trials[0].scores[0] = 99;
   const tampered = open(payload, "#/method", false);
   expect(tampered.markup.get("#checks")?.innerHTML).toContain(
@@ -571,7 +692,7 @@ test("keeps the KPI strip on every route and uses held-out band data", () => {
   page.navigate("#/census");
   expect(page.markup.get("#kpis")?.innerHTML).toBe(original);
   payload.model.validation.walkForward.model.medianMultiplier = 6;
-  expect(open(payload).markup.get("#kpis")?.innerHTML).toContain("×6.00");
+  expect(open(payload).markup.get("#kpis")?.innerHTML).toBe(original);
   payload.rangeHonesty.middle.covered -= 1;
   expect(open(payload).markup.get("#checks")?.innerHTML).toContain(
     'class="check-failed">✗ Held-out coverage totals differ',
@@ -611,7 +732,15 @@ test("exports the same sorted filtered rows shown on the board after edits", () 
   const json = () => JSON.parse(decodeURIComponent(href("json").split(",")[1] ?? ""));
   expect(json().map(({ slug }: { slug: string }) => slug)).toEqual(slugs());
   expect(slugs()).toHaveLength(40);
-  expect(decodeURIComponent(href("csv")).split("\r\n")).toHaveLength(41);
+  expect(json()[0]?.depositUsd).toBe(10_000);
+  page.changeDeposit("25000");
+  expect(json().every(({ depositUsd }: { depositUsd: number }) => depositUsd === 25_000)).toBe(
+    true,
+  );
+  const [header, ...csvRows] = decodeURIComponent(href("csv")).split("\r\n");
+  expect(header).toContain('"depositUsd"');
+  expect(csvRows).toHaveLength(40);
+  expect(csvRows[0]).toContain('"25000"');
   page.navigate("#/?q=----");
   expect(json()).toEqual([]);
   expect(slugs()).toEqual([]);

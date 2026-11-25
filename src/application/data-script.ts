@@ -14,6 +14,7 @@ export function renderDataScript(
     odds,
     rangeHonesty,
     bootstrap,
+    effectMedians,
     placebo,
   }: Pick<
     RadarResult,
@@ -24,6 +25,7 @@ export function renderDataScript(
     | "odds"
     | "rangeHonesty"
     | "bootstrap"
+    | "effectMedians"
     | "placebo"
   >,
   tables: FarmTables,
@@ -48,6 +50,7 @@ export function renderDataScript(
     odds,
     rangeHonesty,
     bootstrap,
+    effectMedians,
     placebo,
     board: {
       rows: board.rows.map((row) => {

@@ -23,7 +23,7 @@ export function fitCategoryModel(
     rows,
     parameters.lambda,
     options,
-    categoryDesign(rows, parameters),
+    categoryDesign(rows, parameters.lambda * parameters.categoryPenaltyMultiple),
   ) as ValueModel & { categoryEffects: Record<CategoryGroup, number> };
 }
 

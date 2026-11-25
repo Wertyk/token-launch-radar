@@ -80,7 +80,7 @@ function mountBoard(
     results.textContent = `${formatInteger(selected.length)} of ${formatInteger(rows.length)} protocols`;
     body.innerHTML = boardRows(selected, boardHash?.(state) ?? "#/", maxLogValue, usd);
     for (const { format, link } of exports) {
-      link.href = `data:text/${format};charset=utf-8,${encodeURIComponent(serializeBoard(selected, format))}`;
+      link.href = `data:text/${format};charset=utf-8,${encodeURIComponent(serializeBoard(selected, format, amount))}`;
     }
   };
   return (state: BoardState) => {
@@ -100,7 +100,12 @@ function start(
   api.view = { ...viewTools, element };
   const { meta } = data;
   const radar = buildRadar(snapshot, data.model.fit, data.odds.terms, meta);
-  const { model, odds, houseRule } = radar;
+  const { model, odds, houseRule, census } = radar;
+  const { bootstrap, placebo } = api.reproduceDiagnostics(
+    radar,
+    data.model.fit.terms,
+    snapshot.as_of,
+  );
   const effects = new Map(
     radar.board.map(({ protocol }) => [
       protocol.slug,
@@ -108,8 +113,15 @@ function start(
     ]),
   );
   const effectSummary = api.summarizeEffects(effects);
+  const coefficientSummary = api.summarizeEffects(
+    new Map(
+      radar.board.map(({ protocol }) => [
+        protocol.slug,
+        api.coefficientEffects(protocol, snapshot.as_of, model, odds),
+      ]),
+    ),
+  );
   const {
-    census,
     board: { rows: published },
   } = data;
   const { families, diagnostics, protocols, mismatches, rows } = prepareBoard(
@@ -117,45 +129,117 @@ function start(
     published,
     snapshot.watchlist,
     (date) => daysBetween(date, snapshot.as_of),
+    bootstrap.ranks,
     api.boardFarmSteps,
   );
   const scatter = scatterCoverage(data.looScatter ?? [], families);
-  const selection = api.reproduceSelection(radar, data.model.trialFit ?? data.model.fit);
+  const selection = api.reproduceSelection(radar);
   const rangeHonesty = api.rangeHonesty(scatter.valid);
-  const valueModel = { ...data.model, ...model, selection: selection.value };
-  const oddsModel = { ...data.odds, ...odds, validation: selection.odds };
+  const validation = api.scoreValueEvidence(radar.comparables, data.model.evidence);
+  const oddsValidation = api.scoreOddsEvidence(radar.population, data.odds.validation.evidence);
+  const noScore = { n: 0, medianMultiplier: null, spearman: null };
+  const noValue = { model: noScore, flatMultiple: noScore, categoryMultiple: noScore };
+  const noOdds = [null, null];
+  const valueModel = {
+    ...data.model,
+    ...model,
+    selection: selection.value,
+    validation: validation ?? {
+      leaveOneFamilyOut: noValue,
+      seededFiveFold: noValue,
+      walkForward: noValue,
+    },
+  };
+  const oddsModel = {
+    ...data.odds,
+    ...odds,
+    standardErrors: bootstrap.oddsErrors,
+    validation: {
+      evidence: data.odds.validation.evidence,
+      selection: selection.odds,
+      ...(oddsValidation ?? {
+        scores: noOdds,
+        baselines: { baseRate: noOdds, pava: noOdds, clockOnly: noOdds },
+      }),
+    },
+  };
   const checks = integrityChecks(mismatches, published, snapshot.watchlist, {
     fitted: model.n,
     houseRule,
     intervalCounts: scatter.counts,
     invalidPoints: scatter.invalidPoints,
     coverageUnavailable: data.looScatter === null && model.n < api.MIN_BAND_FAMILIES,
-    loo: data.model.validation.leaveOneFamilyOut,
+    loo: valueModel.validation.leaveOneFamilyOut,
   });
-  if (checks[0] && !api.boardFarmSteps) checks[0].label += " · step text unchecked";
+  if (!api.boardFarmSteps) checks.push({ pass: null, label: "Step text comparison unavailable" });
   element("#snapshot-date").textContent = `Snapshot · ${snapshot.as_of}`;
   const selectionMatches =
     matchesFields(selection.value, data.model.selection, "", true) &&
     matchesFields(selection.value.terms, data.model.fit.terms) &&
-    matchesFields(selection.odds, data.odds.validation, "", true) &&
+    matchesFields(selection.odds, data.odds.validation.selection, "", true) &&
     matchesFields(selection.odds.terms, data.odds.terms);
   checks.push({
     pass: selectionMatches,
-    label: `Term selection ${selectionMatches ? "reproduced" : "differs"} · value ${termCounts(selection.value)} kept · odds ${termCounts(selection.odds)} kept`,
+    label: `Term selection ${selectionMatches ? "reproduced" : "differs"} · ${termCounts(selection.value)} · ${termCounts(selection.odds)}`,
   });
   if (!matchesFields(rangeHonesty, data.rangeHonesty))
     checks.push({ pass: false, label: "Held-out coverage totals differ from published data" });
-  checks.push({
-    pass: effectSummary.every(([median]) => Number.isFinite(median)),
-    label: "Finite median input effects",
-  });
+  const sign = (value: number) => (Math.abs(value) <= 1e-9 ? 0 : Math.sign(value));
+  checks.push(
+    {
+      pass: matchesFields(census, data.census),
+      label: "Census = recompute",
+    },
+    {
+      pass:
+        effectSummary.every(
+          ([median], i) =>
+            Number.isFinite(median) && sign(median) === sign(coefficientSummary[i]?.[0] ?? NaN),
+        ) &&
+        matchesFields(
+          effectSummary.map(([median]) => median),
+          data.effectMedians,
+          "",
+          true,
+        ),
+      label: "Input effects = reference",
+    },
+    {
+      pass:
+        validation !== null &&
+        oddsValidation !== null &&
+        matchesFields(validation, data.model.validation, "", true) &&
+        matchesFields(oddsValidation, data.odds.validation, "", true),
+      label: "Validation = fold predictions",
+    },
+    {
+      pass:
+        bootstrap.replicates === data.bootstrap?.replicates &&
+        matchesFields(bootstrap.seeds, data.bootstrap?.seeds) &&
+        matchesFields(bootstrap.valueErrors, data.bootstrap?.valueErrors, "", true) &&
+        matchesFields(bootstrap.oddsErrors, data.odds.standardErrors, "", true) &&
+        bootstrap.ranks.size === published.length &&
+        published.every((row) => {
+          const band = row && bootstrap.ranks.get(row.slug);
+          return !!band && matchesFields(band, row);
+        }),
+      label: `Bootstrap · ${bootstrap.replicates} refits match`,
+    },
+    {
+      pass:
+        placebo.shuffles === data.placebo?.shuffles &&
+        placebo.seed === data.placebo?.seed &&
+        matchesFields(placebo, data.placebo, "", true),
+      label: `Placebo · ${placebo.shuffles} refits match`,
+    },
+  );
   element("#kpis").innerHTML = kpiStrip(
     valueModel,
-    selection.odds,
+    oddsModel.validation,
     rangeHonesty,
     effectSummary,
     rows,
-    snapshot.protocols.length,
+    census.length,
     new Set(snapshot.watchlist).size,
   );
   element("#formula").textContent = `ln V = ${valueFormula(model)}`;
@@ -190,8 +274,8 @@ function start(
             model: valueModel,
             odds: oddsModel,
             rangeHonesty,
-            bootstrap: data.bootstrap,
-            placebo: data.placebo,
+            bootstrap,
+            placebo,
             effectSummary,
             boardSize: rows.length,
           },

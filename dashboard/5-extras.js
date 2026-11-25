@@ -17,7 +17,7 @@ var columns = {
 	odds: "Odds 12m",
 	tvl: "TVL",
 	growth: "7d %",
-	age: "Days with no token",
+	age: "Days listed",
 	cost: "Plan",
 	verdict: "Verdict",
 	netPerHour: "Net/h",
@@ -238,7 +238,7 @@ function plannerResults({positions, totals, rejected, closest}, economics, getNa
 		["Deposit", ...labels],
 		economics[0]?.deposits.map(({depositUsd}, i) => {
 			const counts = {FARM: 0, THIN: 0, SKIP: 0}
-			for (const {deposits: deposits2} of economics) counts[deposits2[i]?.verdict ?? "SKIP"]++
+			for (const {deposits} of economics) counts[deposits[i]?.verdict ?? "SKIP"]++
 			return [usd(depositUsd), ...labels.map(label => String(counts[label]))]
 		}) ?? []
 	)
@@ -376,7 +376,7 @@ function diagonalPenalty(width, lambda) {
 	return Array.from({length: width}, (_, i) => [...Array(i).fill(0), i ? lambda : 0])
 }
 //! Solve (XᵀWX + penalty) b = XᵀWy.
-function weightedLeastSquares(design, targets, weights, penalty, ridge = false) {
+function weightedLeastSquares(design, targets, weights, penalty, stabilize) {
 	const normal = penalty.map(row => [...row])
 	const rhs = normal.map(() => 0)
 	for (let i = 0; i < design.length; i++) {
@@ -392,14 +392,7 @@ function weightedLeastSquares(design, targets, weights, penalty, ridge = false) 
 			for (let k = 0; k <= j; k++) line[k] = line[k] + scaled * row[k]
 		}
 	}
-	const [, [, tvl = 0] = [], [, cross = 0, age = 0] = []] = normal
-	if (ridge && normal.length === 3 && penalty[2]?.[2] === 0 && tvl > 0 && age > 0 && cross ** 2 >= (1 - 8 * Number.EPSILON) * tvl * age) {
-		normal[2] = [0, 0, 1]
-		rhs[2] = 0
-	}
-	for (const [i, row] of normal.entries()) {
-		if (ridge && i >= normal.length - 2 && row[i] === 0) row[i] = 1
-	}
+	stabilize?.(normal, rhs)
 	return choleskySolve(normal, rhs)
 }
 //! Cholesky with in-place triangular solves.
@@ -429,14 +422,14 @@ function medianInPlace(values) {
 	return values.length % 2 ? upper : ((values[middle - 1] ?? upper) + upper) / 2
 }
 //! Huber IRLS uses w = min(1, 1.345 × scaled MAD / |residual|).
-function fitHuber(design, targets, penalty, robust = true, ridge = false) {
+function fitHuber(design, targets, penalty, robust = true, stabilize) {
 	const weights = new Float64Array(targets.length).fill(1)
 	const residuals = weights.slice()
 	const scratch = weights.slice()
 	let coefficients = []
 	let huberScale = 1e-8
 	for (let iteration = 0; iteration <= 20; iteration++) {
-		const next = weightedLeastSquares(design, targets, weights, penalty, ridge)
+		const next = weightedLeastSquares(design, targets, weights, penalty, stabilize)
 		for (let i = 0; i < design.length; i++) {
 			residuals[i] = scratch[i] = targets[i] - dot(design[i], next)
 		}
@@ -449,14 +442,6 @@ function fitHuber(design, targets, penalty, robust = true, ridge = false) {
 		for (const [i, residual] of residuals.entries()) weights[i] = Math.min(1, (1.345 * huberScale) / Math.abs(residual))
 	}
 	return {coefficients, huberScale}
-}
-//! Ridge uses unit weights.
-function fitRidge(rows, lambda, robust, groupPenalty = []) {
-	const penalty = diagonalPenalty(groupPenalty.length + 3, lambda)
-	for (const [i, row] of groupPenalty.entries()) penalty[i + 1] = [0, ...row.slice(0, i + 1)]
-	const design = rows.map(({group, tvl, age}) => [1, ...groupPenalty.map((_, i) => Number(group === i + 1)), tvl, age])
-	const targets = rows.map(({target}) => target)
-	return fitHuber(design, targets, penalty, robust, true)
 }
 
 function sigmoid(logit) {
@@ -556,8 +541,7 @@ function boot(start) {
 		const {board, census, model, odds} = data
 		const validation = model?.validation
 		if (
-			![board?.rows, odds?.terms, odds?.validation?.steps, model?.fit?.terms, model?.selection?.steps, census].every(Array.isArray) ||
-			census.length !== input.protocols.length ||
+			![board?.rows, odds?.terms, odds?.validation?.selection?.steps, model?.fit?.terms, model?.selection?.steps, census].every(Array.isArray) ||
 			[validation?.leaveOneFamilyOut, validation?.seededFiveFold, validation?.walkForward].some(scheme => !scheme?.model || !scheme.flatMultiple || !scheme.categoryMultiple)
 		)
 			throw new Error("Incomplete snapshot")
@@ -575,8 +559,8 @@ function formatFarmStep({action, chain, costUsd, minutes, cadence, exitCondition
 	const exit = exitCondition ? ` | ${shorten(exitCondition, 245)}` : ""
 	return `${shorten(action, 190)} | ${shorten(chain ?? "Chain unlisted", 100)} | Est. fee ${usd(costUsd)} | ${minutes} minutes | ${cadence}${exit}`
 }
-function formatEconomics({deposits: deposits2, breakEvenDepositUsd}, holdWeeks, usd, {airdropShareOfLaunchCap}) {
-	const net = deposits2.map(
+function formatEconomics({deposits, breakEvenDepositUsd}, holdWeeks, usd, {airdropShareOfLaunchCap}) {
+	const net = deposits.map(
 		({depositUsd, expectedValueUsd, netUsd, netPerHourUsd, verdict}) => `${usd(depositUsd)} deposit: ${usd(expectedValueUsd)} expected drop, ${usd(netUsd)} net, ${usd(netPerHourUsd)}/h ${verdict}`
 	)
 	const breakEven = breakEvenDepositUsd === "never" ? "never" : `≈ ${usd(breakEvenDepositUsd)}`
@@ -586,7 +570,6 @@ function boardFarmSteps({plan, economics}, {formatUsd: usd, farmAssumptions}) {
 	return [...plan.steps.map(step => formatFarmStep(step, usd)), formatEconomics(economics, plan.holdWeeks, usd, farmAssumptions)]
 }
 
-var deposits = [1e3, 2500, 5e3, 1e4]
 function scheduleFarmMinutes({steps, reviewCounts, holdWeeks}, settings) {
 	const weeks = Array(Math.max(1, Math.ceil(holdWeeks))).fill(0)
 	const weeksPerMonth = settings.weeksPerYear / settings.monthsPerYear
@@ -659,7 +642,7 @@ function optimizePortfolio(rows, {budgetUsd, hoursPerWeek, chains, assumptions},
 			const weeklyMinutes = waived ? schedule.map((minutes, week) => (week === 0 ? minutes - waived.minutes : minutes)) : schedule
 			const withinHours = weeklyMinutes.every((minutes, week) => (usedMinutesByWeek[week] ?? 0) + minutes <= weeklyCapMinutes)
 			const terms = farmEconomicsTerms2({totalCostUsd: feeCents / 100, totalMinutes, capitalApr: option.capitalApr}, valueUsd, tvlUsd, probability, assumptions)
-			return deposits.map(depositUsd => {
+			return farmAssumptions.depositsUsd.map(depositUsd => {
 				const {expectedValueUsd, costUsd, netUsd} = depositAmounts2(terms, depositUsd)
 				const position = {
 					slug,
@@ -743,7 +726,7 @@ function optimizePortfolio(rows, {budgetUsd, hoursPerWeek, chains, assumptions},
 	return {positions, totals, rejected, closest}
 }
 
-window.Radar.support = {compareText, clamp, featureStats, median, fitRidge, fitLogistic, linearScore, sigmoid, isCensusSortKey, isSortKey, parseRoute, boot}
+window.Radar.support = {compareText, clamp, featureStats, median, fitHuber, diagonalPenalty, fitLogistic, linearScore, sigmoid, isCensusSortKey, isSortKey, parseRoute, boot}
 window.Radar.boardFarmSteps = row => boardFarmSteps(row, window.Radar)
 window.Radar.planPortfolio = (rows, options2) => optimizePortfolio(rows, options2, window.Radar)
 })();

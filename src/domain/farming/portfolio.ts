@@ -7,8 +7,6 @@ import type { FarmPlan } from "./plans.ts";
 import { makeFarmPlan } from "./plans.ts";
 import type { FarmTables } from "./playbook-data.ts";
 
-const deposits = [1_000, 2_500, 5_000, 10_000];
-
 interface PortfolioRow {
   protocol: Pick<Protocol, "slug" | "name" | "category" | "chains" | "tvl_usd">;
   rank: number;
@@ -146,7 +144,7 @@ export function optimizePortfolio(
         probability,
         assumptions,
       );
-      return deposits.map((depositUsd) => {
+      return farmAssumptions.depositsUsd.map((depositUsd) => {
         const { expectedValueUsd, costUsd, netUsd } = depositAmounts(terms, depositUsd);
         const position: Position = {
           slug,

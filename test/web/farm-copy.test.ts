@@ -42,7 +42,7 @@ test("renders the labor rate and farmer haircut beside the protocol verdicts", (
       source: "Test snapshot",
       watchlist: [],
     },
-    { lambda: 1, terms: [] },
+    { terms: [] },
     [],
     farmTables(),
   );
@@ -179,15 +179,15 @@ test("shows whole validation tables in their Method columns with the dated assum
     "Seeded five-fold",
     "Walk-forward",
     "Spearman",
-    "Value term selection",
-    "Odds term selection",
+    "Value selection trials (full data)",
+    "Odds selection trials (full data)",
     "10-fold Brier",
     "Base rate",
     "Raw PAVA clock",
     "Clock-only model (step 0)",
     "Not kept",
     "Held-out range honesty",
-    "Current traded-family market caps proxy for launch value.",
+    "Walk-forward uses dated families only.",
     "F(a)",
     "Brier scores current token status.",
     "assumes the cross-section behaves like a cohort.",
@@ -203,9 +203,9 @@ test("shows whole validation tables in their Method columns with the dated assum
   expect(headings(value ?? "")).toEqual([
     "Launch value model",
     "Out-of-sample validation",
-    "Value term selection",
+    "Value selection trials (full data)",
   ]);
-  expect(headings(odds)).toEqual(["Token-status model", "Odds term selection"]);
+  expect(headings(odds)).toEqual(["Token-status model", "Odds selection trials (full data)"]);
   expect(headings(evidence).slice(0, 4)).toEqual([
     "How each input moves the implied value",
     "Held-out token status",

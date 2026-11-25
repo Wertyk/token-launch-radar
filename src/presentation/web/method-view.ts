@@ -10,7 +10,7 @@ export function methodPanel(title: string, headers: string[], rows: string[][], 
 
 function termTrials(
   kind: "Value" | "Odds",
-  selection: RadarResult["model"]["selection"] | RadarResult["odds"]["validation"],
+  selection: RadarResult["model"]["selection"] | RadarResult["odds"]["validation"]["selection"],
   note?: string,
 ) {
   const errors =
@@ -24,7 +24,12 @@ function termTrials(
       kept ? "Kept" : "Not kept",
     ]),
   ]);
-  return methodPanel(`${kind} term selection`, ["Step", "Term", ...errors, "Decision"], rows, note);
+  return methodPanel(
+    `${kind} selection trials (full data)`,
+    ["Step", "Term", ...errors, "Decision"],
+    rows,
+    note,
+  );
 }
 
 export function methodView(
@@ -51,10 +56,6 @@ export function methodView(
   const coef = (value?: number | null) => value?.toFixed(6) ?? "—";
   const { valueErrors } = bootstrap;
   const errorNote = `${bootstrap.replicates} bootstrap refits.`;
-  const category = model.trialFit?.categoryTrial;
-  const categoryNote = category
-    ? `Category trial λ ${category.lambda} × ${category.categoryPenaltyMultiple} for group effects.`
-    : "Category trial parameters unavailable.";
   const paths = [
     ["Launch value", odds.terms.includes("lnTvl") && "odds"],
     [model.momentum && "Launch value", odds.terms.includes("growth") && "odds"],
@@ -96,17 +97,21 @@ export function methodView(
             `${multiplier(medianMultiplier)} · ${spearman?.toFixed(3) ?? "—"}`,
         ),
       ]),
-      "Current traded-family market caps proxy for launch value. Median error ×k and Spearman ρ. Comparables exclude the house-excluded categories (exchange custody, bridged and staked products), the same rule the census applies.",
+      "Median error ×k and Spearman ρ use current market caps as a proxy. Terms are selected inside each training set. Walk-forward uses dated families only. Comparables pass the census product and category rules.",
     ),
-    termTrials("Value", selection, `Fixed penalties. ${categoryNote} Both errors must improve.`),
+    termTrials(
+      "Value",
+      selection,
+      `Fixed group penalty ${model.fit.categoryPenalty}. Both errors must improve.`,
+    ),
     '</div><div class="method-odds">',
     methodPanel(
       "Token-status model",
       ["Term in logit F(a)", "Coefficient", "Bootstrap SE"],
       odds.names.map((name, i) => [name, coef(odds.coefficients[i]), coef(odds.standardErrors[i])]),
-      `${odds.n} listed protocols. PAVA share S(a) is clamped to 0.01–0.99. P₁₂ = [F(a+365) − F(a)] / [1 − F(a)]. Flat years use tail hazard. Undated age ${odds.medianAgeDays}d. ${errorNote}`,
+      `${odds.n} eligible protocols · ${formatOdds(odds.baseRate)} record a token. L2 penalty ${odds.penalty}. PAVA share S(a) is clamped to 0.01–0.99. P₁₂ = [F(a+365) − F(a)] / [1 − F(a)]. Flat years use tail hazard. Undated age ${odds.medianAgeDays}d. ${errorNote}`,
     ),
-    termTrials("Odds", odds.validation),
+    termTrials("Odds", odds.validation.selection),
     '</div><div class="method-evidence">',
     methodPanel(
       "How each input moves the implied value",
@@ -117,7 +122,7 @@ export function methodView(
         `${effectPercent(low ?? NaN)} to ${effectPercent(high ?? NaN)}`,
         paths[i] ?? "",
       ]),
-      `${boardSize} rows, before dollar rounding. Growth is 7-day, clipped by the model. Age with no token shifts the clock forward. Missing growth starts at 0 and undated ages use the fitted medians.`,
+      `${boardSize} rows, before dollar rounding. Growth is 7-day, clipped by the model. Listing age shifts the clock forward. Missing growth starts at 0 and undated ages use the fitted medians.`,
     ),
     methodPanel(
       "Held-out token status",
@@ -127,13 +132,13 @@ export function methodView(
           ["Base rate", baselines.baseRate],
           ["Raw PAVA clock", baselines.pava],
           ["Clock-only model (step 0)", baselines.clockOnly],
-          ["Final model", scores],
+          ["Nested model", scores],
         ] as const
       ).map(([label, pair]) => [label, ...pair.map(brier)]),
-      "Brier scores current token status. P₁₂ assumes the cross-section behaves like a cohort.",
+      "Brier scores current token status. Terms are selected inside each training set. Walk-forward uses dated records only. P₁₂ assumes the cross-section behaves like a cohort.",
     ),
     methodPanel("Held-out range honesty", ["Band", "Actual", "Stated"], rangeRows(rangeHonesty)),
-    `<section class="panel"><h2>Growth placebo</h2><p class="caption">Real Brier ${placebo.real.map(brier).join(" / ")}. ${placebo.asGoodOrBetter.map((rate) => (rate === null ? "—" : formatOdds(rate))).join(" / ")} of ${placebo.shuffles} shuffles matched or beat it (10-fold / WF).</p></section>`,
+    `<section class="panel"><h2>Growth placebo</h2><p class="caption">Fixed-term Brier ${placebo.real.map(brier).join(" / ")}. ${placebo.asGoodOrBetter.map((rate) => (rate === null ? "—" : formatOdds(rate))).join(" / ")} of ${placebo.shuffles} shuffles matched or beat it (10-fold / WF).</p></section>`,
     notes?.(methodPanel) ?? "",
     "</div>",
   ];

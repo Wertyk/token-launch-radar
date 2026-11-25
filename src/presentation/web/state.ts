@@ -8,7 +8,7 @@ export const columns = {
   odds: "Odds 12m",
   tvl: "TVL",
   growth: "7d %",
-  age: "Days with no token",
+  age: "Days listed",
   cost: "Plan",
   verdict: "Verdict",
   netPerHour: "Net/h",

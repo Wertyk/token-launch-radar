@@ -89,7 +89,7 @@ test.each(["Onchain Capital Allocator", "Canonical Bridge"])(
 const playbooks = [
   ["Dexs", /pool/i, 0],
   ["Uncollateralized Lending", /supply/i, 0],
-  ["CDP", /collateral/i, 0],
+  ["CDP", /collateral/i, 0.05],
   ["Liquid Restaking", /stake/i, 0],
   ["Yield Aggregator", /vault/i, 0],
   ["Risk Curators", /vault/i, 0],
@@ -331,6 +331,22 @@ test.each([
     expect(plan.steps.some(({ action }) => risk.test(action))).toBe(true);
     expect(plan.steps.map(renderFarmStep).join(" ")).not.toMatch(new RegExp(names.join("|"), "i"));
   }
+});
+
+test("CDP copy conditions debt repayment and fees on the position", () => {
+  const plan = makeFarmPlan(protocol({ category: "CDP" }));
+  const exit = plan.steps.at(-1)?.action;
+  expect(exit).toMatch(/if you mint debt/i);
+  expect(exit).toMatch(/if a stability fee applies/i);
+});
+
+test("chooses the lower published cash fee after weighting claim gas", () => {
+  const record = protocol({ category: "Lending", chains: ["Arbitrum", "Plasma"] });
+  const options = { launchProbability12: 0.1 };
+  const plan = buildPlan(record, tables, options);
+  expect(plan.chain).toBe("Plasma");
+  expect(plan.totalCostUsd).toBe(0.53);
+  expect(buildPlan({ ...record, chains: ["Arbitrum"] }, tables, options).totalCostUsd).toBe(0.54);
 });
 
 test("accrues weekly fees and labor only for whole review periods in the expected hold", () => {

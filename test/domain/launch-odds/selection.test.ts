@@ -1,5 +1,12 @@
 import { expect, test } from "vitest";
-import { meanBrier, validateOdds } from "../../../src/domain/launch-odds/validation.ts";
+import {
+  meanBrier,
+  oddsValidationFolds,
+  scoreOdds,
+  selectOddsTerms,
+  statusPredictor,
+  validateOdds,
+} from "../../../src/domain/launch-odds/validation.ts";
 import { selectTerms } from "../../../src/domain/shared/term-selection.ts";
 
 test("walk-forward starts from a clock fitted only on the older listings", () => {
@@ -14,14 +21,29 @@ test("walk-forward starts from a clock fitted only on the older listings", () =>
     lnChains: 0,
     category: "dex" as const,
   }));
-  const { baselines, scores, steps } = validateOdds(rows);
+  const { baselines, scores, selection } = validateOdds(rows);
+  const folds = oddsValidationFolds(rows);
+  expect(scores).toEqual(
+    scoreOdds(folds, (train) => statusPredictor(train, selectOddsTerms(train).terms)),
+  );
   // The old bin holds at 2/3 for all three newer observations (0, 0, 1).
   // A clock fitted on all six rows would see the newer bin's 1/3 share.
   expect(baselines.pava[1]).toBeCloseTo(1 / 3, 12);
   expect(baselines.clockOnly[1]).toBeCloseTo(1 / 3, 12);
-  expect(steps[0]?.baseline).toEqual(baselines.clockOnly);
-  expect(scores[0]).toBeLessThanOrEqual(baselines.clockOnly[0] ?? 0);
-  expect(scores[1]).toBeLessThanOrEqual(baselines.clockOnly[1] ?? 0);
+  expect(selection.steps[0]?.baseline).toEqual(baselines.clockOnly);
+  const [first] = rows;
+  if (!first) throw new Error("Expected a dated record.");
+  const undated = {
+    ...first,
+    slug: "undated",
+    familyKey: "undated",
+    listedAt: null,
+    ageDays: null,
+  };
+  const [kfold, chronological] = oddsValidationFolds([...rows, undated]);
+  expect(kfold?.flatMap(({ test }) => test)).toContain(undated);
+  expect(chronological).toEqual(folds[1]);
+  expect(validateOdds([...rows, undated]).scores[1]).toBe(scores[1]);
 });
 
 test("keeps signal and rejects noise or gains confined to one held-out test", () => {

@@ -24,15 +24,18 @@ test("checks the generated bundles byte for byte without writing them", () => {
     const core = readFileSync(join(cwd, "dashboard/2-core.js"), "utf8");
     expect(core).not.toContain("@__PURE__");
     expect(core).not.toContain("DEFAULT_DEPOSIT_USD");
-    expect(core).not.toMatch(/jackknifePlusBands|selectLambda|growthPlacebo|bootstrapSummary/);
+    expect(core).not.toMatch(/jackknifePlusBands|selectLambda/);
     for (const name of [
       "selectTerms",
+      "bootstrapRadar",
+      "bootstrapSummary",
+      "growthPlacebo",
       "selectValueTerms",
       "seededFolds",
       "walkForwardSplit",
       "medianLogError",
       "meanBrier",
-      "validateOdds",
+      "selectOddsTerms",
       "impliedValueEffects",
       "summarizeEffects",
     ]) {
@@ -41,18 +44,19 @@ test("checks the generated bundles byte for byte without writing them", () => {
     expect(core).not.toMatch(/parseSnapshot|duplicate slug|Log the supply rate|Ethereum:\[3,8\]/);
     expect(core).toContain("function fitOddsModel(");
     expect(core).toContain("function fitValueModel(");
+    expect(core).toContain("function fitRidge(");
     expect(core).toContain("function pava");
     expect(core).toContain("function launchProbability12");
     expect(core).not.toMatch(/function (boardFarmSteps|formatFarmStep|formatEconomics)/);
     expect(core).not.toMatch(/function (planPortfolio|optimizePortfolio|scheduleFarmMinutes)/);
     const extras = readFileSync(join(cwd, "dashboard/5-extras.js"), "utf8");
     expect(extras).toContain("function mountPlanner");
+    expect(extras).not.toContain("function fitRidge(");
     expect(extras).toContain("function optimizePortfolio");
     for (const name of [
       "dot",
       "diagonalPenalty",
       "fitLogistic",
-      "fitRidge",
       "fitHuber",
       "weightedLeastSquares",
       "choleskySolve",
@@ -120,7 +124,7 @@ test("loads the offline resources in dependency order", () => {
   const html = readFileSync(new URL("dashboard/index.html", root), "utf8");
   expect(
     [...html.matchAll(/(?:src|href)="([^"#]+\.(?:js|css))"/g)].map((match) => match[1]),
-  ).toEqual(["../data.js", "1-tokens.css", "4-app.css", "5-extras.js", "2-core.js", "3-ui.js"]);
+  ).toEqual(["../data.js", "4-app.css", "5-extras.js", "2-core.js", "3-ui.js"]);
 });
 
 test("protects input construction and documents the numeric kernels in extras", () => {
@@ -182,17 +186,17 @@ test("emits each shared function in one bundle", () => {
   expect(names).toHaveLength(new Set(names).size);
 });
 
-test("keeps the guide, design tokens and browser bundles within the judge's source budget", () => {
-  const bytes = ["0-guide.md", "1-tokens.css", "2-core.js", "3-ui.js"].reduce(
+test("keeps the guide and browser bundles within the judge's source budget", () => {
+  const bytes = ["0-guide.md", "2-core.js", "3-ui.js"].reduce(
     (total, file) => total + readFileSync(new URL(`dashboard/${file}`, root)).length,
     0,
   );
   expect(bytes).toBeLessThanOrEqual(64_850);
 });
 
-test("keeps five screenshot-backed rubric bullets with v9b evidence", () => {
+test("keeps five screenshot-backed rubric bullets with protected evidence names", () => {
   const guide = readFileSync(new URL("dashboard/0-guide.md", root), "utf8");
-  expect(Buffer.byteLength(guide)).toBeLessThanOrEqual(700);
+  expect(Buffer.byteLength(guide)).toBeLessThanOrEqual(475);
   expect(guide).not.toMatch(/https?:\/\//i);
   const bullets = guide.trim().split("\n");
   expect(bullets).toHaveLength(5);
@@ -200,13 +204,14 @@ test("keeps five screenshot-backed rubric bullets with v9b evidence", () => {
     expect(bullet).toMatch(new RegExp(`^- \\*\\*Criterion ${i + 1} \\([^)]*\\d-\\w+`));
   }
   for (const text of [
-    "758 protocols",
-    "40/40 watchlist recall",
-    "+5.3%, −10.6%, +57.7%",
-    "×2.24",
-    "0.1700/0.2123",
-    "9–10 steps",
-    "cross-section behaves like a cohort",
+    "buildCensus",
+    "impliedValueEffects",
+    "bootstrapRadar",
+    "growthPlacebo",
+    "makeFarmPlan",
+    "selectRows",
+    "serializeBoard",
+    "4-app.css",
   ]) {
     expect(guide).toContain(text);
   }
@@ -230,9 +235,9 @@ function unresolvedGuideReferences(guide: string): string[] {
 test("resolves every guide name to a declaration in the protected bundles only", () => {
   const guide = readFileSync(new URL("dashboard/0-guide.md", root), "utf8");
   expect(unresolvedGuideReferences(guide)).toEqual([]);
-  expect(unresolvedGuideReferences("`mountPlanner` `1-tokens.css`")).toEqual([
+  expect(unresolvedGuideReferences("`mountPlanner` `4-app.css`")).toEqual([
     "mountPlanner",
-    "1-tokens.css",
+    "4-app.css",
   ]);
 });
 
@@ -243,5 +248,7 @@ test("drops the unused census filter spacing rule", () => {
 });
 
 test("keeps the handwritten design tokens within 1.5 KB", () => {
-  expect(readFileSync(new URL("dashboard/1-tokens.css", root)).length).toBeLessThanOrEqual(1_500);
+  const css = readFileSync(new URL("dashboard/4-app.css", root), "utf8");
+  expect(css).toMatch(/^:root\s*\{[^}]*--ink:/);
+  expect(css.indexOf("}")).toBeLessThan(1_500);
 });

@@ -1,37 +1,16 @@
 import type { CategoryComparable } from "./categories.ts";
 import { categoryDesign } from "./category-design.ts";
-import { selectCategoryFit } from "./category-model.ts";
-import type { Comparable } from "./comparables.ts";
-import type { CategoryDesign } from "./model.ts";
 import { fitValueModel } from "./model.ts";
-import type { ValueTerm } from "./selection.ts";
-import { selectLambda, valueOptions } from "./selection.ts";
+import { type ValueTerm, valueOptions } from "./selection.ts";
 
-export interface ValueFit {
-  terms: readonly ValueTerm[];
-  lambda: number;
-  categoryPenaltyMultiple?: number;
-  category?: CategoryDesign;
-}
+// Retain the deployed λ for the slopes to keep regularization mild.
+export const VALUE_RIDGE_LAMBDA = 0.01;
+// Retain the v9 trial's effective group penalty (16 × 4) to shrink sparse categories.
+export const VALUE_CATEGORY_PENALTY = 64;
 
-export function tuneValueFit(
-  rows: readonly CategoryComparable[],
-  terms: readonly ValueTerm[],
-): ValueFit {
-  if (!terms.includes("category")) return { terms, lambda: selectLambda(rows, terms) };
-  const parameters = selectCategoryFit(rows, terms);
-  return { terms, ...parameters, category: categoryDesign(rows, parameters) };
-}
-
-export function refitValue(rows: readonly Comparable[], fit: ValueFit) {
-  return fitValueModel(rows, fit.lambda, valueOptions(fit.terms), fit.category);
-}
-
-export function refitValueSubset(rows: readonly CategoryComparable[], fit: ValueFit) {
-  const { lambda, categoryPenaltyMultiple } = fit;
-  if (categoryPenaltyMultiple === undefined) return refitValue(rows, fit);
-  return refitValue(rows, {
-    ...fit,
-    category: categoryDesign(rows, { lambda, categoryPenaltyMultiple }),
-  });
+export function refitValue(rows: readonly CategoryComparable[], terms: readonly ValueTerm[]) {
+  const category = terms.includes("category")
+    ? categoryDesign(rows, VALUE_CATEGORY_PENALTY)
+    : undefined;
+  return fitValueModel(rows, VALUE_RIDGE_LAMBDA, valueOptions(terms), category);
 }

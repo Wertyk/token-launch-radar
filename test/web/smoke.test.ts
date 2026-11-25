@@ -58,14 +58,26 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
     };
 
     await goTo("#/?cat=Unknown&chain=Unknown");
-    await page
-      .locator(".integrity .check")
-      .filter({ hasText: "Recompute = board.json · launch values, odds, implied values, ranks" })
-      .waitFor({ timeout: 4_000 });
-    expect(await page.locator(".integrity .check").count()).toBe(7);
+    const checks = page.locator(".integrity .check");
+    const lineCount = await checks.evaluateAll(
+      (items) => new Set(items.map((item) => item.getBoundingClientRect().top)).size,
+    );
+    expect.soft(lineCount).toBe(2);
+    expect(await checks.allTextContents()).toEqual([
+      "✓ Recompute = published board · 198 rows",
+      "✓ Watchlist 40/40",
+      "✓ House rule 40/40 · +20 via parentProtocol",
+      "✓ 74/92 held-out caps in P10–P90",
+      "✓ LOO ×3.32 vs ×4.65 flat",
+      "✓ Term selection reproduced · 0/3 · 3/4",
+      "✓ Census = recompute",
+      "✓ Input effects = reference",
+      "✓ Validation = fold predictions",
+      "✓ Bootstrap · 200 refits match",
+      "✓ Placebo · 200 refits match",
+    ]);
     expect(await page.locator("#kpis dt").count()).toBe(6);
     expect(await page.locator("#kpis").textContent()).toContain("40/40 watchlist");
-    expect(await page.locator("#checks").textContent()).toContain("Term selection reproduced");
     expect(await ready.locator(".census-summary").textContent()).toBe(
       "All 758 protocols accounted for: 198 ranked · 128 traded · 288 token, unpriced · 144 excluded",
     );
@@ -121,9 +133,9 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
     for (const name of [
       "Launch value model",
       "Out-of-sample validation",
-      "Value term selection",
+      "Value selection trials (full data)",
       "Token-status model",
-      "Odds term selection",
+      "Odds selection trials (full data)",
       "Held-out token status",
       "Held-out range honesty",
     ]) {
@@ -133,10 +145,13 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
       expect(bounds.y + bounds.height, name).toBeLessThanOrEqual(1200);
     }
     expect(await methodCard("Token-status model").textContent()).toContain("P₁₂ = [F(a+365)");
-    for (const label of ["Value term selection", "Odds term selection"]) {
+    for (const label of [
+      "Value selection trials (full data)",
+      "Odds selection trials (full data)",
+    ]) {
       await methodCard(label).getByText("Not kept").first().waitFor();
     }
-    expect(await methodCard("Held-out range honesty").textContent()).toContain("76/94");
+    expect(await methodCard("Held-out range honesty").textContent()).toContain("74/92");
     await page.setViewportSize({ width: 390, height: 844 });
     const mobileOrder = await ready.locator(".method h2").evaluateAll((headings) =>
       headings
@@ -199,7 +214,7 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
     await waitUntilReady();
     expect(await rows.count()).toBeGreaterThan(0);
     expect(await page.locator(".integrity .check-failed").textContent()).toContain(
-      `✗ Recompute ≠ board.json · launch values, odds, implied values, ranks, plans, economics (1 mismatched · ${bad.slug})`,
+      `✗ Recompute ≠ published board · launch values, odds, implied values, ranks, plans, economics (1 mismatched · ${bad.slug})`,
     );
 
     expect(errors).toEqual([]);

@@ -4,6 +4,7 @@ import { groupFamilies } from "../../../src/domain/census/families.ts";
 import type { ClockPoint } from "../../../src/domain/launch-clock/clock.ts";
 import { fitLogistic, sigmoid } from "../../../src/domain/launch-odds/logistic.ts";
 import {
+  bootstrapProbability12,
   categoryTokenShares,
   fitOddsModel,
   launchProbability12,
@@ -97,13 +98,27 @@ test("learns and clamps the clock from the model's training rows", () => {
   );
 });
 
-test("only dated candidate census statuses enter the sample", () => {
+test("filters products before reading status and retains undated eligible records", () => {
   const protocols = [
     protocol({ slug: "pre", listed_at: "2024-01-01" }),
     protocol({ slug: "same-day", listed_at: "2024-03-01" }),
     protocol({ slug: "traded", mcap_usd: 100, gecko_id: "traded", listed_at: "2024-01-01" }),
     protocol({ slug: "unpriced", gecko_id: "unpriced", listed_at: "2024-01-01" }),
-    protocol({ slug: "excluded", category: "Bridge", listed_at: "2024-01-01" }),
+    ...[
+      { category: "Bridge" },
+      { name: "Example Wrapped" },
+      { name: "Example Staked" },
+      { name: "Kraken Example" },
+      { name: "Example v2" },
+    ].flatMap((fields, i) => [
+      protocol({ ...fields, slug: `excluded-negative-${i}` }),
+      protocol({
+        ...fields,
+        slug: `excluded-positive-${i}`,
+        gecko_id: `excluded-${i}`,
+        mcap_usd: 100,
+      }),
+    ]),
     protocol({ slug: "undated", listed_at: null }),
   ];
   const census = buildCensus(protocols, groupFamilies(protocols));
@@ -113,6 +128,7 @@ test("only dated candidate census statuses enter the sample", () => {
     ["pre", 0, 60],
     ["same-day", 0, 0],
     ["traded", 1, 60],
+    ["undated", 0, null],
     ["unpriced", 1, 60],
   ]);
 });
@@ -134,6 +150,10 @@ test("converts the fitted status curve and its extrapolated tail to conditional 
   for (const slope of [0, -1]) {
     expect(() => launchProbability12(clock, 0, 0, slope)).toThrow(/clock coefficient.*positive/i);
   }
+});
+
+test.each([0, -1])("uses the tail when bootstrap constrains gamma %s to zero", (gamma) => {
+  expect(bootstrapProbability12(clock, 0, 0, gamma)).toBeCloseTo(0.5, 12);
 });
 
 test("uses the v8 annual tail hazard when the time term stays flat throughout the window", () => {

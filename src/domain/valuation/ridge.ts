@@ -1,50 +1,13 @@
-import { diagonalPenalty, dot, weightedLeastSquares } from "./linalg.ts";
+import { fitHuber } from "./huber.ts";
+import { diagonalPenalty } from "./linalg.ts";
+
+export { fitHuber } from "./huber.ts";
 
 export interface RidgeRow {
   tvl: number;
   age: number;
   target: number;
   group?: number;
-}
-
-function medianInPlace(values: Float64Array): number {
-  values.sort();
-  const middle = Math.floor(values.length / 2);
-  const upper = values[middle] ?? 0;
-  return values.length % 2 ? upper : ((values[middle - 1] ?? upper) + upper) / 2;
-}
-
-//! Huber IRLS uses w = min(1, 1.345 × scaled MAD / |residual|).
-export function fitHuber(
-  design: readonly (readonly number[])[],
-  targets: readonly number[],
-  penalty: readonly (readonly number[])[],
-  robust = true,
-  ridge = false,
-): { coefficients: number[]; huberScale: number } {
-  const weights = new Float64Array(targets.length).fill(1);
-  const residuals = weights.slice();
-  const scratch = weights.slice();
-  let coefficients: number[] = [];
-  let huberScale = 1e-8;
-  for (let iteration = 0; iteration <= 20; iteration++) {
-    const next = weightedLeastSquares(design, targets, weights, penalty, ridge);
-    for (let i = 0; i < design.length; i++) {
-      residuals[i] = scratch[i] =
-        (targets[i] as number) - dot(design[i] as readonly number[], next);
-    }
-    const center = medianInPlace(scratch);
-    for (const [i, value] of residuals.entries()) scratch[i] = Math.abs(value - center);
-    huberScale = Math.max(1e-8, 1.4826 * medianInPlace(scratch));
-    const converged = next.every(
-      (value, i) => Math.abs(value - (coefficients[i] ?? Infinity)) < 1e-5,
-    );
-    coefficients = next;
-    if (!robust || converged) break;
-    for (const [i, residual] of residuals.entries())
-      weights[i] = Math.min(1, (1.345 * huberScale) / Math.abs(residual));
-  }
-  return { coefficients, huberScale };
 }
 
 //! Ridge uses unit weights.
@@ -63,5 +26,21 @@ export function fitRidge(
     age,
   ]);
   const targets = rows.map(({ target }) => target);
-  return fitHuber(design, targets, penalty, robust, true);
+  return fitHuber(design, targets, penalty, robust, (normal, rhs) => {
+    const [, [, tvl = 0] = [], [, cross = 0, age = 0] = []] = normal;
+    // In unpenalized ridge with collinear slopes, keep TVL and fix age at zero.
+    if (
+      normal.length === 3 &&
+      penalty[2]?.[2] === 0 &&
+      tvl > 0 &&
+      age > 0 &&
+      cross ** 2 >= (1 - 8 * Number.EPSILON) * tvl * age
+    ) {
+      normal[2] = [0, 0, 1];
+      rhs[2] = 0;
+    }
+    for (const [i, row] of normal.entries()) {
+      if (i >= normal.length - 2 && row[i] === 0) row[i] = 1;
+    }
+  });
 }

@@ -25,9 +25,7 @@ export function protocolFacts(
     ["7d TVL change", growthText(protocol.change_7d)],
     ["Listed", esc(protocol.listed_at ?? "Unlisted")],
     [
-      status === "traded" || status === "token-unpriced"
-        ? "Days since listing"
-        : "Days with no token",
+      status === "traded" || status === "token-unpriced" ? "Days since listing" : "Days listed",
       formatInteger(age),
     ],
   ];

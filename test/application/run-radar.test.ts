@@ -117,19 +117,17 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   for (const unused of ["houseRule", "intervalCoverage", "intervalCounts"]) {
     expect(data).not.toHaveProperty(unused);
   }
-  expect(data.looScatter).toHaveLength(94);
-  expect(new Set(data.looScatter.map((point: { slug: string }) => point.slug)).size).toBe(94);
+  expect(data.looScatter).toHaveLength(92);
+  expect(new Set(data.looScatter.map((point: { slug: string }) => point.slug)).size).toBe(92);
   for (const point of data.looScatter) {
     expect(Number.isFinite(point.p10)).toBe(true);
     expect(Number.isFinite(point.p90)).toBe(true);
     expect(point.p10).toBeLessThanOrEqual(point.p90);
     expect(point).not.toHaveProperty("inside");
   }
-  expect(data.odds.n).toBe(
-    snapshot.protocols.filter(
-      ({ listed_at }, i) => listed_at !== null && data.census[i].status !== "excluded",
-    ).length,
-  );
+  expect(data.odds.n).toBe(442);
+  expect(data.odds.baseRate).toBe(244 / 442);
+  expect(data.odds.penalty).toBe(1);
   expect(data.odds.names).toEqual(["intercept", "logit(S(a))", ...data.odds.terms]);
   for (const [index, row] of rows.entries()) {
     const published = publishedRows[index];
@@ -177,23 +175,20 @@ test("runs the ports in order and publishes the kit board and browser data", () 
       }) => published,
     ),
   ).toEqual(rows);
-  expect(data.model.validation.leaveOneFamilyOut.model.n).toBe(94);
+  expect(data.model.validation.leaveOneFamilyOut.model.n).toBe(92);
   expect(data.model.selection.terms).toEqual(data.model.fit.terms);
-  expect(data.model.trialFit).toEqual({
-    lambda: 0.01,
-    categoryTrial: { lambda: 16, categoryPenaltyMultiple: 4 },
-  });
+  expect(data.model.fit).toMatchObject({ lambda: 0.01, categoryPenalty: 64 });
   const categoryTrial = radar.model.selection.steps[0]?.trials.find(
     ({ term }) => term === "category",
   );
   expect(categoryTrial?.kept).toBe(false);
-  expect(categoryTrial?.scores.map((error) => error?.toFixed(4))).toEqual(["1.3080", "0.7163"]);
+  expect(categoryTrial?.scores.map((error) => error?.toFixed(4))).toEqual(["1.2592", "0.8145"]);
   expect(data.model).not.toHaveProperty("coefficients");
   expect(data.protocols).toHaveLength(758);
 
   expect(radar.census).toHaveLength(snapshot.protocols.length);
   expect(radar.census.every(({ reason }) => reason.length > 0)).toBe(true);
-  expect(radar.model.n).toBe(94);
+  expect(radar.model.n).toBe(92);
   expect(board).toEqual(toBoardRows(radar));
   for (const fn of [
     radarApi.buildRadar,
@@ -224,10 +219,10 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     browserRadar.families.map((family) => [family.representative.slug, family]),
   );
   const scatter = scatterCoverage(data.looScatter, families);
-  expect(scatter.counts).toEqual({ missLow: 9, covered: 76, missHigh: 9 });
+  expect(scatter.counts).toEqual({ missLow: 9, covered: 74, missHigh: 9 });
   expect(data.rangeHonesty).toEqual({
-    middle: { stated: 0.5, covered: 49, n: 94 },
-    broad: { stated: 0.8, covered: 76, n: 94 },
+    middle: { stated: 0.5, covered: 47, n: 92 },
+    broad: { stated: 0.8, covered: 74, n: 92 },
   });
   const checks = integrityChecks(
     boardMismatches(browserRadar.board, publishedRows, (row) =>

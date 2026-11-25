@@ -1,4 +1,32 @@
 :root {
+  --paper: #f7f6f1;
+  --surface: #fffefa;
+  --ink: #202823;
+  --muted: #53605a;
+  --line: #dcdfd7;
+  --chip: #eeefe9;
+  --teal: #145c54;
+  --teal-light: #e4efea;
+  --positive: #286747;
+  --negative: #963e38;
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s6: 24px;
+  --s8: 32px;
+  --radius: 8px;
+  --font-body: 14px;
+  --font-small: 12px;
+  --font-heading: 32px;
+  --font-section: 17px;
+  --band: #98bdb1;
+  --hover: #f0f5ee;
+  --input-border: #b7c1b8;
+  --negative-light: #f7e9e4;
+}
+
+:root {
   color-scheme: light;
   font:
     var(--font-body) / 1.45 system-ui,

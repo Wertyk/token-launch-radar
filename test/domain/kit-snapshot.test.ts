@@ -71,7 +71,7 @@ test("the kit snapshot produces a complete, valid and deterministic board", () =
   expect(houseRule.falseNegatives).toEqual([]);
   expect(houseRule.recall).toBe(1);
   expect(houseRule.precision).toBe(2 / 3);
-  expect(result.model.n).toBe(94);
+  expect(result.model.n).toBe(92);
   expect(snapshot.watchlist).toHaveLength(40);
   expect(board).toHaveLength(198);
   const boardSlugs = new Set(board.map(({ protocol: row }) => row.slug));
@@ -140,7 +140,7 @@ test("the parent flag still matches the house-rule audit on the published kit bo
 test("documents the age inputs computed for undated rows in the sealed snapshot", () => {
   const readme = readFileSync(new URL("../../README.md", import.meta.url), "utf8");
   const { model, odds } = result;
-  expect(odds.medianAgeDays).toBe(665);
+  expect(odds.medianAgeDays).toBe(558);
   expect(readme).toContain(`population’s median age (${odds.medianAgeDays} days`);
   expect(readme).toContain("clamped to [0.01, 0.99]");
   expect(readme).toContain("assumes the cross-section behaves like a cohort");
@@ -159,9 +159,9 @@ test("the nested kit LOO model matches or improves on the flat multiple", () => 
   const { validation, selection } = result.model;
   const loo = validation.leaveOneFamilyOut;
   for (const [scheme, count] of [
-    [loo, 94],
-    [validation.seededFiveFold, 94],
-    [validation.walkForward, 29],
+    [loo, 92],
+    [validation.seededFiveFold, 92],
+    [validation.walkForward, 28],
   ] as const) {
     expect(Object.values(scheme).map(({ n }) => n)).toEqual([count, count, count]);
   }
@@ -174,8 +174,11 @@ test("the nested kit LOO model matches or improves on the flat multiple", () => 
     ["age", false],
     ["category", false],
   ]);
-  expect(result.odds.terms).toEqual(["categoryShare", "lnTvl", "growth"]);
-  const { baselines, scores } = result.odds.validation;
+  expect(result.odds.terms).toEqual(["lnTvl", "growth", "categoryShare"]);
+  expect(result.odds.n).toBe(442);
+  expect(result.odds.baseRate).toBe(244 / 442);
+  const { baselines, scores, selection: oddsTrials } = result.odds.validation;
+  expect(scores).not.toEqual(oddsTrials.scores);
   for (const [i, score] of scores.entries()) {
     expect(score).toBeLessThan(baselines.baseRate[i] ?? 0);
     expect(score).toBeLessThan(baselines.pava[i] ?? 0);

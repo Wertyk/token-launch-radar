@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { PLAIN_NAME } from "../../vendor/makefun-board.ts";
 import { imageDimensions, screenshotLimit } from "./image.ts";
 
@@ -82,6 +83,45 @@ export function readBoard(bytes: Buffer): Record<string, unknown>[] {
   const rows = Array.isArray(value) ? value : record(value).rows;
   if (!Array.isArray(rows)) throw new Error("board.json needs a rows array");
   return rows.map(record);
+}
+
+const browserFields = new Set([
+  "interval_p10_usd",
+  "interval_p90_usd",
+  "influence",
+  "twins",
+  "launch_p12",
+]);
+
+export function checkBoardMatchesData(
+  rows: readonly Record<string, unknown>[],
+  data: Buffer,
+): string {
+  const prefix = "window.RADAR_DATA = ";
+  const script = utf8.decode(data).trimEnd();
+  if (!script.startsWith(prefix) || !script.endsWith(";"))
+    throw new Error("data.js needs a RADAR_DATA JSON assignment");
+  const { board } = record(JSON.parse(script.slice(prefix.length, -1)));
+  const embedded = record(board).rows;
+  if (!Array.isArray(embedded) || embedded.length !== rows.length)
+    throw new Error("board.json and data.js row counts differ");
+  for (const [index, row] of rows.entries()) {
+    // Browser-only diagnostics extend the published board rows.
+    const saved = record(embedded[index]);
+    const keys = new Set([
+      ...Object.keys(row),
+      ...Object.keys(saved).filter((key) => !browserFields.has(key)),
+    ]);
+    for (const key of keys) {
+      if (
+        !Object.hasOwn(row, key) ||
+        !Object.hasOwn(saved, key) ||
+        !isDeepStrictEqual(row[key], saved[key])
+      )
+        throw new Error(`${row.slug ?? index + 1}.${key} differs between board.json and data.js`);
+    }
+  }
+  return `${rows.length} board rows match data.js field by field`;
 }
 
 export function readSnapshotSlugs(bytes: Buffer): SnapshotSlugs {

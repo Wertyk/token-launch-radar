@@ -5,6 +5,7 @@ import type { Comparable } from "../../../src/domain/valuation/comparables.ts";
 import { describeBoardValues } from "../../../src/domain/valuation/diagnostics.ts";
 import {
   jackknifePlusBand,
+  jackknifePlusBands,
   jackknifePlusCoverage,
   leaveOneFamilyOut,
   rangeHonesty,
@@ -64,7 +65,7 @@ test("left-out board refits use the published penalty and their own signed resid
   ]);
 });
 
-test("coverage selects a penalty inside each outer training fold", () => {
+test("coverage uses a fixed penalty even when the tuning diagnostic changes", () => {
   const random = mulberry32(3);
   const rows = Array.from({ length: 20 }, (_, i) => {
     const tvl = i / 4;
@@ -75,8 +76,9 @@ test("coverage selects a penalty inside each outer training fold", () => {
   expect(selectLambda(rows)).toBe(0.01);
   expect(selectLambda(rows.filter(({ slug }) => slug !== "09"))).toBe(0.1);
   const coverage = jackknifePlusCoverage(rows);
-  expect(coverage?.counts).toEqual({ missLow: 2, covered: 15, missHigh: 3 });
-  expect(coverage?.coveredSlugs.size).toBe(15);
+  expect(coverage?.counts).toEqual({ missLow: 2, covered: 16, missHigh: 2 });
+  const changed = rows.map((row) => (row.slug === "09" ? { ...row, target: 100 } : row));
+  expect(jackknifePlusBands(changed).get("09")).toEqual(jackknifePlusBands(rows).get("09"));
   expect(coverage?.coveredSlugs.has("09")).toBe(true);
 });
 

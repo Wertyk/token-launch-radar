@@ -2,12 +2,14 @@ import { mulberry32 } from "../shared/prng.ts";
 import type { OddsTerm, TokenStatusRow } from "./model.ts";
 import { oddsValidationFolds, scoreOdds, statusPredictor } from "./validation.ts";
 
+const PLACEBO_SEED = 0x29b3;
+
 export function growthPlacebo(
   rows: readonly TokenStatusRow[],
   terms: readonly OddsTerm[],
   shuffles: number,
 ) {
-  const random = mulberry32(0x29b3);
+  const random = mulberry32(PLACEBO_SEED);
   const folds = oddsValidationFolds(rows);
   const predict = (train: readonly TokenStatusRow[]) => statusPredictor(train, terms);
   const real = scoreOdds(folds, predict);
@@ -36,6 +38,7 @@ export function growthPlacebo(
   }
   return {
     shuffles,
+    seed: PLACEBO_SEED,
     real,
     asGoodOrBetter: real.map((score, i) => (score === null ? null : (wins[i] ?? 0) / shuffles)),
   };

@@ -42,12 +42,14 @@ export function integrityChecks(
   return [
     {
       pass: count === 0,
-      label: `Recompute ${count ? "≠" : "="} board.json · launch values, odds, implied values, ranks, plans, economics (${count ? `${count} mismatched · ${mismatches[0]}` : published.length})`,
+      label: count
+        ? `Recompute ≠ published board · launch values, odds, implied values, ranks, plans, economics (${count} mismatched · ${mismatches[0]})`
+        : `Recompute = published board · ${published.length} ${published.length === 1 ? "row" : "rows"}`,
     },
-    { pass: covered === unique.size, label: `Watchlist ${covered}/${unique.size} on board` },
+    { pass: covered === unique.size, label: `Watchlist ${covered}/${unique.size}` },
     {
       pass: matches === unique.size && unique.size > 0,
-      label: `House rule ${matches}/${unique.size} recall${extra ? ` · ${extra} extra explained by parentProtocol` : ""}`,
+      label: `House rule ${matches}/${unique.size}${extra ? ` · +${extra} via parentProtocol` : ""}`,
     },
     coverageUnavailable
       ? { pass: null, label: "Coverage unavailable · too few traded families" }
@@ -57,7 +59,7 @@ export function integrityChecks(
             Object.values(intervalCounts).every((n) => Number.isInteger(n) && n >= 0) &&
             samples === fitted &&
             inside / samples >= 0.8,
-          label: `${inside}/${samples} held-out traded caps inside P10–P90${samples === fitted ? "" : ` · ${samples}/${fitted} families`}${invalidPoints ? ` · ${invalidPoints} invalid` : ""}`,
+          label: `${inside}/${samples} held-out caps in P10–P90${samples === fitted ? "" : ` · ${samples}/${fitted} families`}${invalidPoints ? ` · ${invalidPoints} invalid` : ""}`,
         },
     {
       pass:
@@ -65,7 +67,7 @@ export function integrityChecks(
         model.medianMultiplier !== null &&
         flat.medianMultiplier !== null &&
         model.medianMultiplier < flat.medianMultiplier,
-      label: `Launch value LOO error ${multiplier(model.medianMultiplier)} vs ${multiplier(flat.medianMultiplier)} flat${samePopulation ? "" : ` · model n=${model.n}/${fitted}, flat n=${flat.n}/${fitted}`}`,
+      label: `LOO ${multiplier(model.medianMultiplier)} vs ${multiplier(flat.medianMultiplier)} flat${samePopulation ? "" : ` · model n=${model.n}/${fitted}, flat n=${flat.n}/${fitted}`}`,
     },
   ];
 }

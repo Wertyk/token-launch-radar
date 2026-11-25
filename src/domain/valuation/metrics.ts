@@ -13,6 +13,31 @@ export interface ValidationScore {
   spearman: number | null;
 }
 
+export function matchesPredictions<Row extends { slug: string }>(
+  predictions: readonly Prediction[] | undefined,
+  test: readonly Row[],
+  target: (row: Row) => number,
+  probability = false,
+): boolean {
+  return (
+    Array.isArray(predictions) &&
+    predictions.length === test.length &&
+    test.every((row, i) => {
+      const point = predictions[i];
+      const actual = target(row);
+      return (
+        point?.slug === row.slug &&
+        Number.isFinite(point.actual) &&
+        (probability
+          ? point.actual === actual
+          : Math.abs(point.actual - actual) <= 1e-9 * Math.max(1, Math.abs(actual))) &&
+        Number.isFinite(point.predicted) &&
+        (!probability || (point.predicted >= 0 && point.predicted <= 1))
+      );
+    })
+  );
+}
+
 export function medianLogError(rows: readonly Prediction[]): number | undefined {
   return median(
     rows.map(({ slug, actual, predicted }) => ({ slug, value: Math.abs(actual - predicted) })),

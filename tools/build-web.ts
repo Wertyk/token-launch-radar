@@ -2,13 +2,14 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { build, type Plugin } from "esbuild";
+import { build, type Plugin, transformSync } from "esbuild";
 
 // Supply numeric kernels and route setup through the browser API. Node uses the original imports.
 const supportModules = {
   "domain/shared/order": ["compareText"],
   "domain/shared/math": ["clamp", "featureStats", "median"],
-  "domain/valuation/ridge": ["fitRidge"],
+  "domain/valuation/huber": ["fitHuber"],
+  "domain/valuation/linalg": ["diagonalPenalty"],
   "domain/launch-odds/logistic": ["fitLogistic", "linearScore", "sigmoid"],
   "presentation/web/route": ["isCensusSortKey", "isSortKey", "parseRoute"],
   "presentation/web/startup": ["boot"],
@@ -79,30 +80,39 @@ const bundles = [
 const biome = fileURLToPath(import.meta.resolve("@biomejs/biome/bin/biome"));
 const config = fileURLToPath(new URL("../biome.json", import.meta.url));
 
-function formatBundle(source: string, inDossier: boolean): Buffer {
+function formatBundle(source: string, path: string): Buffer {
   // The generated module headers add paths to the dossier without affecting the script.
   const script = source
     .replace(/^\/\/ (?:(?:src\/|radar-support:)[\w./-]+|<stdin>)\n/gm, "")
     .replaceAll("/* @__PURE__ */ ", "");
-  // Keep readable identifiers and bounded line lengths in the source the judge receives.
-  const formatted = inDossier
-    ? Buffer.from(script)
-    : execFileSync(
-        process.execPath,
-        [
-          biome,
-          "format",
-          "--stdin-file-path=src/bundle.js",
-          `--config-path=${config}`,
-          "--indent-style=tab",
-          "--line-width=200",
-          "--semicolons=as-needed",
-          "--trailing-commas=none",
-          "--arrow-parentheses=as-needed",
-          "--bracket-spacing=false",
-        ],
-        { input: script },
-      );
+  // A classic-script transform keeps top-level declaration names for the dossier guide.
+  const formatted =
+    path === "dashboard/3-ui.js"
+      ? Buffer.from(script)
+      : path === "dashboard/2-core.js"
+        ? Buffer.from(
+            transformSync(script, {
+              minifyIdentifiers: true,
+              minifyWhitespace: true,
+              lineLimit: 140,
+            }).code,
+          )
+        : execFileSync(
+            process.execPath,
+            [
+              biome,
+              "format",
+              "--stdin-file-path=src/bundle.js",
+              `--config-path=${config}`,
+              "--indent-style=tab",
+              "--line-width=200",
+              "--semicolons=as-needed",
+              "--trailing-commas=none",
+              "--arrow-parentheses=as-needed",
+              "--bracket-spacing=false",
+            ],
+            { input: script },
+          );
   // The entry points assign Radar explicitly. The closure keeps all other bindings local.
   return Buffer.concat([Buffer.from("(() => {\n"), formatted, Buffer.from("})();\n")]);
 }
@@ -125,7 +135,7 @@ const outputs = await Promise.all(
     if (!file) throw new Error(`No bundle produced for ${options.outfile}`);
     return {
       path: options.outfile,
-      bytes: formatBundle(file.text, options.outfile !== "dashboard/5-extras.js"),
+      bytes: formatBundle(file.text, options.outfile),
     };
   }),
 );

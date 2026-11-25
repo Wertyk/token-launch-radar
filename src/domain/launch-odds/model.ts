@@ -1,4 +1,4 @@
-import type { buildCensus } from "../census/census.ts";
+import { type buildCensus, exclusionReason } from "../census/census.ts";
 import type { ClockPoint } from "../launch-clock/clock.ts";
 import { fitAgeShares, shareAt, tailHazard, YEAR_DAYS } from "../launch-clock/clock.ts";
 import { clamp, median } from "../shared/math.ts";
@@ -13,11 +13,12 @@ import { fitLogistic, linearScore, sigmoid } from "./logistic.ts";
 export const ODDS_CANDIDATES = ["lnTvl", "growth", "lnChains", "categoryShare"] as const;
 export type OddsTerm = (typeof ODDS_CANDIDATES)[number];
 
-export const PENALTY = 1;
+// Retain v9’s logistic penalty on standardized slopes to regularize separable samples.
+export const LOGISTIC_PENALTY = 1;
 export const PRIOR_STRENGTH = 20;
 
 interface OddsFeatures {
-  ageDays: number;
+  ageDays: number | null;
   lnTvl: number;
   growth: number;
   lnChains: number;
@@ -27,13 +28,13 @@ interface OddsFeatures {
 export interface TokenStatusRow extends OddsFeatures {
   slug: string;
   familyKey: string;
-  listedAt: string;
+  listedAt: string | null;
   label: number;
 }
 
 type CategoryShares = Record<CategoryGroup, number>;
 
-function protocolFeatures(protocol: Protocol, ageDays: number): OddsFeatures {
+function protocolFeatures(protocol: Protocol, ageDays: number | null): OddsFeatures {
   return {
     ageDays,
     lnTvl: Math.log(protocol.tvl_usd),
@@ -50,10 +51,13 @@ export function oddsPopulation(
   return entries
     .flatMap(({ protocol, status }) => {
       const { slug, listed_at: listedAt } = protocol;
-      if (listedAt === null || status === "excluded") return [];
+      if (exclusionReason(protocol) !== null) return [];
       return [
         {
-          ...protocolFeatures(protocol, Math.max(0, daysBetween(listedAt, asOf))),
+          ...protocolFeatures(
+            protocol,
+            listedAt === null ? null : Math.max(0, daysBetween(listedAt, asOf)),
+          ),
           slug,
           familyKey: slug,
           listedAt,
@@ -90,9 +94,10 @@ export function oddsFeatures(
   terms: readonly OddsTerm[],
   shares: CategoryShares,
   clock: readonly ClockPoint[],
+  medianAgeDays = 0,
 ): number[] {
   return [
-    clockLogit(clock, row.ageDays),
+    clockLogit(clock, row.ageDays ?? medianAgeDays),
     ...terms.map((term) => (term === "categoryShare" ? shares[row.category] : row[term])),
   ];
 }
@@ -102,23 +107,28 @@ function clockLogit(clock: readonly ClockPoint[], age: number): number {
   return Math.log(share / (1 - share));
 }
 
-export function fitOddsModel(rows: readonly TokenStatusRow[], terms: readonly OddsTerm[]) {
-  const shares = categoryTokenShares(rows);
-  const clock = fitAgeShares(rows);
-  const coefficients = fitLogistic(
-    rows.map((row) => oddsFeatures(row, terms, shares, clock)),
-    rows.map(({ label }) => label),
-    PENALTY,
+export function fitOddsClock(rows: readonly TokenStatusRow[]) {
+  const dated = rows.flatMap(({ ageDays, slug, label }) =>
+    ageDays === null ? [] : [{ ageDays, slug, label }],
   );
   return {
-    terms,
-    coefficients,
-    shares,
-    clock,
-    n: rows.length,
-    medianAgeDays: median(rows.map(({ slug, ageDays }) => ({ slug, value: ageDays }))) ?? 0,
-    maxAgeDays: rows.reduce((max, { ageDays }) => Math.max(max, ageDays), 0),
+    clock: dated.length
+      ? fitAgeShares(dated)
+      : [{ ageDays: 0, share: baseRate(rows), count: rows.length }],
+    medianAgeDays: median(dated.map(({ slug, ageDays }) => ({ slug, value: ageDays }))) ?? 0,
+    maxAgeDays: dated.reduce((max, { ageDays }) => Math.max(max, ageDays), 0),
   };
+}
+
+export function fitOddsModel(rows: readonly TokenStatusRow[], terms: readonly OddsTerm[]) {
+  const shares = categoryTokenShares(rows);
+  const clockFit = fitOddsClock(rows);
+  const coefficients = fitLogistic(
+    rows.map((row) => oddsFeatures(row, terms, shares, clockFit.clock, clockFit.medianAgeDays)),
+    rows.map(({ label }) => label),
+    LOGISTIC_PENALTY,
+  );
+  return { ...clockFit, terms, coefficients, shares, n: rows.length };
 }
 
 export type OddsModel = ReturnType<typeof fitOddsModel>;
@@ -145,11 +155,11 @@ function conditionalProbability(
   gamma: number,
 ) {
   const future = clockLogit(clock, age + YEAR_DAYS);
-  const rise = future - clockLogit(clock, age);
+  const rise = gamma * (future - clockLogit(clock, age));
   // On a flat year, v8 uses the last rising segment's annual tail hazard,
   // or the pooled token share when every segment is flat.
   if (rise === 0) return -Math.expm1(-tailHazard(clock) * YEAR_DAYS);
-  return clamp(sigmoid(otherLogit + gamma * future) * -Math.expm1(-gamma * rise), 0, 1);
+  return clamp(sigmoid(otherLogit + gamma * future) * -Math.expm1(-rise), 0, 1);
 }
 
 export function protocolOdds(

@@ -8,13 +8,15 @@ export function diagonalPenalty(width: number, lambda: number): number[][] {
   return Array.from({ length: width }, (_, i) => [...Array<number>(i).fill(0), i ? lambda : 0]);
 }
 
+export type StabilizeSystem = (normal: number[][], rhs: number[]) => void;
+
 //! Solve (XᵀWX + penalty) b = XᵀWy.
 export function weightedLeastSquares(
   design: readonly (readonly number[])[],
   targets: readonly number[],
   weights: ArrayLike<number>,
   penalty: readonly (readonly number[])[],
-  ridge = false,
+  stabilize?: StabilizeSystem,
 ): number[] {
   const normal = penalty.map((row) => [...row]);
   const rhs = normal.map(() => 0);
@@ -31,22 +33,7 @@ export function weightedLeastSquares(
       for (let k = 0; k <= j; k++) line[k] = (line[k] as number) + scaled * (row[k] as number);
     }
   }
-  const [, [, tvl = 0] = [], [, cross = 0, age = 0] = []] = normal;
-  // In unpenalized ridge with collinear slopes, keep TVL and fix age at zero.
-  if (
-    ridge &&
-    normal.length === 3 &&
-    penalty[2]?.[2] === 0 &&
-    tvl > 0 &&
-    age > 0 &&
-    cross ** 2 >= (1 - 8 * Number.EPSILON) * tvl * age
-  ) {
-    normal[2] = [0, 0, 1];
-    rhs[2] = 0;
-  }
-  for (const [i, row] of normal.entries()) {
-    if (ridge && i >= normal.length - 2 && row[i] === 0) row[i] = 1;
-  }
+  stabilize?.(normal, rhs);
   return choleskySolve(normal, rhs);
 }
 

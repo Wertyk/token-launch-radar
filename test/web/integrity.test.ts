@@ -85,11 +85,11 @@ test("reports live board equality, watchlist coverage and matching diagnostic po
   const checks = integrityChecks([computed], [row], ["a", "a"], data);
   expect(checks.map(({ pass }) => pass)).toEqual([true, true, true, true, true]);
   expect(checks.map(({ label }) => label)).toEqual([
-    "Recompute = board.json · launch values, odds, implied values, ranks, plans, economics (1)",
-    "Watchlist 1/1 on board",
-    "House rule 1/1 recall · 1 extra explained by parentProtocol",
-    "104/128 held-out traded caps inside P10–P90",
-    "Launch value LOO error ×3.46 vs ×5.07 flat",
+    "Recompute = published board · 1 row",
+    "Watchlist 1/1",
+    "House rule 1/1 · +1 via parentProtocol",
+    "104/128 held-out caps in P10–P90",
+    "LOO ×3.46 vs ×5.07 flat",
   ]);
 });
 
@@ -137,13 +137,13 @@ test("flags the row whose published $10K cost increased by $1,000", () => {
   );
   expect(checks[0]?.pass).toBe(false);
   expect(integrityStrip(checks)).toContain(
-    '<li class="check-failed">✗ Recompute ≠ board.json · launch values, odds, implied values, ranks, plans, economics (1 mismatched · a)</li>',
+    '<li class="check-failed">✗ Recompute ≠ published board · launch values, odds, implied values, ranks, plans, economics (1 mismatched · a)</li>',
   );
 });
 
 test("checks board membership even when a watchlist row exists only in the recompute", () => {
   const checks = integrityChecks([computed], [], ["a"], data);
-  expect(checks[1]).toEqual({ pass: false, label: "Watchlist 0/1 on board" });
+  expect(checks[1]).toEqual({ pass: false, label: "Watchlist 0/1" });
 });
 
 test.each([
@@ -160,7 +160,7 @@ test.each([
   const checks = integrityChecks([computed], [{ ...row, ...change } as typeof row], ["a"], data);
   expect(checks[0]?.pass).toBe(false);
   expect(integrityStrip(checks)).toContain(
-    'class="check-failed">✗ Recompute ≠ board.json · launch values, odds, implied values, ranks, plans, economics (1 mismatched · a)',
+    'class="check-failed">✗ Recompute ≠ published board · launch values, odds, implied values, ranks, plans, economics (1 mismatched · a)',
   );
 });
 
@@ -186,7 +186,7 @@ test("rechecks the house rule when a below-floor protocol on the board joins the
       ],
       watchlist,
     },
-    { lambda: 1, terms: [] },
+    { terms: [] },
     [],
     farmTables(),
   );
@@ -194,8 +194,8 @@ test("rechecks the house rule when a below-floor protocol on the board joins the
     ...data,
     houseRule,
   });
-  expect(checks[1]).toEqual({ pass: true, label: "Watchlist 2/2 on board" });
-  expect(checks[2]).toEqual({ pass: false, label: "House rule 1/2 recall" });
+  expect(checks[1]).toEqual({ pass: true, label: "Watchlist 2/2" });
+  expect(checks[2]).toEqual({ pass: false, label: "House rule 1/2" });
 });
 
 test.each([

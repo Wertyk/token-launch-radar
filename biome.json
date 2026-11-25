@@ -9,7 +9,6 @@
       "vitest.config.ts",
       "dashboard/0-guide.md",
       "dashboard/index.html",
-      "dashboard/1-tokens.css",
       "dashboard/4-app.css",
       "biome.json",
       "package.json",

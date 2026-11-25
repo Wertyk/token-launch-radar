@@ -80,7 +80,7 @@ test("writes a byte-identical output tree and the vendor dossier on both runs", 
   );
 }, 30_000);
 
-test("passes all seven gate checks and reproduces every byte with the repo assets", () => {
+test("passes all eight gate checks and reproduces every byte with the repo assets", () => {
   const screenshots = fileURLToPath(new URL("../../screenshots/", import.meta.url));
   expect(existsSync(screenshots), "Missing repo screenshots. Run pnpm shots.").toBe(true);
 
@@ -115,8 +115,8 @@ test("passes all seven gate checks and reproduces every byte with the repo asset
     encoding: "utf8",
   });
   expect(result.status, result.stderr || result.stdout || result.error?.message).toBe(0);
-  expect(result.stdout.match(/^PASS /gm)).toHaveLength(7);
-  for (const file of ["0-guide.md", "1-tokens.css", "2-core.js", "3-ui.js"]) {
+  expect(result.stdout.match(/^PASS /gm)).toHaveLength(8);
+  for (const file of ["0-guide.md", "2-core.js", "3-ui.js"]) {
     expect(result.stdout).toContain(`dashboard/${file} shown whole`);
   }
   expect(result.stdout).toContain("dashboard/5-extras.js dropped");

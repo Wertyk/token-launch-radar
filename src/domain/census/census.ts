@@ -56,7 +56,7 @@ function tokenFields({ gecko_id, symbol }: Protocol): string | null {
   return symbol === null ? null : "symbol";
 }
 
-function exclusionReason(protocol: Protocol): string | null {
+export function exclusionReason(protocol: Protocol): string | null {
   const { category } = protocol;
   const product = category === null ? undefined : EXCLUDED_CATEGORIES.get(category);
   if (product) return `${category} category: ${product} not ranked${HOUSE_RULE}`;
@@ -99,6 +99,16 @@ export function buildCensus(
     const key = familyKey(protocol);
     return { protocol, familyKey: key, ...classify(protocol, marketCaps.get(key) ?? null) };
   });
+}
+
+export function censusRecords(entries: readonly CensusEntry[]): CensusRecord[] {
+  return entries.map(({ protocol: { slug, name, category, tvl_usd }, ...classification }) => ({
+    slug,
+    name,
+    category,
+    tvl_usd,
+    ...classification,
+  }));
 }
 
 export function houseRuleMembership({

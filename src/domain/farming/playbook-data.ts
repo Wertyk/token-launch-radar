@@ -91,14 +91,14 @@ export function farmTables(): FarmTables {
       categories: ["cdp", "cdp manager"],
       minutes: [18, 8, 14],
       transactions: [1, 0, 1],
-      capitalApr: assumptions.capitalApr.yieldBearing,
+      capitalApr: assumptions.capitalApr.nonYielding,
       enter:
-        "Before posting {deposit} on {chain}, check accepted collateral, the stability fee and any minimum debt.",
+        "Before posting {deposit} on {chain}, check accepted collateral. If you mint debt, check the debt minimum and any stability fee.",
       review:
-        "Compare your collateral ratio with the liquidation ratio. Check oracle prices and leave enough buffer for a price drop.",
+        "If you mint debt, compare your collateral ratio with the liquidation ratio. Check oracle prices and leave a buffer for a price drop.",
       cadence: "weekly",
-      exit: "Repay the minted debt before reclaiming collateral. Record the stability fees paid.",
-      exitCondition: "Close early if the collateral buffer breaches your limit.",
+      exit: "If you mint debt, repay it before reclaiming collateral. If a stability fee applies, record what you paid.",
+      exitCondition: "If you mint debt, close early if the collateral buffer breaches your limit.",
     },
     dex: {
       label: "DEX and liquidity",

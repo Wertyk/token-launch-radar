@@ -7,6 +7,7 @@ import type { AssetEntry } from "./gate/checks.ts";
 import {
   boardLimit,
   checkBoardFile,
+  checkBoardMatchesData,
   checkCoverage,
   checkDashboard,
   checkDossier,
@@ -98,6 +99,10 @@ function run(out: string, input: string): void {
     [
       "dossier_matches",
       () => checkDossier(unwrap(dossier), buildDossier(out, { text_max_bytes: textLimit })),
+    ],
+    [
+      "board_matches_data",
+      () => checkBoardMatchesData(unwrap(rows), readFileSync(join(out, "data.js"))),
     ],
   ] as const;
   for (const [name, check] of checks) {

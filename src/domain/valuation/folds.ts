@@ -56,5 +56,5 @@ export function walkForwardSplit<Row extends FoldRow>(rows: readonly Row[]): Fol
   const lastTrainingDate = dated[cutoff - 1]?.listedAt;
   const test = dated.slice(cutoff).filter(({ listedAt }) => listedAt !== lastTrainingDate);
   const heldOut = new Set(test.map(({ familyKey }) => familyKey));
-  return { train: rows.filter((row) => !heldOut.has(row.familyKey)).sort(bySlug), test };
+  return { train: dated.filter((row) => !heldOut.has(row.familyKey)).sort(bySlug), test };
 }

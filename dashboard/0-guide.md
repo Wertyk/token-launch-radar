@@ -1,5 +1,5 @@
-- **Criterion 1 (1-board, 3-filtered).** `buildCensus` covers 758 protocols, 144 excluded, 40/40 watchlist recall.
-- **Criterion 2 (4-method).** `impliedValueEffects` medians +5.3%, −10.6%, +57.7%. WF miss ×2.24, Brier 0.1700/0.2123. P₁₂ assumes the cross-section behaves like a cohort.
-- **Criterion 3 (2-detail).** `makeFarmPlan` gives 9–10 steps with risk checks and TVL exits.
-- **Criterion 4 (1-board).** `selectRows` filters and sorts. `serializeBoard` exports CSV and JSON.
-- **Criterion 5 (1-board, 2-detail).** `boardTable` shows rank 2’s 2–3 band. `protocolView` shows the value equation.
+- **Criterion 1 (1-board, 3-filtered).** `buildCensus` accounts for 758 protocols.
+- **Criterion 2 (4-method).** `impliedValueEffects`, held-out scores, `bootstrapRadar`, `growthPlacebo`.
+- **Criterion 3 (2-detail).** `makeFarmPlan` prices steps with TVL exits.
+- **Criterion 4 (1-board).** `selectRows` filters, `serializeBoard` exports.
+- **Criterion 5 (1-board, 2-detail).** 4-app.css starts with tokens. `protocolView` shows the value equation.
