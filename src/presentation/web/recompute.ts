@@ -36,7 +36,7 @@ export type CheckRow = RankedFields &
 
 // Different engines round transcendental functions differently, including capital carry in costUsd.
 // Plan fees use exact cents and must match exactly.
-const tolerance = 1e-9;
+export const recomputeTolerance = 1e-9;
 const floatingField =
   /^(launch_p12|airdrop_yield_apr|launchProbability12|breakEvenDepositUsd|expectedValueUsd|costUsd|netUsd|netPerHourUsd)$/;
 
@@ -44,7 +44,9 @@ export function matchesFields(a: unknown, b: unknown, field = "", scores = false
   if (a === b) return true;
   if (typeof a === "number" && typeof b === "number" && (scores || floatingField.test(field))) {
     const delta = Math.abs(a - b);
-    return Number.isFinite(delta) && delta <= tolerance * Math.max(1, Math.abs(a), Math.abs(b));
+    return (
+      Number.isFinite(delta) && delta <= recomputeTolerance * Math.max(1, Math.abs(a), Math.abs(b))
+    );
   }
   if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
   if (Array.isArray(a) && (!Array.isArray(b) || a.length !== b.length)) return false;

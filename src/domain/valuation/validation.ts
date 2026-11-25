@@ -106,8 +106,5 @@ export function validateModel(rows: readonly CategoryComparable[]) {
     },
     selection: selectValueTerms(rows),
     looPredictions: loo.flatMap(({ predictions }) => predictions.model),
-    looTerms: new Map(
-      loo.flatMap(({ predictions, terms }) => predictions.model.map(({ slug }) => [slug, terms])),
-    ),
   };
 }

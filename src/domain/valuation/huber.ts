@@ -27,15 +27,16 @@ export function fitHuber(
         (targets[i] as number) - dot(design[i] as readonly number[], next);
     }
     const center = medianInPlace(scratch);
-    for (const [i, value] of residuals.entries()) scratch[i] = Math.abs(value - center);
+    for (let i = 0; i < residuals.length; i++)
+      scratch[i] = Math.abs((residuals[i] as number) - center);
     huberScale = Math.max(1e-8, 1.4826 * medianInPlace(scratch));
     const converged = next.every(
       (value, i) => Math.abs(value - (coefficients[i] ?? Infinity)) < 1e-5,
     );
     coefficients = next;
     if (!robust || converged) break;
-    for (const [i, residual] of residuals.entries())
-      weights[i] = Math.min(1, (1.345 * huberScale) / Math.abs(residual));
+    for (let i = 0; i < residuals.length; i++)
+      weights[i] = Math.min(1, (1.345 * huberScale) / Math.abs(residuals[i] as number));
   }
   return { coefficients, huberScale };
 }

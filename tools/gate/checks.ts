@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
+import { recomputeTolerance } from "../../src/presentation/web/recompute.ts";
 import { PLAIN_NAME } from "../../vendor/makefun-board.ts";
 import { imageDimensions, screenshotLimit } from "./image.ts";
 
@@ -79,8 +80,7 @@ export function checkDashboard(entries: readonly AssetEntry[]): string {
 }
 
 export function readBoard(bytes: Buffer): Record<string, unknown>[] {
-  const value = json(bytes);
-  const rows = Array.isArray(value) ? value : record(value).rows;
+  const { rows } = record(json(bytes));
   if (!Array.isArray(rows)) throw new Error("board.json needs a rows array");
   return rows.map(record);
 }
@@ -93,15 +93,19 @@ const browserFields = new Set([
   "launch_p12",
 ]);
 
+function readData(bytes: Buffer): unknown {
+  const prefix = "window.RADAR_DATA = ";
+  const script = utf8.decode(bytes).trimEnd();
+  if (!script.startsWith(prefix) || !script.endsWith(";"))
+    throw new Error("data.js needs a RADAR_DATA JSON assignment");
+  return JSON.parse(script.slice(prefix.length, -1));
+}
+
 export function checkBoardMatchesData(
   rows: readonly Record<string, unknown>[],
   data: Buffer,
 ): string {
-  const prefix = "window.RADAR_DATA = ";
-  const script = utf8.decode(data).trimEnd();
-  if (!script.startsWith(prefix) || !script.endsWith(";"))
-    throw new Error("data.js needs a RADAR_DATA JSON assignment");
-  const { board } = record(JSON.parse(script.slice(prefix.length, -1)));
+  const { board } = record(readData(data));
   const embedded = record(board).rows;
   if (!Array.isArray(embedded) || embedded.length !== rows.length)
     throw new Error("board.json and data.js row counts differ");
@@ -122,6 +126,59 @@ export function checkBoardMatchesData(
     }
   }
   return `${rows.length} board rows match data.js field by field`;
+}
+
+function propertyPath(path: string, key: string): string {
+  return /^[A-Za-z_$][\w$]*$/.test(key) ? `${path}.${key}` : `${path}[${JSON.stringify(key)}]`;
+}
+
+function firstDifference(expected: unknown, actual: unknown, path: string): string | undefined {
+  if (expected === actual) return undefined;
+  if (typeof expected === "number" && typeof actual === "number") {
+    if (Number.isInteger(expected) || Number.isInteger(actual)) return path;
+    const delta = Math.abs(expected - actual);
+    const scale = Math.max(1, Math.abs(expected), Math.abs(actual));
+    return Number.isFinite(delta) && delta <= recomputeTolerance * scale ? undefined : path;
+  }
+  if (!expected || !actual || typeof expected !== "object" || typeof actual !== "object") {
+    return path;
+  }
+  if (Array.isArray(expected)) {
+    if (!Array.isArray(actual)) return path;
+    const sharedLength = Math.min(expected.length, actual.length);
+    for (let index = 0; index < sharedLength; index++) {
+      const difference = firstDifference(expected[index], actual[index], `${path}[${index}]`);
+      if (difference !== undefined) return difference;
+    }
+    return expected.length === actual.length ? undefined : `${path}[${sharedLength}]`;
+  }
+  if (Array.isArray(actual)) return path;
+  const expectedFields = record(expected);
+  const actualFields = record(actual);
+  for (const [key, value] of Object.entries(expectedFields)) {
+    const field = propertyPath(path, key);
+    if (!Object.hasOwn(actualFields, key)) return field;
+    const difference = firstDifference(value, actualFields[key], field);
+    if (difference !== undefined) return difference;
+  }
+  const extraKey = Object.keys(actualFields).find((key) => !Object.hasOwn(expectedFields, key));
+  return extraKey === undefined ? undefined : propertyPath(path, extraKey);
+}
+
+export function checkRegeneratedFile(
+  file: "board.json" | "data.js",
+  actual: Buffer,
+  expected: string,
+): void {
+  const parse = file === "board.json" ? json : readData;
+  let published: unknown;
+  try {
+    published = parse(actual);
+  } catch (error) {
+    throw new Error(`${file} $ could not be parsed (${String(error)})`);
+  }
+  const path = firstDifference(parse(Buffer.from(expected)), published, "$");
+  if (path !== undefined) throw new Error(`${file} ${path} differs from the snapshot rebuild`);
 }
 
 export function readSnapshotSlugs(bytes: Buffer): SnapshotSlugs {

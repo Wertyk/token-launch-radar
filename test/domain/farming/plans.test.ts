@@ -10,13 +10,21 @@ import { protocol } from "../protocol-fixture.ts";
 const horizonOccurrences = { once: 1, weekly: 52, monthly: 12, "at launch": 1 };
 const tables = farmTables();
 
-test.each(Object.values(tables.playbooks))(
+const categoryByGroup: Record<string, string | null> = {
+  allocator: "onchain capital allocator",
+  prediction: "prediction market",
+  generic: null,
+};
+
+test.each(Object.entries(tables.playbooks).map(([group, playbook]) => ({ group, ...playbook })))(
   "publishes the $label checklist with costed steps",
   (playbook) => {
     const name = "Fixture Protocol XYZ";
     const record = protocol({
       name,
-      category: playbook.categories[0] ?? null,
+      category: Object.hasOwn(categoryByGroup, playbook.group)
+        ? (categoryByGroup[playbook.group] ?? null)
+        : playbook.group,
       chains: ["Base"],
       tvl_usd: 16_000_000,
     });

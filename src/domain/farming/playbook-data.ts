@@ -3,10 +3,8 @@ import { FARM_ASSUMPTIONS as assumptions } from "./assumptions.ts";
 
 interface Playbook {
   label: string;
-  categories: readonly string[];
   minutes: readonly [number, number, number];
   transactions: readonly [entry: number, review: number, exit: number];
-  capitalApr: number;
   enter: string;
   review: string;
   cadence: "weekly" | "monthly";
@@ -74,10 +72,8 @@ export function farmTables(): FarmTables {
   const playbooks: FarmTables["playbooks"] = {
     lending: {
       label: "Lending",
-      categories: ["lending", "uncollateralized lending", "collateral markets"],
       minutes: [12, 6, 10],
       transactions: [1, 0, 1],
-      capitalApr: assumptions.capitalApr.yieldBearing,
       enter:
         "Supply {deposit} on {chain}. Record the supply rate and available liquidity before depositing.",
       review:
@@ -88,10 +84,8 @@ export function farmTables(): FarmTables {
     },
     cdp: {
       label: "CDP",
-      categories: ["cdp", "cdp manager"],
       minutes: [18, 8, 14],
       transactions: [1, 0, 1],
-      capitalApr: assumptions.capitalApr.nonYielding,
       enter:
         "Before posting {deposit} on {chain}, check accepted collateral. If you mint debt, check the debt minimum and any stability fee.",
       review:
@@ -102,10 +96,8 @@ export function farmTables(): FarmTables {
     },
     dex: {
       label: "DEX and liquidity",
-      categories: ["dex", "dexs", "liquidity manager"],
       minutes: [15, 8, 12],
       transactions: [1, 1, 1],
-      capitalApr: assumptions.capitalApr.yieldBearing,
       enter:
         "Add {deposit} to a liquidity pool on {chain}. Save the fee tier, range and entry amounts.",
       review:
@@ -116,17 +108,8 @@ export function farmTables(): FarmTables {
     },
     derivatives: {
       label: "Derivatives and basis",
-      categories: [
-        "derivatives",
-        "interest rate derivatives",
-        "basis trading",
-        "options",
-        "options vault",
-        "perps",
-      ],
       minutes: [15, 12, 10],
       transactions: [1, 2, 1],
-      capitalApr: assumptions.capitalApr.nonYielding,
       enter:
         "Post {deposit} as margin on {chain} after checking maintenance and liquidation terms.",
       review: `Check funding and margin headroom on each leg. If a qualifying round trip makes sense, budget ${formatUsd(assumptions.tradeVolumeUsd)} gross volume at ${(assumptions.tradingFeeRate * 100).toFixed(2)}% in trading fees.`,
@@ -136,10 +119,8 @@ export function farmTables(): FarmTables {
     },
     yield: {
       label: "Vaults and allocators",
-      categories: ["yield", "yield aggregator", "leveraged farming", "farm", "risk curators"],
       minutes: [12, 5, 9],
       transactions: [1, 0, 1],
-      capitalApr: assumptions.capitalApr.yieldBearing,
       enter:
         "Before depositing {deposit} into a vault on {chain}, verify who can reallocate assets and how redemptions work.",
       review:
@@ -150,10 +131,8 @@ export function farmTables(): FarmTables {
     },
     allocator: {
       label: "Capital allocators",
-      categories: ["onchain capital allocator"],
       minutes: [16, 8, 12],
       transactions: [2, 0, 1],
-      capitalApr: assumptions.capitalApr.yieldBearing,
       enter:
         "Review destination vaults before allocating {deposit} on {chain}. Budget for a separate approval if needed and cap the allowance at the deposit.",
       review:
@@ -170,17 +149,8 @@ export function farmTables(): FarmTables {
     },
     staking: {
       label: "Staking and restaking",
-      categories: [
-        "liquid staking",
-        "staking pool",
-        "restaking",
-        "liquid restaking",
-        "restaked btc",
-        "staking",
-      ],
       minutes: [10, 4, 10],
       transactions: [1, 0, 1],
-      capitalApr: assumptions.capitalApr.yieldBearing,
       enter:
         "Stake {deposit} on {chain} after checking validator or operator commission and unbonding terms.",
       review:
@@ -191,10 +161,8 @@ export function farmTables(): FarmTables {
     },
     rwa: {
       label: "RWA",
-      categories: ["rwa"],
       minutes: [45, 6, 15],
       transactions: [1, 0, 1],
-      capitalApr: assumptions.capitalApr.yieldBearing,
       enter:
         "Check eligibility and any KYC requirements before subscribing with {deposit} on {chain}.",
       review:
@@ -205,10 +173,8 @@ export function farmTables(): FarmTables {
     },
     stablecoin: {
       label: "Stablecoins",
-      categories: ["stablecoin", "dual-token stablecoin", "stablecoin wrapper"],
       minutes: [14, 5, 12],
       transactions: [1, 0, 1],
-      capitalApr: assumptions.capitalApr.nonYielding,
       enter:
         "Before converting {deposit} on {chain}, verify reserves or backing, who can redeem, and minimum redemption size.",
       review:
@@ -219,10 +185,8 @@ export function farmTables(): FarmTables {
     },
     prediction: {
       label: "Prediction markets",
-      categories: ["prediction market", "prediction markets"],
       minutes: [12, 9, 8],
       transactions: [1, 0, 1],
-      capitalApr: assumptions.capitalApr.nonYielding,
       enter:
         "Set a loss limit for the {deposit} budget on {chain}. Read the resolution rules before buying shares.",
       review:
@@ -233,10 +197,8 @@ export function farmTables(): FarmTables {
     },
     bridge: {
       label: "Bridges",
-      categories: ["bridge", "canonical bridge", "cross chain bridge"],
       minutes: [16, 4, 6],
       transactions: [1, 0, 0],
-      capitalApr: assumptions.capitalApr.nonYielding,
       enter:
         "Quote a {deposit} transfer from {chain}. Confirm transfer limits, finality, the destination asset and minimum received before sending.",
       review:
@@ -252,10 +214,8 @@ export function farmTables(): FarmTables {
     },
     generic: {
       label: "Other products",
-      categories: [],
       minutes: [12, 5, 8],
       transactions: [1, 0, 1],
-      capitalApr: assumptions.capitalApr.nonYielding,
       enter: "Use a documented deposit or transfer for {deposit} on {chain} and save the receipt.",
       review:
         "Check balances and changes to access or withdrawal terms. Confirm any eligibility requirements before repeating an action.",

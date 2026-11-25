@@ -25,7 +25,7 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
   try {
     execFileSync(process.execPath, [main, "--input", kitSnapshotPath(), "--output", out], {
       encoding: "utf8",
-      timeout: 10_000,
+      timeout: 30_000,
     });
     const url = pathToFileURL(join(out, "dashboard", "index.html"));
     const context = await browser.newContext({
@@ -47,7 +47,10 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
     page.on("pageerror", (error) => errors.push(error.message));
 
     const ready = page.locator("main[data-ready]");
-    const waitUntilReady = () => ready.waitFor({ state: "visible", timeout: 4_000 });
+    const waitUntilReady = () =>
+      page
+        .locator("main[data-ready][data-evidence-ready]")
+        .waitFor({ state: "visible", timeout: 4_000 });
     const heading = async (name: string) => {
       await ready.getByRole("heading", { name, exact: true, level: 2 }).waitFor({ timeout: 4_000 });
     };

@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { radarInputs } from "../../../src/application/recompute-radar.ts";
 import { groupFamilies } from "../../../src/domain/census/families.ts";
 import { makeFarmPlan } from "../../../src/domain/farming/plans.ts";
 import { farmTables } from "../../../src/domain/farming/playbook-data.ts";
@@ -12,10 +13,16 @@ import {
 } from "../../../src/domain/valuation/category-model.ts";
 import { comparablesFromFamilies } from "../../../src/domain/valuation/comparables.ts";
 import { seededFolds, splitFolds, walkForwardSplit } from "../../../src/domain/valuation/folds.ts";
+import { leaveOneFamilyOut } from "../../../src/domain/valuation/jackknife.ts";
 import { medianLogError, scorePredictions } from "../../../src/domain/valuation/metrics.ts";
-import { innerFolds, selectByMedianError } from "../../../src/domain/valuation/selection.ts";
+import {
+  innerFolds,
+  predictComparable,
+  selectByMedianError,
+} from "../../../src/domain/valuation/selection.ts";
 import { fitOuterFold, validateModel } from "../../../src/domain/valuation/validation.ts";
 import { VALUE_RIDGE_LAMBDA } from "../../../src/domain/valuation/value-fit.ts";
+import { cacheCalibrationFits } from "../../../src/domain/valuation/value-fit-cache.ts";
 import {
   predictValueTrial,
   selectValueTerms,
@@ -230,6 +237,35 @@ test("mutating one market cap cannot change its own nested or selection-trial pr
     }
   }
 });
+
+test.each([
+  { calibration: "aquarius-stellar", outer: null },
+  { calibration: "babylon-protocol", outer: "anvil" },
+])(
+  "doubling $calibration's cap leaves its calibration prediction unchanged",
+  ({ calibration, outer }) => {
+    const { comparables } = radarInputs(parseSnapshot(readKitSnapshot()));
+    const training = comparables.filter(({ slug }) => slug !== outer);
+    const heldOut = training.find(({ slug }) => slug === calibration);
+    if (!heldOut) throw new Error(`Missing calibration family ${calibration}`);
+    const expected = fitOuterFold({
+      train: training.filter((row) => row !== heldOut),
+      test: [heldOut],
+    }).predictions.model[0]?.predicted;
+    const changed = training.map((row) =>
+      row.slug === calibration ? { ...row, target: row.target + Math.LN2 } : row,
+    );
+    const ownPrediction = (input: typeof rows) => {
+      const refits = leaveOneFamilyOut(input, cacheCalibrationFits(input));
+      const saved = refits.find(({ comparable }) => comparable.slug === calibration);
+      if (!saved) throw new Error(`Missing calibration family ${calibration}`);
+      return predictComparable(saved.comparable, saved.model);
+    };
+    const prediction = ownPrediction(training);
+    expect(ownPrediction(changed)).toBe(prediction);
+    expect(prediction).toBe(expected);
+  },
+);
 
 test("walk-forward trains on the earliest dated 60% and omits undated families", () => {
   const { train, test: future } = walkForwardSplit(rows.toReversed());

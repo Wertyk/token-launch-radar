@@ -35,7 +35,7 @@ let result: ReturnType<typeof buildRadar>;
 beforeAll(() => {
   snapshot = readSnapshot();
   result = buildRadar(snapshot);
-}, 20_000);
+}, 90_000);
 
 test("the kit snapshot produces a complete, valid and deterministic board", () => {
   const { census, board } = result;

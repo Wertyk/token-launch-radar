@@ -33,7 +33,7 @@ The project follows Clean Architecture, with dependency-cruiser enforcing the la
 The CLI uses only the Node standard library and repository code. esbuild builds the dashboard bundles with the same radar core the CLI uses.
 The dashboard loads `2-core.js` after `5-extras.js` supplies numeric kernels, routing, boot and the portfolio planner. It then loads `3-ui.js` for the main views. The bundles share dependencies through `window.Radar`.
 
-Two runs on the same snapshot write identical bytes. `pnpm verify` runs type checks, lint, the layer rule, tests, the bundle freshness check, the radar and the seven-check gate. `pnpm sandbox` runs the committed tree twice in the grader’s Node 22 container and compares the outputs.
+Two runs on the same snapshot write identical bytes. `pnpm verify` runs type checks, lint, the layer rule, tests, the bundle freshness check, the radar and the eight contract checks in the gate. The gate also regenerates `board.json` and `data.js` in memory from the snapshot and compares both files byte for byte. `pnpm sandbox` runs the committed tree twice in the grader’s Node 22 container and compares the outputs.
 
 ## Run it
 
@@ -48,9 +48,9 @@ For development, run `pnpm install` and `pnpm verify`. The verification scripts 
 
 ## Screenshots
 
-![Ranked protocol board](screenshots/1-board.png)
+![Ranked protocol board](screenshots/1-board.jpg)
 
-![Protocol card with valuation breakdown and farm plan](screenshots/2-detail.png)
+![Protocol card with valuation breakdown and farm plan](screenshots/2-detail.jpg)
 
 `pnpm shots` captures `1-board`, `2-detail`, `3-filtered` (excluded census rows by descending TVL), and `4-method`. It writes PNGs or falls back to JPEGs to fit the size limit.
 

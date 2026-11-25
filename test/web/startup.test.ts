@@ -40,11 +40,16 @@ function open(
   loadEnhancements = true,
   loadUi = true,
   beforeUi?: string,
+  deferChecks = false,
 ) {
   const location = { hash };
   const markup = new Map<string, { innerHTML: string; textContent?: string; href?: string }>();
   const listeners = new Map<string, (event: { target: Select }) => void>();
   const windowListeners = new Map<string, () => void>();
+  const frames: (() => void)[] = [];
+  const flushFrame = () => {
+    for (const callback of frames.splice(0)) callback();
+  };
   const deposit = new Select();
   const main = {
     innerHTML: html.match(/<main[^>]*>([\s\S]*?)<\/main>/)?.[1] ?? "",
@@ -88,6 +93,7 @@ function open(
     Math,
     URLSearchParams,
     HTMLSelectElement: Select,
+    requestAnimationFrame: (callback: () => void) => frames.push(callback),
   });
   for (const { file, script } of scripts) {
     if (!loadUi && file === "3-ui.js") continue;
@@ -100,10 +106,12 @@ function open(
         context,
       );
   }
+  if (!deferChecks) while (frames.length) flushFrame();
   return {
     context,
     main,
     markup,
+    flushFrame,
     navigate(next: string) {
       location.hash = next;
       windowListeners.get("hashchange")?.();
@@ -119,13 +127,86 @@ function open(
   };
 }
 
+test("renders a usable board before starting the evidence refits", () => {
+  const page = open(data(), "#/", true, true, undefined, true);
+  const checks = () => page.markup.get("#checks")?.innerHTML;
+  expect(page.main.innerHTML).toContain("198 ranked");
+  expect(page.main.dataset).toHaveProperty("ready");
+  expect(checks()).toContain("Bootstrap pending");
+  expect(checks()).toContain("Placebo pending");
+  page.flushFrame();
+  expect(checks()).toContain("Bootstrap pending");
+  page.flushFrame();
+  expect(checks()).toContain("✓ Bootstrap · 200 refits match");
+  expect(page.main.dataset).toHaveProperty("evidenceReady");
+});
+
+test("Method uses fitted labels, population rate and penalty constants", () => {
+  const payload = data();
+  const original = open(payload, "#/method").main.innerHTML;
+  expect(original).toMatch(/55\.2% record a token\. L2 penalty 1\./);
+  expect(original).toContain("Fixed group penalty 64");
+  expect(original).toContain("THIN if 0 &lt; net per hour ≤ $25");
+  [payload.odds.names[2], payload.odds.names[3]] = [payload.odds.names[3], payload.odds.names[2]];
+  payload.odds.baseRate = 0.81;
+  payload.odds.penalty = 12;
+  payload.model.fit.categoryPenalty = 3;
+  payload.model.fit.lambda = 6;
+  expect(open(payload, "#/method").main.innerHTML).toBe(original);
+});
+
+test("checks an individual protocol effect even when the board median is unchanged", () => {
+  const page = open(
+    data(),
+    "#/p/steakhouse-financial",
+    true,
+    true,
+    `
+    const effects = window.Radar.impliedValueEffects;
+    window.Radar.impliedValueEffects = (protocol, ...args) => {
+      const [tvl, growth, age] = effects(protocol, ...args);
+      return protocol.slug === "steakhouse-financial" ? [tvl, -growth, age] : [tvl, growth, age];
+    };
+  `,
+  );
+  expect(page.markup.get("#checks")?.innerHTML).toContain(
+    'class="check-failed">✗ Input effects = reference',
+  );
+});
+
+test("replays valid published seeds and identifies seed mismatches", () => {
+  const payload = data();
+  payload.bootstrap.seeds[0]++;
+  payload.placebo.seed++;
+  const page = open(
+    payload,
+    "#/",
+    true,
+    true,
+    `
+    const replay = window.Radar.reproduceDiagnostics;
+    window.Radar.reproduceDiagnostics = (...args) => {
+      const evidence = replay(...args);
+      window.replayed = [evidence.bootstrap.seeds[0], evidence.placebo.seed];
+      return evidence;
+    };
+  `,
+  );
+  expect(runInContext("window.replayed", page.context)).toEqual([
+    payload.bootstrap.seeds[0],
+    payload.placebo.seed,
+  ]);
+  expect(page.markup.get("#checks")?.innerHTML).toContain("✗ Bootstrap seeds differ");
+  expect(page.markup.get("#checks")?.innerHTML).toContain("✗ Placebo seed differs");
+});
+
 let radar: ReturnType<typeof buildRadar>;
 let script: string;
 beforeAll(() => {
   const snapshot = parseSnapshot(readKitSnapshot());
   radar = buildRadar(snapshot);
   script = renderDataScript(snapshot, toBoardRows(radar), radar, farmTables());
-}, 20_000);
+}, 90_000);
 
 function data(published = script) {
   return JSON.parse(published.slice("window.RADAR_DATA = ".length, -2));

@@ -1,6 +1,7 @@
 import { lstatSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { generateRadarFiles } from "../src/application/run-radar.ts";
 import { compareText } from "../src/domain/shared/order.ts";
 import { buildDossier, DOSSIER_MAX_BYTES } from "../vendor/makefun-board.ts";
 import type { AssetEntry } from "./gate/checks.ts";
@@ -12,9 +13,11 @@ import {
   checkDashboard,
   checkDossier,
   checkFarmSteps,
+  checkRegeneratedFile,
   checkScreenshots,
   checkSortedByValue,
   dashboardLimits,
+  json,
   readBoard,
   readSnapshotSlugs,
   textLimit,
@@ -84,7 +87,8 @@ function run(out: string, input: string): void {
   const rows = capture(() =>
     readBoard(readRegular(join(out, "board.json"), boardLimit, "board.json")),
   );
-  const snapshot = capture(() => readSnapshotSlugs(readFileSync(input)));
+  const inputBytes = capture(() => readFileSync(input));
+  const snapshot = capture(() => readSnapshotSlugs(unwrap(inputBytes)));
   const screenshots = capture(() => assetEntries(join(out, "screenshots"), false));
   const dossierPath = join(out, "dossier.json");
   const dossier = capture(() => readRegular(dossierPath, DOSSIER_MAX_BYTES, "dossier.json"));
@@ -103,6 +107,16 @@ function run(out: string, input: string): void {
     [
       "board_matches_data",
       () => checkBoardMatchesData(unwrap(rows), readFileSync(join(out, "data.js"))),
+    ],
+    [
+      "regenerated_output",
+      () => {
+        const { files } = generateRadarFiles(json(unwrap(inputBytes)));
+        for (const file of ["board.json", "data.js"] as const) {
+          checkRegeneratedFile(file, readFileSync(join(out, file)), files[file]);
+        }
+        return "board.json and data.js match the snapshot rebuild field by field";
+      },
     ],
   ] as const;
   for (const [name, check] of checks) {

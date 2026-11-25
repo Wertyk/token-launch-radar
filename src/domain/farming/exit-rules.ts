@@ -9,10 +9,38 @@ export interface ExitThreshold {
   label: string;
 }
 
-export function farmGroup(category: string | null, playbooks: FarmTables["playbooks"]) {
+const farmCategories = {
+  lending: ["lending", "uncollateralized lending", "collateral markets"],
+  cdp: ["cdp", "cdp manager"],
+  dex: ["dex", "dexs", "liquidity manager"],
+  derivatives: [
+    "derivatives",
+    "interest rate derivatives",
+    "basis trading",
+    "options",
+    "options vault",
+    "perps",
+  ],
+  yield: ["yield", "yield aggregator", "leveraged farming", "farm", "risk curators"],
+  allocator: ["onchain capital allocator"],
+  staking: [
+    "liquid staking",
+    "staking pool",
+    "restaking",
+    "liquid restaking",
+    "restaked btc",
+    "staking",
+  ],
+  rwa: ["rwa"],
+  stablecoin: ["stablecoin", "dual-token stablecoin", "stablecoin wrapper"],
+  prediction: ["prediction market", "prediction markets"],
+  bridge: ["bridge", "canonical bridge", "cross chain bridge"],
+};
+
+export function farmGroup(category: string | null) {
   const label = category?.trim().toLowerCase() ?? "";
   return (
-    Object.keys(playbooks).find((group) => playbooks[group]?.categories.includes(label)) ??
+    Object.entries(farmCategories).find(([, categories]) => categories.includes(label))?.[0] ??
     "generic"
   );
 }
@@ -25,7 +53,7 @@ export function farmExitThresholds(
     .flatMap(({ protocol, status }) => {
       const { listed_at, change_7d, slug, category } = protocol;
       return status === "pre-token" && listed_at !== null && change_7d !== null
-        ? [{ change: change_7d, slug, group: farmGroup(category, playbooks) }]
+        ? [{ change: change_7d, slug, group: farmGroup(category) }]
         : [];
     })
     .sort((a, b) => a.change - b.change || compareText(a.slug, b.slug));

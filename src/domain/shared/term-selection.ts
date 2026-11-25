@@ -8,7 +8,7 @@ export interface SelectionStep<Term> {
 // Compare in candidate order on ties. Scores use the original units of each error.
 export function selectTerms<Term>(
   candidates: readonly Term[],
-  evaluate: (terms: readonly Term[]) => Scores,
+  evaluate: (terms: readonly Term[], baseline?: Scores) => Scores,
 ) {
   const terms: Term[] = [];
   const steps: SelectionStep<Term>[] = [];
@@ -18,7 +18,7 @@ export function selectTerms<Term>(
       .filter((term) => !terms.includes(term))
       .map((term) => ({
         term,
-        scores: evaluate([...terms, term]),
+        scores: evaluate([...terms, term], scores),
         kept: false,
       }));
     let best: (typeof trials)[number] | undefined;

@@ -14,7 +14,7 @@ import { refitValue } from "../domain/valuation/value-fit.ts";
 import type { RadarRow } from "./recompute-radar.ts";
 
 export const EVIDENCE_REPLICATES = 200;
-const BOOTSTRAP_SEEDS = [0x29b1, 0x29b2] as const;
+export const BOOTSTRAP_SEEDS = [0x29b1, 0x29b2] as const;
 
 export function bootstrapRadar(
   board: readonly RadarRow[],
@@ -25,8 +25,9 @@ export function bootstrapRadar(
   odds: OddsModel,
   asOf: string,
   replicates = EVIDENCE_REPLICATES,
+  seeds: readonly [number, number] = BOOTSTRAP_SEEDS,
 ) {
-  const [valueSeed, oddsSeed] = BOOTSTRAP_SEEDS;
+  const [valueSeed, oddsSeed] = seeds;
   const valueRandom = mulberry32(valueSeed);
   const oddsRandom = mulberry32(oddsSeed);
   const valueNames = Object.keys(model.coefficients) as (keyof ValueModel["coefficients"])[];
@@ -62,7 +63,7 @@ export function bootstrapRadar(
   return {
     ranks,
     replicates,
-    seeds: BOOTSTRAP_SEEDS,
+    seeds,
     valueErrors: Object.fromEntries(
       [...valueNames, ...categoryNames].map((name, i) => [name, standardErrors[i] ?? null]),
     ),

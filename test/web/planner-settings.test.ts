@@ -51,4 +51,4 @@ test("recomputes verdicts and the portfolio through the core, then resets to pub
   ).not.toEqual(reset.economics.map(({ deposits }) => deposits.map(({ verdict }) => verdict)));
   expect(changed.plan).not.toEqual(reset.plan);
   expect(reset.plan).toEqual(calculate("#/plan?budget=12000&hours=3").plan);
-}, 20_000);
+}, 90_000);

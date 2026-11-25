@@ -1,6 +1,6 @@
-export function dot(a: readonly number[], b: readonly number[]): number {
+export function dot(a: readonly number[], b: readonly number[], end = a.length): number {
   let sum = 0;
-  for (let i = 0; i < a.length; i++) sum += (a[i] as number) * (b[i] ?? 0);
+  for (let i = 0; i < end; i++) sum += (a[i] as number) * (b[i] ?? 0);
   return sum;
 }
 
@@ -42,12 +42,12 @@ export function choleskySolve(lower: number[][], solution: number[]): number[] {
   for (const [i, row] of lower.entries()) {
     for (let j = 0; j <= i; j++) {
       const previous = lower[j] as readonly number[];
-      const pivot = (row[j] as number) - dot(row.slice(0, j), previous);
+      const pivot = (row[j] as number) - dot(row, previous, j);
       if (j === i && !(pivot > 0 && Number.isFinite(pivot)))
         throw new Error("Cholesky requires positive, finite pivots.");
       row[j] = j === i ? Math.sqrt(pivot) : pivot / (previous[j] as number);
     }
-    solution[i] = ((solution[i] as number) - dot(row.slice(0, i), solution)) / (row[i] as number);
+    solution[i] = ((solution[i] as number) - dot(row, solution, i)) / (row[i] as number);
   }
   for (let i = lower.length - 1; i >= 0; i--) {
     const row = lower[i] as readonly number[];

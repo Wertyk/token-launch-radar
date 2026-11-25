@@ -39,6 +39,11 @@ function roundUsd(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+function farmCapitalApr(group: string): number {
+  const yieldBearing = ["lending", "dex", "yield", "allocator", "staking", "rwa"].includes(group);
+  return assumptions.capitalApr[yieldBearing ? "yieldBearing" : "nonYielding"];
+}
+
 function formatEntryShare(depositUsd: number, tvlUsd: number): string {
   const percent = (100 * depositUsd) / tvlUsd;
   const rounded = percent.toPrecision(2);
@@ -69,7 +74,7 @@ export function makeFarmPlan(
   if (!Number.isFinite(depositUsd) || depositUsd <= 0) {
     throw new Error("The farm plan needs a positive, finite deposit size.");
   }
-  const group = farmGroup(protocol.category, playbooks);
+  const group = farmGroup(protocol.category);
   const playbook = playbooks[group] ?? playbooks.generic;
   const copy = protocol.category?.toLowerCase().includes("uncollateralized")
     ? uncollateralized
@@ -191,7 +196,7 @@ export function makeFarmPlan(
     holdWeeks,
     flags: feeAssumed ? ["fee-assumed"] : [],
     assumptionsAsOf: assumptions.asOf,
-    capitalApr: playbook.capitalApr,
+    capitalApr: farmCapitalApr(group),
     oneTimeCostUsd,
     recurringCostUsd,
     totalCostUsd,

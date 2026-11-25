@@ -24,7 +24,7 @@ test("checks the generated bundles byte for byte without writing them", () => {
     const core = readFileSync(join(cwd, "dashboard/2-core.js"), "utf8");
     expect(core).not.toContain("@__PURE__");
     expect(core).not.toContain("DEFAULT_DEPOSIT_USD");
-    expect(core).not.toMatch(/jackknifePlusBands|selectLambda/);
+    expect(core).not.toMatch(/selectLambda/);
     for (const name of [
       "selectTerms",
       "bootstrapRadar",
@@ -38,6 +38,10 @@ test("checks the generated bundles byte for byte without writing them", () => {
       "selectOddsTerms",
       "impliedValueEffects",
       "summarizeEffects",
+      "fitOuterFold",
+      "jackknifePlusBand",
+      "jackknifePlusBands",
+      "farmCapitalApr",
     ]) {
       expect(core).toContain(`function ${name}(`);
     }

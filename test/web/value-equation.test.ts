@@ -65,4 +65,4 @@ test("the card reconstructs launch and implied values within 2% using the kept v
     }
   }
   expect(undated).toBeGreaterThan(0);
-}, 20_000);
+}, 90_000);

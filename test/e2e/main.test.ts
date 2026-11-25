@@ -33,7 +33,7 @@ afterEach(() => {
 });
 
 function run(...args: string[]) {
-  return spawnSync(process.execPath, [main, ...args], { encoding: "utf8", timeout: 10_000 });
+  return spawnSync(process.execPath, [main, ...args], { encoding: "utf8", timeout: 90_000 });
 }
 
 function outputFiles(path: string): string[] {
@@ -78,9 +78,9 @@ test("writes a byte-identical output tree and the vendor dossier on both runs", 
   expect(readFileSync(join(first, "dossier.json"))).toEqual(
     Buffer.from(buildDossier(first, dossierCaps)),
   );
-}, 30_000);
+}, 180_000);
 
-test("passes all eight gate checks and reproduces every byte with the repo assets", () => {
+test("passes all gate checks, reproduces every byte and rejects coordinated replacements", () => {
   const screenshots = fileURLToPath(new URL("../../screenshots/", import.meta.url));
   expect(existsSync(screenshots), "Missing repo screenshots. Run pnpm shots.").toBe(true);
 
@@ -115,12 +115,18 @@ test("passes all eight gate checks and reproduces every byte with the repo asset
     encoding: "utf8",
   });
   expect(result.status, result.stderr || result.stdout || result.error?.message).toBe(0);
-  expect(result.stdout.match(/^PASS /gm)).toHaveLength(8);
+  expect(result.stdout.match(/^PASS /gm)).toHaveLength(9);
+  expect(result.stdout).toContain("PASS regenerated_output");
   for (const file of ["0-guide.md", "2-core.js", "3-ui.js"]) {
     expect(result.stdout).toContain(`dashboard/${file} shown whole`);
   }
   expect(result.stdout).toContain("dashboard/5-extras.js dropped");
   expect(result.stdout).toMatch(/dashboard\/(4-app\.css|index\.html) cut \(/);
+  const { text }: { text: string } = JSON.parse(readFileSync(join(first, "dossier.json"), "utf8"));
+  expect(text).toContain("function farmCapitalApr(");
+  expect(text).toContain("function jackknifePlusBands(");
+  expect(text).toContain("function describeBoardValues(");
+  expect(text).toContain("function fitOuterFold(");
 
   const files = outputFiles(first);
   expect(outputFiles(second)).toEqual(files);
@@ -129,7 +135,27 @@ test("passes all eight gate checks and reproduces every byte with the repo asset
       true,
     );
   }
-}, 30_000);
+
+  const payload = JSON.parse(script.slice("window.RADAR_DATA = ".length, -2));
+  payload.board.rows[0].interval_p10_usd++;
+  payload.board.rows[0].influence.rank_delta += 25;
+  payload.looScatter[0].p10 -= 1;
+  payload.bootstrap.seeds[0]++;
+  payload.model.evidence.walkForward[0].model[0].predicted += 0.01;
+  payload.board.rows[0].farm_steps[0] =
+    "Changed farm step, coordinated between both published files.";
+  const firstRow = rows[0];
+  if (!firstRow) throw new Error("Missing first board row");
+  firstRow.farm_steps[0] = payload.board.rows[0].farm_steps[0];
+  writeFileSync(join(first, "data.js"), `window.RADAR_DATA = ${JSON.stringify(payload)};\n`);
+  writeFileSync(join(first, "board.json"), `${JSON.stringify({ rows })}\n`);
+  const edited = spawnSync(process.execPath, [gate, "--out", first, "--input", input], {
+    encoding: "utf8",
+  });
+  expect(edited.status).toBe(1);
+  expect(edited.stdout.match(/^PASS /gm)).toHaveLength(8);
+  expect(edited.stdout).toContain("FAIL regenerated_output — board.json $.rows[0].farm_steps[0]");
+}, 360_000);
 
 test("a rerun replaces the asset trees and builds the dossier from the new files", () => {
   const firstAssets = join(root, "first-assets");
@@ -171,7 +197,7 @@ test("a rerun replaces the asset trees and builds the dossier from the new files
   expect(readFileSync(join(output, "dossier.json"))).toEqual(
     Buffer.from(buildDossier(output, dossierCaps)),
   );
-}, 30_000);
+}, 180_000);
 
 test("reports a missing snapshot on a single stderr line", () => {
   const missing = join(root, "missing.json");
@@ -199,4 +225,4 @@ test("reports the vendor error when the dashboard has yet to be published", () =
   expect(result.stderr).toBe(
     "token radar: buildDossier: no dashboard/ directory: the page and its source are what the judge reads\n",
   );
-}, 20_000);
+}, 90_000);

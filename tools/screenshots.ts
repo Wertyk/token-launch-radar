@@ -153,7 +153,7 @@ async function takeShots(
       url.hash = hash;
       try {
         await page.goto(url.href);
-        await page.locator("main[data-ready]").waitFor({ state: "visible" });
+        await page.locator("main[data-ready][data-evidence-ready]").waitFor({ state: "visible" });
         const evidence =
           name === shotNames.detail
             ? [".value-equation", ".farm"]

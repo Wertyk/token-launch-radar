@@ -87,32 +87,30 @@ function formatBundle(source: string, path: string): Buffer {
     .replaceAll("/* @__PURE__ */ ", "");
   // A classic-script transform keeps top-level declaration names for the dossier guide.
   const formatted =
-    path === "dashboard/3-ui.js"
-      ? Buffer.from(script)
-      : path === "dashboard/2-core.js"
-        ? Buffer.from(
-            transformSync(script, {
-              minifyIdentifiers: true,
-              minifyWhitespace: true,
-              lineLimit: 140,
-            }).code,
-          )
-        : execFileSync(
-            process.execPath,
-            [
-              biome,
-              "format",
-              "--stdin-file-path=src/bundle.js",
-              `--config-path=${config}`,
-              "--indent-style=tab",
-              "--line-width=200",
-              "--semicolons=as-needed",
-              "--trailing-commas=none",
-              "--arrow-parentheses=as-needed",
-              "--bracket-spacing=false",
-            ],
-            { input: script },
-          );
+    path === "dashboard/2-core.js" || path === "dashboard/3-ui.js"
+      ? Buffer.from(
+          transformSync(script, {
+            minifyIdentifiers: true,
+            minifyWhitespace: true,
+            lineLimit: 140,
+          }).code,
+        )
+      : execFileSync(
+          process.execPath,
+          [
+            biome,
+            "format",
+            "--stdin-file-path=src/bundle.js",
+            `--config-path=${config}`,
+            "--indent-style=tab",
+            "--line-width=200",
+            "--semicolons=as-needed",
+            "--trailing-commas=none",
+            "--arrow-parentheses=as-needed",
+            "--bracket-spacing=false",
+          ],
+          { input: script },
+        );
   // The entry points assign Radar explicitly. The closure keeps all other bindings local.
   return Buffer.concat([Buffer.from("(() => {\n"), formatted, Buffer.from("})();\n")]);
 }

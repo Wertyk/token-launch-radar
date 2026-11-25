@@ -11,22 +11,33 @@ interface RadarSummary {
   files: string[];
 }
 
+export function generateRadarFiles(input: unknown) {
+  const snapshot = parseSnapshot(input);
+  const tables = farmTables();
+  const radar = buildRadar(snapshot, tables);
+  const board = toBoardRows(radar);
+  return {
+    board,
+    watchlist: snapshot.watchlist,
+    files: {
+      "board.json": `${JSON.stringify(board)}\n`,
+      "data.js": renderDataScript(snapshot, board, radar, tables),
+    },
+  };
+}
+
 export function runRadar(
   source: SnapshotSource,
   output: OutputSink,
   dossier: DossierBuilder,
 ): RadarSummary {
-  const snapshot = parseSnapshot(source.load());
-  const tables = farmTables();
-  const radar = buildRadar(snapshot, tables);
-  const board = toBoardRows(radar);
-  output.write("board.json", `${JSON.stringify(board)}\n`);
-  output.write("data.js", renderDataScript(snapshot, board, radar, tables));
+  const { board, files, watchlist } = generateRadarFiles(source.load());
+  for (const [file, contents] of Object.entries(files)) output.write(file, contents);
   const assets = output.publishAssets();
   output.write("dossier.json", dossier.build());
 
   const slugs = new Set(board.rows.map(({ slug }) => slug));
-  const watchlistCovered = new Set(snapshot.watchlist.filter((slug) => slugs.has(slug))).size;
+  const watchlistCovered = new Set(watchlist.filter((slug) => slugs.has(slug))).size;
   return {
     rowCount: board.rows.length,
     watchlistCovered,

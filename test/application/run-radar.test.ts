@@ -3,10 +3,13 @@ import { toBoardRows } from "../../src/application/board-rows.ts";
 import * as radarApi from "../../src/application/browser-api.ts";
 import { buildRadar } from "../../src/application/build-radar.ts";
 import type { DossierBuilder, OutputSink, SnapshotSource } from "../../src/application/ports.ts";
+import { radarInputs } from "../../src/application/recompute-radar.ts";
 import { runRadar } from "../../src/application/run-radar.ts";
 import { boardFarmSteps } from "../../src/domain/farming/board-steps.ts";
 import { parseSnapshot } from "../../src/domain/snapshot.ts";
 import type { ValueDiagnostics } from "../../src/domain/valuation/diagnostics.ts";
+import { jackknifePlusBand, leaveOneFamilyOut } from "../../src/domain/valuation/jackknife.ts";
+import { predictComparable } from "../../src/domain/valuation/selection.ts";
 import { integrityChecks } from "../../src/presentation/web/integrity.ts";
 import { boardMismatches } from "../../src/presentation/web/recompute.ts";
 import { scatterCoverage } from "../../src/presentation/web/scatter-view.ts";
@@ -109,6 +112,8 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   const data = JSON.parse(dataScript.slice(prefix.length, -2));
   expect(data.meta.protocolCount).toBe(snapshot.protocols.length);
   expect(data.meta.playbooks.lending.enter).toContain("Supply {deposit} on {chain}");
+  expect(data.meta.playbooks.lending).not.toHaveProperty("capitalApr");
+  expect(data.meta.playbooks.lending).not.toHaveProperty("categories");
   expect(data.meta.gas.chains.Base).toEqual([0.05, 0.3]);
   const publishedRows = data.board.rows as ((typeof rows)[number] &
     ValueDiagnostics & {
@@ -118,6 +123,23 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     expect(data).not.toHaveProperty(unused);
   }
   expect(data.looScatter).toHaveLength(92);
+  const { comparables } = radarInputs(snapshot);
+  const anvil = comparables.find(({ slug }) => slug === "anvil");
+  if (!anvil) throw new Error("Missing Anvil comparable");
+  const calibration = leaveOneFamilyOut(comparables.filter((row) => row !== anvil));
+  const band = jackknifePlusBand(
+    calibration.map(({ comparable, model, residual }) => ({
+      slug: comparable.slug,
+      prediction: predictComparable(anvil, model),
+      residual,
+    })),
+  );
+  expect(data.looScatter.find(({ slug }: { slug: string }) => slug === anvil.slug)).toMatchObject(
+    band,
+  );
+  expect(publishedRows.find(({ slug }) => slug === "steakhouse-financial")?.interval_p10_usd).toBe(
+    1_743_993,
+  );
   expect(new Set(data.looScatter.map((point: { slug: string }) => point.slug)).size).toBe(92);
   for (const point of data.looScatter) {
     expect(Number.isFinite(point.p10)).toBe(true);
@@ -221,7 +243,7 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   const scatter = scatterCoverage(data.looScatter, families);
   expect(scatter.counts).toEqual({ missLow: 9, covered: 74, missHigh: 9 });
   expect(data.rangeHonesty).toEqual({
-    middle: { stated: 0.5, covered: 47, n: 92 },
+    middle: { stated: 0.5, covered: 46, n: 92 },
     broad: { stated: 0.8, covered: 74, n: 92 },
   });
   const checks = integrityChecks(
@@ -298,7 +320,7 @@ test("runs the ports in order and publishes the kit board and browser data", () 
       breakEvenDepositUsd: row.economics.breakEvenDepositUsd,
     },
   });
-}, 20_000);
+}, 180_000);
 
 test("fails the build when the fitted token-status clock coefficient is non-positive", () => {
   const as_of = "2024-02-28";

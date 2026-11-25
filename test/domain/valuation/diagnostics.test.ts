@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { boardEntries, buildCensus } from "../../../src/domain/census/census.ts";
 import { mulberry32 } from "../../../src/domain/shared/prng.ts";
-import type { Comparable } from "../../../src/domain/valuation/comparables.ts";
+import type { CategoryComparable } from "../../../src/domain/valuation/categories.ts";
 import { describeBoardValues } from "../../../src/domain/valuation/diagnostics.ts";
 import {
   jackknifePlusBand,
@@ -14,8 +14,17 @@ import { fitValueModel, rankBoard } from "../../../src/domain/valuation/model.ts
 import { selectLambda } from "../../../src/domain/valuation/selection.ts";
 import { protocol } from "../protocol-fixture.ts";
 
-function comparable(slug: string, lnTvl: number, target: number, lnAge = 0): Comparable {
-  return { slug, familyKey: `gecko:${slug}`, listedAt: null, lnTvl, lnAge, target, growth: 0 };
+function comparable(slug: string, lnTvl: number, target: number, lnAge = 0): CategoryComparable {
+  return {
+    slug,
+    familyKey: `gecko:${slug}`,
+    listedAt: null,
+    lnTvl,
+    lnAge,
+    target,
+    growth: 0,
+    category: "other",
+  };
 }
 
 test("jackknife+ takes both quantiles of predictions shifted by skewed signed residuals", () => {
@@ -78,7 +87,9 @@ test("coverage uses a fixed penalty even when the tuning diagnostic changes", ()
   const coverage = jackknifePlusCoverage(rows);
   expect(coverage?.counts).toEqual({ missLow: 2, covered: 16, missHigh: 2 });
   const changed = rows.map((row) => (row.slug === "09" ? { ...row, target: 100 } : row));
-  expect(jackknifePlusBands(changed).get("09")).toEqual(jackknifePlusBands(rows).get("09"));
+  expect(jackknifePlusBands(changed, 0.01).get("09")).toEqual(
+    jackknifePlusBands(rows, 0.01).get("09"),
+  );
   expect(coverage?.coveredSlugs.has("09")).toBe(true);
 });
 

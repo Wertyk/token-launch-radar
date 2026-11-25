@@ -30,6 +30,7 @@ import {
   VALUE_CATEGORY_PENALTY,
   VALUE_RIDGE_LAMBDA,
 } from "../domain/valuation/value-fit.ts";
+import { cacheCalibrationFits } from "../domain/valuation/value-fit-cache.ts";
 import { bootstrapRadar, EVIDENCE_REPLICATES } from "./bootstrap-radar.ts";
 import type { RadarRow } from "./recompute-radar.ts";
 import { radarInputs, rankRadar } from "./recompute-radar.ts";
@@ -66,21 +67,16 @@ export function buildRadar(snapshot: Snapshot, tables = farmTables()): RadarResu
   const { entries, comparables, population } = radarInputs(snapshot);
   const oddsValidation = validateOdds(population);
   const odds = fitOddsModel(population, oddsValidation.selection.terms);
-  const { looPredictions, looTerms, ...validation } = validateModel(comparables);
+  const { looPredictions, ...validation } = validateModel(comparables);
   const { terms } = validation.selection;
   const fit = { terms, lambda: VALUE_RIDGE_LAMBDA, categoryPenalty: VALUE_CATEGORY_PENALTY };
   const model = refitValue(comparables, terms);
   const board = rankRadar(snapshot, entries, model, odds, tables);
-  const refits = leaveOneFamilyOut(comparables, (train) => refitValue(train, terms));
+  const calibrationFit = cacheCalibrationFits(comparables);
+  const refits = leaveOneFamilyOut(comparables, calibrationFit);
   const boardValues = describeBoardValues(board, comparables, refits, snapshot.as_of);
   const bands =
-    model.n < MIN_BAND_FAMILIES
-      ? null
-      : jackknifePlusBands(comparables, (_, { slug }) => {
-          const selected = looTerms.get(slug);
-          if (!selected) throw new Error(`Missing held-out terms for ${slug}.`);
-          return (train) => refitValue(train, selected);
-        });
+    model.n < MIN_BAND_FAMILIES ? null : jackknifePlusBands(comparables, calibrationFit);
   const rowDiagnostics = new Map(
     boardValues.map(({ protocol: { slug }, diagnostics }) => [slug, diagnostics]),
   );

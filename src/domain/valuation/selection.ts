@@ -25,7 +25,12 @@ export function modelPredictions(rows: readonly Comparable[], model: ValueModel)
   return predictionsFor(rows, (row) => predictComparable(row, model));
 }
 
-export function predictComparable(row: Comparable, model: ValueModel) {
+export type ComparableModel = Pick<
+  ValueModel,
+  "coefficients" | "medianLnAge" | "categoryEffects" | "momentum"
+>;
+
+export function predictComparable(row: Comparable, model: ComparableModel) {
   const { lnTvl, growth, lnAge } = row;
   const category = (row as Partial<{ category: CategoryGroup }>).category;
   return logValue(

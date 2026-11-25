@@ -55,7 +55,7 @@ export function rankRadar(
     const { protocol, launch_value_usd, launchProbability12: p12 } = row;
     const plan = makeFarmPlan(protocol, tables, {
       launchProbability12: p12,
-      exitThreshold: thresholds.get(farmGroup(protocol.category, tables.playbooks)) ?? null,
+      exitThreshold: thresholds.get(farmGroup(protocol.category)) ?? null,
     });
     return {
       ...row,

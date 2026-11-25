@@ -53,6 +53,7 @@ export function methodView(
     selection,
   } = model;
   const { baselines, scores } = odds.validation;
+  const oddsNames = ["intercept", "logit(S(a))", ...odds.terms];
   const coef = (value?: number | null) => value?.toFixed(6) ?? "—";
   const { valueErrors } = bootstrap;
   const errorNote = `${bootstrap.replicates} bootstrap refits.`;
@@ -70,7 +71,7 @@ export function methodView(
       [
         ["Intercept", coef(intercept), coef(valueErrors.intercept)],
         [model.momentum ? "ln(TVL·(1+g₇))" : "ln(TVL)", coef(lnTvl), coef(valueErrors.lnTvl)],
-        ...(selection.terms.includes("age")
+        ...(model.fit.terms.includes("age")
           ? [["ln(age)", coef(lnAge), coef(valueErrors.lnAge)]]
           : []),
         ...Object.entries(model.categoryEffects ?? {}).map(([group, effect]) => [
@@ -108,7 +109,7 @@ export function methodView(
     methodPanel(
       "Token-status model",
       ["Term in logit F(a)", "Coefficient", "Bootstrap SE"],
-      odds.names.map((name, i) => [name, coef(odds.coefficients[i]), coef(odds.standardErrors[i])]),
+      oddsNames.map((name, i) => [name, coef(odds.coefficients[i]), coef(odds.standardErrors[i])]),
       `${odds.n} eligible protocols · ${formatOdds(odds.baseRate)} record a token. L2 penalty ${odds.penalty}. PAVA share S(a) is clamped to 0.01–0.99. P₁₂ = [F(a+365) − F(a)] / [1 − F(a)]. Flat years use tail hazard. Undated age ${odds.medianAgeDays}d. ${errorNote}`,
     ),
     termTrials("Odds", odds.validation.selection),

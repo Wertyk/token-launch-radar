@@ -367,9 +367,9 @@ function featureStats(values) {
 	return {mean, scale, range: {min, max}}
 }
 
-function dot(a, b) {
+function dot(a, b, end = a.length) {
 	let sum = 0
-	for (let i = 0; i < a.length; i++) sum += a[i] * (b[i] ?? 0)
+	for (let i = 0; i < end; i++) sum += a[i] * (b[i] ?? 0)
 	return sum
 }
 function diagonalPenalty(width, lambda) {
@@ -400,11 +400,11 @@ function choleskySolve(lower, solution) {
 	for (const [i, row] of lower.entries()) {
 		for (let j = 0; j <= i; j++) {
 			const previous = lower[j]
-			const pivot = row[j] - dot(row.slice(0, j), previous)
+			const pivot = row[j] - dot(row, previous, j)
 			if (j === i && !(pivot > 0 && Number.isFinite(pivot))) throw new Error("Cholesky requires positive, finite pivots.")
 			row[j] = j === i ? Math.sqrt(pivot) : pivot / previous[j]
 		}
-		solution[i] = (solution[i] - dot(row.slice(0, i), solution)) / row[i]
+		solution[i] = (solution[i] - dot(row, solution, i)) / row[i]
 	}
 	for (let i = lower.length - 1; i >= 0; i--) {
 		const row = lower[i]
@@ -434,12 +434,12 @@ function fitHuber(design, targets, penalty, robust = true, stabilize) {
 			residuals[i] = scratch[i] = targets[i] - dot(design[i], next)
 		}
 		const center = medianInPlace(scratch)
-		for (const [i, value] of residuals.entries()) scratch[i] = Math.abs(value - center)
+		for (let i = 0; i < residuals.length; i++) scratch[i] = Math.abs(residuals[i] - center)
 		huberScale = Math.max(1e-8, 1.4826 * medianInPlace(scratch))
 		const converged = next.every((value, i) => Math.abs(value - (coefficients[i] ?? Infinity)) < 1e-5)
 		coefficients = next
 		if (!robust || converged) break
-		for (const [i, residual] of residuals.entries()) weights[i] = Math.min(1, (1.345 * huberScale) / Math.abs(residual))
+		for (let i = 0; i < residuals.length; i++) weights[i] = Math.min(1, (1.345 * huberScale) / Math.abs(residuals[i]))
 	}
 	return {coefficients, huberScale}
 }

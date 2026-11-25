@@ -1,9 +1,11 @@
 import { compareText } from "../shared/order.ts";
+import type { CategoryComparable } from "./categories.ts";
 import type { Comparable } from "./comparables.ts";
 import type { ValueModel } from "./model.ts";
 import { fitValueModel } from "./model.ts";
 import { predictComparable } from "./selection.ts";
 import { VALUE_RIDGE_LAMBDA } from "./value-fit.ts";
+import { refitSelectedValue } from "./value-selection.ts";
 
 const TAIL_ALPHA = 0.1;
 // With one held-out family the finite lower rank first exists at floor(n × alpha) ≥ 1.
@@ -21,11 +23,11 @@ export interface FamilyRefit {
   residual: number;
 }
 
-type Refit<Row> = (rows: readonly Row[]) => ValueModel;
+type Refit = (rows: readonly CategoryComparable[]) => ValueModel;
 
-export function leaveOneFamilyOut<Row extends Comparable>(
-  rows: readonly Row[],
-  refit: number | Refit<Row>,
+export function leaveOneFamilyOut(
+  rows: readonly CategoryComparable[],
+  refit: number | Refit = refitSelectedValue,
 ): FamilyRefit[] {
   if (rows.length < 2) return [];
   // The comparable set has one observation per family.
@@ -59,17 +61,16 @@ export function jackknifePlusBand(samples: readonly JackknifeSample[]) {
   return { p10, p25, p75, p90 };
 }
 
-export function jackknifePlusBands<Row extends Comparable>(
-  rows: readonly Row[],
-  selectFit: (train: readonly Row[], heldOut: Row) => number | Refit<Row> = () =>
-    VALUE_RIDGE_LAMBDA,
+export function jackknifePlusBands(
+  rows: readonly CategoryComparable[],
+  refit: number | Refit = refitSelectedValue,
 ) {
   const bands = new Map<string, ReturnType<typeof jackknifePlusBand>>();
   if (rows.length < 3) return bands;
 
   for (const heldOut of rows) {
     const train = rows.filter((row) => row !== heldOut);
-    const refits = leaveOneFamilyOut(train, selectFit(train, heldOut));
+    const refits = leaveOneFamilyOut(train, refit);
     const samples = refits.map(({ comparable, model, residual }) => ({
       slug: comparable.slug,
       prediction: predictComparable(heldOut, model),
@@ -80,8 +81,8 @@ export function jackknifePlusBands<Row extends Comparable>(
   return bands;
 }
 
-export function jackknifePlusCoverage(rows: readonly Comparable[]) {
-  const bands = jackknifePlusBands(rows);
+export function jackknifePlusCoverage(rows: readonly CategoryComparable[]) {
+  const bands = jackknifePlusBands(rows, VALUE_RIDGE_LAMBDA);
   if (!bands.size) return null;
 
   const counts = { missLow: 0, covered: 0, missHigh: 0 };
