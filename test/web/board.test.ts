@@ -18,9 +18,10 @@ const alpha: BoardRow = {
   interval: null,
   tvl: 120,
   growth: 2,
-  age: 20,
   cost: 0.45,
   time: 40,
+  verdict: "FARM",
+  netPerHour: 35,
   watchlist: true,
   category: "Lending",
   chains: ["Base"],
@@ -36,9 +37,10 @@ const beta: BoardRow = {
   odds: 0.1,
   tvl: 500,
   growth: -1,
-  age: 30,
   cost: 0.8,
   time: 20,
+  verdict: "SKIP",
+  netPerHour: -2,
   watchlist: false,
   category: "Yield",
   chains: ["Base", "Arbitrum"],
@@ -52,9 +54,10 @@ test.each<[SortKey, string[]]>([
   ["odds", ["b", "a"]],
   ["tvl", ["a", "b"]],
   ["growth", ["b", "a"]],
-  ["age", ["a", "b"]],
   ["cost", ["a", "b"]],
   ["time", ["b", "a"]],
+  ["verdict", ["b", "a"]],
+  ["netPerHour", ["b", "a"]],
   ["watchlist", ["b", "a"]],
 ])("sorts %s in either direction", (sort, ascending) => {
   const rows = [beta, alpha];
@@ -95,4 +98,17 @@ test("requires all filters to match and searches the name without regard to case
   const filter = { ...defaultState, cat: "Lending", chain: "Base", wl: true, q: " CAPITAL " };
   expect(selectRows(rows, filter)).toEqual([alpha]);
   expect(selectRows(rows, { ...filter, chain: "Arbitrum" })).toEqual([]);
+});
+
+test("sorts all three verdicts in economic order and breaks net-per-hour ties by slug", () => {
+  const thin: BoardRow = { ...alpha, slug: "c", verdict: "THIN", netPerHour: beta.netPerHour };
+  const rows = [thin, alpha, beta];
+  expect(selectRows(rows, { ...defaultState, sort: "verdict" }).map(({ slug }) => slug)).toEqual([
+    "b",
+    "c",
+    "a",
+  ]);
+  expect(
+    selectRows(rows, { ...defaultState, sort: "netPerHour", dir: "desc" }).map(({ slug }) => slug),
+  ).toEqual(["a", "b", "c"]);
 });

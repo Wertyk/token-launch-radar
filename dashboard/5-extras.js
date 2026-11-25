@@ -1,57 +1,41 @@
 (() => {
-function formatFarmStep({action, chain, costUsd, minutes, cadence, exitCondition}, usd, shortenText) {
-	const exit = exitCondition ? ` | Exit · ${shortenText(exitCondition, 100)}` : ""
-	return `${shortenText(action, 280)} | ${shortenText(chain ?? "Chain unlisted", 110)} | Est. fee ${usd(costUsd)} | ${minutes} minutes | ${cadence}${exit}`
+function shorten(text, max) {
+	const normalized = text.trim().replace(/\s+/g, " ")
+	return normalized.length <= max ? normalized : `${normalized.slice(0, max - 1).trimEnd()}…`
 }
-function formatEconomics({deposits: [{depositUsd, netUsd, netPerHourUsd, verdict}], breakEvenDepositUsd}, usd, {horizonMonths, airdropShareOfLaunchCap}) {
+function formatFarmStep({action, chain, costUsd, minutes, cadence, exitCondition}, usd) {
+	const exit = exitCondition ? ` | ${shorten(exitCondition, 245)}` : ""
+	return `${shorten(action, 190)} | ${shorten(chain ?? "Chain unlisted", 100)} | Est. fee ${usd(costUsd)} | ${minutes} minutes | ${cadence}${exit}`
+}
+function formatEconomics({deposits: deposits2, breakEvenDepositUsd}, holdWeeks, usd, {airdropShareOfLaunchCap}) {
+	const net = deposits2.map(({depositUsd, netUsd, netPerHourUsd, verdict}) => `${usd(depositUsd)}: ${usd(netUsd)} net, ${usd(netPerHourUsd)}/h ${verdict}`)
 	const breakEven = breakEvenDepositUsd === "never" ? "never" : `≈ ${usd(breakEvenDepositUsd)}`
-	return `Economics at ${usd(depositUsd)} over ${horizonMonths} months · ${usd(netUsd)} net · ${usd(netPerHourUsd)}/h → ${verdict}. Break-even deposit ${breakEven} (where net reaches $0 after cash fees and capital carry). Assumes ${airdropShareOfLaunchCap * 100}% of circulating launch cap because a mostly unlocked airdrop can account for much of a small launch float.`
+	return `Economics for an expected ${holdWeeks.toFixed(1)}-week hold · ${net.join(" · ")}. Break-even deposit ${breakEven} (net reaches $0 after cash fees and capital carry). Assumes ${airdropShareOfLaunchCap * 100}% of circulating launch cap for the drop pool. Hold until launch or one year, whichever comes first.`
 }
-function boardFarmSteps({plan, economics}, deps) {
-	return [...plan.steps.map(step => formatFarmStep(step, deps.formatUsd, deps.shorten)), formatEconomics(economics, deps.formatUsd, deps.farmAssumptions)]
-}
-
-var ASSUMPTIONS_AS_OF = "2026-11-14"
-var defaults = {
-	asOf: ASSUMPTIONS_AS_OF,
-	airdropShareOfLaunchCap: 0.25,
-	farmerHaircut: 0.5,
-	hourlyRateUsd: 25,
-	// Yield-bearing deposits keep their base yield. Compare the same asset in a
-	// vault without an airdrop. Non-yielding deposits forgo the cash rate.
-	capitalApr: {yieldBearing: 0, nonYielding: 0.05},
-	horizonMonths: 12,
-	monthsPerYear: 12,
-	weeksPerYear: 52,
-	minutesPerHour: 60,
-	depositsUsd: [1e3, 1e4],
-	tradeVolumeUsd: 200,
-	tradingFeeRate: 6e-4,
-	setupMinutes: 5,
-	bridgeMinutes: 10
-}
-
-var horizonYears = defaults.horizonMonths / defaults.monthsPerYear
-var occurrences = {
-	once: 1,
-	weekly: Math.floor(defaults.weeksPerYear * horizonYears),
-	monthly: defaults.horizonMonths
+function boardFarmSteps({plan, economics}, {formatUsd: usd, farmAssumptions}) {
+	return [...plan.steps.map(step => formatFarmStep(step, usd)), formatEconomics(economics, plan.holdWeeks, usd, farmAssumptions)]
 }
 
 var deposits = [1e3, 2500, 5e3, 1e4]
-function scheduleFarmMinutes({steps}, cadenceCounts) {
-	const weeks = Array(cadenceCounts.weekly).fill(0)
+function scheduleFarmMinutes({steps, reviewCounts, holdWeeks}, settings) {
+	const weeks = Array(Math.max(1, Math.ceil(holdWeeks))).fill(0)
+	const weeksPerMonth = settings.weeksPerYear / settings.monthsPerYear
 	for (const {cadence, minutes, exitCondition} of steps) {
-		const count = cadenceCounts[cadence]
-		for (let occurrence = 1; occurrence <= count; occurrence++) {
-			const week = cadence === "once" && exitCondition === void 0 ? 0 : Math.ceil((occurrence * weeks.length) / count) - 1
+		if (cadence === "once") {
+			const week = exitCondition ? weeks.length - 1 : 0
+			weeks[week] = (weeks[week] ?? 0) + minutes
+			continue
+		}
+		const period = cadence === "weekly" ? 1 : weeksPerMonth
+		for (let occurrence = 1; occurrence <= reviewCounts[cadence]; occurrence++) {
+			const week = Math.ceil(occurrence * period) - 1
 			weeks[week] = (weeks[week] ?? 0) + minutes
 		}
 	}
 	return weeks
 }
 function optimizePortfolio(rows, {budgetUsd, hoursPerWeek, chains, assumptions}, api) {
-	const {compareText: compareText2, depositAmounts: depositAmounts2, farmEconomicsTerms: farmEconomicsTerms2, makeFarmPlan: makeFarmPlan2, farmAssumptions, occurrences: occurrences2} = api
+	const {compareText: compareText2, depositAmounts: depositAmounts2, farmEconomicsTerms: farmEconomicsTerms2, makeFarmPlan: makeFarmPlan2, farmAssumptions} = api
 	if (assumptions.horizonMonths !== farmAssumptions.horizonMonths) {
 		throw new Error("The farm planner only supports a 12-month horizon.")
 	}
@@ -64,8 +48,15 @@ function optimizePortfolio(rows, {budgetUsd, hoursPerWeek, chains, assumptions},
 		const choices = supported.length ? supported : [null]
 		const plans = choices.flatMap(chain => {
 			if (permitted && (chain === null || !permitted.has(chain))) return []
-			const option = chain === plan.chain || chain === null ? plan : makeFarmPlan2({...protocol, chains: [chain]}, assumptions.tables)
-			return [{option, schedule: scheduleFarmMinutes(option, occurrences2)}]
+			const option =
+				chain === plan.chain || chain === null
+					? plan
+					: makeFarmPlan2({...protocol, chains: [chain]}, assumptions.tables, {
+							depositUsd: plan.depositUsd,
+							launchProbability12: economics.launchProbability12,
+							exitThreshold: plan.exitThreshold
+						})
+			return [{option, schedule: scheduleFarmMinutes(option, farmAssumptions)}]
 		})
 		return {
 			slug: protocol.slug,
@@ -182,24 +173,6 @@ function optimizePortfolio(rows, {budgetUsd, hoursPerWeek, chains, assumptions},
 	return {positions, totals, rejected, closest}
 }
 
-function compareRows(a, b, sort, direction, compareText2) {
-	if (sort === "name") return direction * compareText2(a.name.toLowerCase(), b.name.toLowerCase())
-	const first = a[sort]
-	const second = b[sort]
-	if (first === second) return 0
-	if (first === null) return 1
-	if (second === null) return -1
-	return direction * (Number(first) - Number(second))
-}
-function selectRows(rows, state, compareText2) {
-	const {sort, dir, cat, chain, wl} = state
-	const query = state.q.trim().toLowerCase()
-	const direction = dir === "asc" ? 1 : -1
-	return rows
-		.filter(row => (!cat || row.category === cat) && (!chain || row.chains.includes(chain)) && (!wl || row.watchlist) && (!query || row.name.toLowerCase().includes(query)))
-		.sort((a, b) => compareRows(a, b, sort, direction, compareText2) || compareText2(a.slug, b.slug))
-}
-
 function options(values, esc) {
 	return [...new Set(values)]
 		.sort()
@@ -210,41 +183,15 @@ function options(values, esc) {
 		.join("")
 }
 
-var columns = {
-	rank: "Rank",
-	name: "Protocol",
-	value: "Implied value",
-	launchValue: "Launch value",
-	odds: "Odds 12m",
-	tvl: "TVL",
-	growth: "7d %",
-	age: "Days with no token",
-	cost: "12-mo fees",
-	time: "Plan time",
-	watchlist: "Watchlist"
-}
 var defaultCensus = {status: "", sort: "tvl", dir: "desc"}
+var defaultSort = "rank"
 var defaultState = {
-	sort: "rank",
+	sort: defaultSort,
 	dir: "asc",
 	cat: "",
 	chain: "",
 	wl: false,
 	q: ""
-}
-function isSortKey(value) {
-	return value !== void 0 && Object.hasOwn(columns, value)
-}
-function readBoardState(params) {
-	const sort = params.get("sort") ?? void 0
-	return {
-		sort: isSortKey(sort) ? sort : defaultState.sort,
-		dir: params.get("dir") === "desc" ? "desc" : "asc",
-		cat: params.get("cat") ?? "",
-		chain: params.get("chain") ?? "",
-		wl: params.get("wl") === "1",
-		q: params.get("q") ?? ""
-	}
 }
 function censusHash({status, sort, dir, unranked}) {
 	const params = new URLSearchParams()
@@ -270,7 +217,7 @@ function boardHash(state) {
 	return query ? `#/?${query}` : "#/"
 }
 
-function bindControls(main, draw, {isCensusSortKey, parseRoute}) {
+function bindControls(main, draw, {isCensusSortKey, isSortKey, parseRoute}) {
 	main.addEventListener("click", event => {
 		if (!(event.target instanceof Element)) return
 		const sort = event.target.closest("button[data-sort]")?.dataset.sort
@@ -371,13 +318,13 @@ function methodFarmAssumptions(farm, usd, pct) {
 	return {
 		title: `Farm assumptions · ${farm.asOf}`,
 		rows: [
-			["Horizon", `${farm.horizonMonths} months`],
+			["Hold", "Until launch or one year, whichever comes first. Count whole review periods."],
 			["Airdrop share of launch cap", pct(farm.airdropShareOfLaunchCap)],
 			["Farmer haircut (retained)", pct(farm.farmerHaircut)],
 			["Labor", `${usd(farm.hourlyRateUsd)}/h`],
 			["Capital APR", `${pct(farm.capitalApr.yieldBearing)} yield-bearing · ${pct(farm.capitalApr.nonYielding)} non-yielding`],
 			["Verdict test deposits", farm.depositsUsd.map(usd).join(" · ")],
-			["Verdicts", `FARM ≥ ${usd(farm.hourlyRateUsd)}/h · THIN if net > $0 · SKIP if net ≤ $0`]
+			["Verdicts", `FARM > ${usd(farm.hourlyRateUsd)}/h · THIN if net > $0 · SKIP if net ≤ $0`]
 		]
 	}
 }
@@ -625,15 +572,13 @@ function nearestComparables(slugs, families, usd, {escapeHtml: esc, table}) {
 Object.assign(window.Radar, {
 	bindControls,
 	boardControls,
-	selectRows,
 	methodNotes,
 	termTrials,
 	mountPlanner,
 	protocolFacts,
 	protocolClock,
 	nearestComparables,
-	boardHash,
-	readBoardState
+	boardHash
 })
 
 window.Radar.boardFarmSteps = row => boardFarmSteps(row, window.Radar)

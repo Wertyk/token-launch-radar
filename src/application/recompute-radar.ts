@@ -2,6 +2,7 @@ import { boardEntries, buildCensus, houseRuleMembership } from "../domain/census
 import { groupFamilies } from "../domain/census/families.ts";
 import type { FarmEconomics } from "../domain/farming/economics.ts";
 import { estimateFarmEconomics } from "../domain/farming/economics.ts";
+import { farmExitThresholds, farmGroup } from "../domain/farming/exit-rules.ts";
 import type { FarmPlan } from "../domain/farming/plans.ts";
 import { makeFarmPlan } from "../domain/farming/plans.ts";
 import type { FarmTables } from "../domain/farming/playbook-data.ts";
@@ -43,9 +44,13 @@ export function rankRadar(
     ...entry,
     ...protocolOdds(odds, entry.protocol, as_of),
   }));
+  const thresholds = farmExitThresholds(entries, tables.playbooks);
   return rankBoard(candidates, as_of, model).map((row) => {
     const { protocol, launch_value_usd, launchProbability12: p12 } = row;
-    const plan = makeFarmPlan(protocol, tables);
+    const plan = makeFarmPlan(protocol, tables, {
+      launchProbability12: p12,
+      exitThreshold: thresholds.get(farmGroup(protocol.category, tables.playbooks)) ?? null,
+    });
     return {
       ...row,
       plan,

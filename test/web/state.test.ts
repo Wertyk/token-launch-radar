@@ -37,15 +37,18 @@ test("uses the default board for an empty hash and tolerates invalid sort settin
   });
 });
 
-test.each(["launchValue", "odds"] as const)("round-trips the %s board sort", (sort) => {
-  const state = { ...defaultState, sort, dir: "desc", wl: true } as const;
-  expect(parseRoute(boardHash(state))).toEqual({ page: "board", state });
-  expect(parseRoute(protocolHash("candidate", state))).toEqual({
-    page: "protocol",
-    slug: "candidate",
-    state,
-  });
-});
+test.each(["launchValue", "odds", "verdict", "netPerHour"] as const)(
+  "round-trips the %s board sort",
+  (sort) => {
+    const state = { ...defaultState, sort, dir: "desc", wl: true } as const;
+    expect(parseRoute(boardHash(state))).toEqual({ page: "board", state });
+    expect(parseRoute(protocolHash("candidate", state))).toEqual({
+      page: "protocol",
+      slug: "candidate",
+      state,
+    });
+  },
+);
 
 test("recognizes unknown paths and malformed slug escapes", () => {
   for (const hash of ["#/about", "#/p/", "#/p/a/b", "#/p/%ZZ"]) {

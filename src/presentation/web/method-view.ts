@@ -27,7 +27,6 @@ export function methodView(
   } = model;
   const { baselines, scores } = odds.validation;
   const brier = (x: number | null) => x?.toFixed(4) ?? "—";
-  const oddsHeaders = ["10-fold Brier", "Walk-forward Brier"];
   const cards = [
     '<div class="method-value">',
     methodPanel(
@@ -73,13 +72,15 @@ export function methodView(
     ),
     methodPanel(
       "Held-out token status",
-      ["Model", ...oddsHeaders],
-      [
-        ["Base rate", ...baselines.baseRate.map(brier)],
-        ["Raw PAVA clock", ...baselines.pava.map(brier)],
-        ["Clock-only model (step 0)", ...baselines.clockOnly.map(brier)],
-        ["Final model", ...scores.map(brier)],
-      ],
+      ["Model", "10-fold Brier", "Walk-forward Brier"],
+      (
+        [
+          ["Base rate", baselines.baseRate],
+          ["Raw PAVA clock", baselines.pava],
+          ["Clock-only model (step 0)", baselines.clockOnly],
+          ["Final model", scores],
+        ] as const
+      ).map(([label, pair]) => [label, ...pair.map(brier)]),
       "Each fold refits its clock. Brier scores current token status. P₁₂ assumes the cross-section behaves like a cohort.",
     ),
     renderTrials?.(odds.validation, "Odds", table) ?? "",

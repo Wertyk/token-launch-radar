@@ -71,13 +71,12 @@ export function integrityChecks(
 }
 
 export function integrityStrip(checks: ReturnType<typeof integrityChecks>): string {
-  return `<ul class="integrity">${checks
-    .map(({ pass, label }) =>
-      pass === null
-        ? `<li class="check-unavailable">${esc(label)}</li>`
-        : `<li class="${pass ? "check" : "check-failed"}">${pass ? "✓" : "✗"} ${esc(label)}</li>`,
-    )
-    .join("")}</ul>`;
+  const items = checks.map(({ pass, label }) => {
+    const style = pass === null ? "check-unavailable" : pass ? "check" : "check-failed";
+    const mark = pass === null ? "" : pass ? "✓ " : "✗ ";
+    return `<li class="${style}">${mark}${esc(label)}</li>`;
+  });
+  return `<ul class="integrity">${items.join("")}</ul>`;
 }
 
 export function multiplier(value: number | null): string {

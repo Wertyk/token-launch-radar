@@ -8,9 +8,10 @@ export const columns = {
   odds: "Odds 12m",
   tvl: "TVL",
   growth: "7d %",
-  age: "Days with no token",
-  cost: "12-mo fees",
+  cost: "Plan fees",
   time: "Plan time",
+  verdict: "$10K verdict",
+  netPerHour: "$10K net/h",
   watchlist: "Watchlist",
 } as const;
 
@@ -48,8 +49,9 @@ type Route =
   | { page: "method" }
   | { page: "census"; state: CensusState };
 
+const defaultSort = "rank";
 export const defaultState: BoardState = {
-  sort: "rank",
+  sort: defaultSort,
   dir: "asc",
   cat: "",
   chain: "",
@@ -57,8 +59,8 @@ export const defaultState: BoardState = {
   q: "",
 };
 
-export function isSortKey(value: string | undefined): value is SortKey {
-  return value !== undefined && Object.hasOwn(columns, value);
+export function isSortKey(value: string | null | undefined): value is SortKey {
+  return Object.hasOwn(columns, value ?? "");
 }
 
 export function isCensusSortKey(value: string | null | undefined): value is CensusState["sort"] {
@@ -66,10 +68,6 @@ export function isCensusSortKey(value: string | null | undefined): value is Cens
 }
 
 export function parseRoute(hash: string): Route {
-  return pageRoute(hash, readBoardState);
-}
-
-export function pageRoute(hash: string, readBoard?: typeof readBoardState): Route {
   const [path, query] = hash.slice(1).split(/\?(.*)/s, 2);
   if (path === "/method") return { page: "method" };
   if (path === "/plan") return { page: "plan" };
@@ -87,29 +85,23 @@ export function pageRoute(hash: string, readBoard?: typeof readBoardState): Rout
       },
     };
   }
-  const state = readBoard?.(params) ?? defaultState;
-  if (!path || path === "/") return { page: "board", state };
-  const segment = /^\/p\/([^/]+)$/.exec(path)?.[1];
-  if (segment) {
-    try {
-      return { page: "protocol", slug: decodeURIComponent(segment), state };
-    } catch {
-      return { page: "unknown", state };
-    }
-  }
-  return { page: "unknown", state };
-}
-
-export function readBoardState(params: URLSearchParams): BoardState {
-  const sort = params.get("sort") ?? undefined;
-  return {
-    sort: isSortKey(sort) ? sort : defaultState.sort,
+  const sort = params.get("sort");
+  const state: BoardState = {
+    sort: isSortKey(sort) ? sort : defaultSort,
     dir: params.get("dir") === "desc" ? "desc" : "asc",
     cat: params.get("cat") ?? "",
     chain: params.get("chain") ?? "",
     wl: params.get("wl") === "1",
     q: params.get("q") ?? "",
   };
+  if (!path || path === "/") return { page: "board", state };
+  const segment = /^\/p\/([^/]+)$/.exec(path)?.[1];
+  try {
+    if (segment) return { page: "protocol", slug: decodeURIComponent(segment), state };
+  } catch {
+    // Malformed encodings resolve to the unknown route.
+  }
+  return { page: "unknown", state };
 }
 
 export function censusHash({ status, sort, dir, unranked }: CensusState): string {

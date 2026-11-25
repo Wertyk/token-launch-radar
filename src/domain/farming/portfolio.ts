@@ -4,7 +4,7 @@ import { FARM_ASSUMPTIONS } from "./assumptions.ts";
 import type { EconomicsAssumptions } from "./economics.ts";
 import { depositAmounts, farmEconomicsTerms } from "./economics.ts";
 import type { FarmPlan } from "./plans.ts";
-import { makeFarmPlan, occurrences } from "./plans.ts";
+import { makeFarmPlan } from "./plans.ts";
 import type { FarmTables } from "./playbook-data.ts";
 
 const deposits = [1_000, 2_500, 5_000, 10_000];
@@ -38,18 +38,21 @@ interface Position {
 }
 
 export function scheduleFarmMinutes(
-  { steps }: FarmPlan,
-  cadenceCounts: typeof occurrences,
+  { steps, reviewCounts, holdWeeks }: FarmPlan,
+  settings: Pick<typeof FARM_ASSUMPTIONS, "weeksPerYear" | "monthsPerYear">,
 ): number[] {
-  const weeks = Array<number>(cadenceCounts.weekly).fill(0);
+  const weeks = Array<number>(Math.max(1, Math.ceil(holdWeeks))).fill(0);
+  const weeksPerMonth = settings.weeksPerYear / settings.monthsPerYear;
   for (const { cadence, minutes, exitCondition } of steps) {
-    const count = cadenceCounts[cadence];
-    // Recurring steps fall at the end of equally spaced periods.
-    for (let occurrence = 1; occurrence <= count; occurrence++) {
-      const week =
-        cadence === "once" && exitCondition === undefined
-          ? 0
-          : Math.ceil((occurrence * weeks.length) / count) - 1;
+    if (cadence === "once") {
+      const week = exitCondition ? weeks.length - 1 : 0;
+      weeks[week] = (weeks[week] ?? 0) + minutes;
+      continue;
+    }
+    const period = cadence === "weekly" ? 1 : weeksPerMonth;
+    // Reviews land at the end of each full period.
+    for (let occurrence = 1; occurrence <= reviewCounts[cadence]; occurrence++) {
+      const week = Math.ceil(occurrence * period) - 1;
       weeks[week] = (weeks[week] ?? 0) + minutes;
     }
   }
@@ -63,7 +66,6 @@ export function planPortfolio(rows: readonly PortfolioRow[], options: PortfolioO
     farmEconomicsTerms,
     makeFarmPlan,
     farmAssumptions: FARM_ASSUMPTIONS,
-    occurrences,
   });
 }
 
@@ -76,17 +78,9 @@ export function optimizePortfolio(
     farmEconomicsTerms: typeof farmEconomicsTerms;
     makeFarmPlan: typeof makeFarmPlan;
     farmAssumptions: typeof FARM_ASSUMPTIONS;
-    occurrences: typeof occurrences;
   },
 ) {
-  const {
-    compareText,
-    depositAmounts,
-    farmEconomicsTerms,
-    makeFarmPlan,
-    farmAssumptions,
-    occurrences,
-  } = api;
+  const { compareText, depositAmounts, farmEconomicsTerms, makeFarmPlan, farmAssumptions } = api;
   if (assumptions.horizonMonths !== farmAssumptions.horizonMonths) {
     throw new Error("The farm planner only supports a 12-month horizon.");
   }
@@ -102,8 +96,12 @@ export function optimizePortfolio(
       const option =
         chain === plan.chain || chain === null
           ? plan
-          : makeFarmPlan({ ...protocol, chains: [chain] }, assumptions.tables);
-      return [{ option, schedule: scheduleFarmMinutes(option, occurrences) }];
+          : makeFarmPlan({ ...protocol, chains: [chain] }, assumptions.tables, {
+              depositUsd: plan.depositUsd,
+              launchProbability12: economics.launchProbability12,
+              exitThreshold: plan.exitThreshold,
+            });
+      return [{ option, schedule: scheduleFarmMinutes(option, farmAssumptions) }];
     });
     return {
       slug: protocol.slug,

@@ -156,7 +156,7 @@ async function takeShots(
             page.getByText(/^P10–P90 · /),
             page.locator(".waterfall"),
             page.locator(".value-equation"),
-            page.locator(".farm .chips"),
+            page.locator(".farm .deposit-grid"),
           ];
           for (const item of evidence) {
             const box = await item.boundingBox();

@@ -30,6 +30,7 @@ export function renderDataScript(
     watchlist,
     census,
     model: publishedModel,
+    valueCoefficients: model.coefficients,
     looScatter,
     odds,
     board: {

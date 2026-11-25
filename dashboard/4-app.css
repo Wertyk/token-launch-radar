@@ -357,8 +357,12 @@ button[data-sort]::after {
   cursor: pointer;
 }
 
+.ranking:not(.census) :is(td, th) {
+  padding-inline: var(--s2);
+}
+
 .ranking:not(.census) :is(td, th):nth-child(2) {
-  width: 29%;
+  width: 24%;
   white-space: normal;
   text-align: left;
 }
@@ -597,18 +601,17 @@ button[data-sort]::after {
   font-size: var(--font-small);
 }
 
-.farm tbody td:last-child {
+.deposit-grid tbody td:last-child {
+  font-weight: 700;
+}
+
+.farm table:not(.deposit-grid) tbody td:last-child {
   text-transform: capitalize;
 }
 
 .farm tfoot {
   color: var(--teal);
   font-weight: 700;
-}
-
-.farm small {
-  display: block;
-  color: var(--muted);
 }
 
 .portfolio .filters {
@@ -630,7 +633,7 @@ button[data-sort]::after {
   }
 
   .ranking:not(.census) {
-    min-width: 1180px;
+    min-width: 1200px;
   }
 }
 

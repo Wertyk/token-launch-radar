@@ -1,69 +1,72 @@
-export function zeroMatrix(size: number): number[][] {
-  return Array.from({ length: size }, () => Array<number>(size).fill(0));
+export function dot(a: readonly number[], b: readonly number[]): number {
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) sum += (a[i] as number) * (b[i] ?? 0);
+  return sum;
 }
 
-/** Adds the weighted outer product to the lower triangle, using only nonzero columns. */
-export function addOuterProduct(
-  matrix: number[][],
-  row: readonly number[],
-  weight: number,
-  columns: readonly number[],
-): void {
-  for (const [i, column] of columns.entries()) {
-    const line = matrix[column];
-    if (!line) throw new Error("Incomplete normal matrix.");
-    const scaled = weight * (row[i] ?? 0);
-    for (let j = 0; j <= i; j++) {
-      const other = columns[j] ?? 0;
-      line[other] = (line[other] ?? 0) + scaled * (row[j] ?? 0);
-    }
-  }
+export function diagonalPenalty(width: number, lambda: number): number[][] {
+  return Array.from({ length: width }, (_, i) => [...Array<number>(i).fill(0), i ? lambda : 0]);
 }
 
-function at(values: readonly number[], index: number): number {
-  const value = values[index];
-  if (value === undefined) throw new Error("Incomplete linear system.");
-  return value;
-}
-
-/** Solves Ax = b for a symmetric positive-definite A by factoring A = LLᵀ. */
-export function choleskySolve(
-  matrix: readonly (readonly number[])[],
-  rhs: readonly number[],
+//! Solve (XᵀWX + penalty) b = XᵀWy.
+export function weightedLeastSquares(
+  design: readonly (readonly number[])[],
+  targets: readonly number[],
+  weights: ArrayLike<number>,
+  penalty: readonly (readonly number[])[],
+  ridge = false,
 ): number[] {
-  const n = matrix.length;
-  if (rhs.length !== n || matrix.some((row) => row.length !== n)) {
-    throw new Error("The linear system requires a square matrix and a matching right-hand side.");
-  }
-
-  const lower: number[][] = [];
-  const solution: number[] = [];
-  for (const [i, row] of matrix.entries()) {
-    const factor: number[] = [];
-    let diagonal = at(row, i);
-    let target = at(rhs, i);
-    for (const [j, previous] of lower.entries()) {
-      let value = at(row, j);
-      for (const [k, entry] of factor.entries()) value -= entry * at(previous, k);
-      const entry = value / at(previous, j);
-      factor.push(entry);
-      diagonal -= entry ** 2;
-      target -= entry * at(solution, j);
+  const normal = penalty.map((row) => [...row]);
+  const rhs = normal.map(() => 0);
+  for (let i = 0; i < design.length; i++) {
+    const row = design[i] as readonly number[];
+    const weight = weights[i] ?? 1;
+    const target = targets[i] as number;
+    for (let j = 0; j < normal.length; j++) {
+      const value = row[j] as number;
+      if (value === 0) continue;
+      const line = normal[j] as number[];
+      const scaled = weight * value;
+      rhs[j] = (rhs[j] as number) + scaled * target;
+      for (let k = 0; k <= j; k++) line[k] = (line[k] as number) + scaled * (row[k] as number);
     }
-    if (!(diagonal > 0) || !Number.isFinite(diagonal)) {
-      throw new Error("Cholesky factorization requires a positive-definite matrix.");
-    }
-    const root = Math.sqrt(diagonal);
-    factor.push(root);
-    lower.push(factor);
-    solution.push(target / root);
   }
+  const [, [, tvl = 0] = [], [, cross = 0, age = 0] = []] = normal;
+  // In unpenalized ridge with collinear slopes, keep TVL and fix age at zero.
+  if (
+    ridge &&
+    normal.length === 3 &&
+    penalty[2]?.[2] === 0 &&
+    tvl > 0 &&
+    age > 0 &&
+    cross ** 2 >= (1 - 8 * Number.EPSILON) * tvl * age
+  ) {
+    normal[2] = [0, 0, 1];
+    rhs[2] = 0;
+  }
+  for (const [i, row] of normal.entries()) {
+    if (ridge && i >= normal.length - 2 && row[i] === 0) row[i] = 1;
+  }
+  return choleskySolve(normal, rhs);
+}
 
-  for (let i = n - 1; i >= 0; i--) {
-    const row = lower[i] ?? [];
-    const value = at(solution, i) / at(row, i);
+//! Cholesky with in-place triangular solves.
+export function choleskySolve(lower: number[][], solution: number[]): number[] {
+  for (const [i, row] of lower.entries()) {
+    for (let j = 0; j <= i; j++) {
+      const previous = lower[j] as readonly number[];
+      const pivot = (row[j] as number) - dot(row.slice(0, j), previous);
+      if (j === i && !(pivot > 0 && Number.isFinite(pivot)))
+        throw new Error("Cholesky requires positive, finite pivots.");
+      row[j] = j === i ? Math.sqrt(pivot) : pivot / (previous[j] as number);
+    }
+    solution[i] = ((solution[i] as number) - dot(row.slice(0, i), solution)) / (row[i] as number);
+  }
+  for (let i = lower.length - 1; i >= 0; i--) {
+    const row = lower[i] as readonly number[];
+    const value = (solution[i] as number) / (row[i] as number);
     solution[i] = value;
-    for (let j = 0; j < i; j++) solution[j] = at(solution, j) - value * at(row, j);
+    for (let j = 0; j < i; j++) solution[j] = (solution[j] as number) - value * (row[j] as number);
   }
   return solution;
 }

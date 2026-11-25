@@ -108,7 +108,7 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   expect(dataScript).not.toMatch(/https?:\/\//i);
   const data = JSON.parse(dataScript.slice(prefix.length, -2));
   expect(data.meta.protocolCount).toBe(snapshot.protocols.length);
-  expect(data.meta.playbooks.lending.enter).toContain("Supply {deposit} as collateral");
+  expect(data.meta.playbooks.lending.enter).toContain("Supply {deposit} on {chain}");
   expect(data.meta.gas.chains.Base).toEqual([0.05, 0.3]);
   const publishedRows = data.board.rows as ((typeof rows)[number] &
     ValueDiagnostics & {
@@ -158,6 +158,7 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     watchlist: snapshot.watchlist,
     census: radar.census,
     model: publishedModel,
+    valueCoefficients: radar.model.coefficients,
     looScatter: radar.looScatter,
     odds: radar.odds,
   });

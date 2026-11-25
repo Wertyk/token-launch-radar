@@ -16,9 +16,11 @@ import { protocolView } from "../../src/presentation/web/protocol-view.ts";
 import { scatterCoverage } from "../../src/presentation/web/scatter-view.ts";
 import { protocol } from "../domain/protocol-fixture.ts";
 
-test("labels the board fee horizon and places both launch inputs next to implied value", () => {
+test("labels the board plan fees and $10K columns and places both launch inputs next to implied value", () => {
   const html = boardTable();
-  expect(html).toContain('data-sort="cost">12-mo fees');
+  expect(html).toContain('data-sort="cost">Plan fees');
+  expect(html).toContain('data-sort="verdict">$10K verdict');
+  expect(html).toContain('data-sort="netPerHour">$10K net/h');
   expect(html).toMatch(/Implied value<\/button>.*Launch value<\/button>.*Odds 12m<\/button>/);
 });
 
@@ -79,7 +81,7 @@ test("renders the labor rate and farmer haircut beside the protocol verdicts", (
   );
   for (const { depositUsd, verdict, netUsd, netPerHourUsd } of row.economics.deposits) {
     expect(html).toContain(
-      `${formatUsd(depositUsd)} ${verdict} · ${formatUsd(netUsd)} net · ${formatUsd(netPerHourUsd)}/h`,
+      `<td>${formatUsd(depositUsd)}</td><td>${formatUsd(netUsd)}</td><td>${formatUsd(netPerHourUsd)}</td><td>${verdict}</td>`,
     );
   }
   expect(html).toContain("$25/h for labor · 50% farmer haircut");
@@ -91,7 +93,7 @@ test("renders the labor rate and farmer haircut beside the protocol verdicts", (
   expect(html).toContain("P₁₂ · 62.5%");
   expect(html).toContain("80 days");
   expect(html).toContain('<th scope="col">When</th>');
-  expect(html).toContain("Deposit $1,000 into Sample &amp; Co&#39;s vault on Base.");
+  expect(html).toContain("Before depositing $1,000 into a vault on Base");
   expect(html).not.toContain("xmlns");
 
   const noMovement = protocolView(
@@ -119,7 +121,8 @@ test("draws a separate P10–P90 band below the board value", () => {
     odds: 0.5,
     tvl: 100,
     growth: null,
-    age: null,
+    verdict: "THIN",
+    netPerHour: 1,
     cost: 0,
     time: 0,
     watchlist: false,

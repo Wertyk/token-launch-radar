@@ -75,6 +75,7 @@ function perturbFloats(fraction: number) {
       deposits: economics.deposits.map((deposit) => ({
         ...deposit,
         expectedValueUsd: scale(deposit.expectedValueUsd),
+        costUsd: scale(deposit.costUsd),
         netUsd: scale(deposit.netUsd),
         netPerHourUsd: scale(deposit.netPerHourUsd),
       })),
@@ -128,7 +129,7 @@ test.each([
             i === index
               ? {
                   ...deposit,
-                  [key]: deposit[key] + (key === "costUsd" || key === "depositUsd" ? 1e-9 : 1e-6),
+                  [key]: deposit[key] + (key === "depositUsd" ? 1e-9 : 1e-6),
                 }
               : deposit,
           ),

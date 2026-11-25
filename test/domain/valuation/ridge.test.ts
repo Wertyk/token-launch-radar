@@ -3,14 +3,9 @@ import { fitHuber, fitRidge } from "../../../src/domain/valuation/ridge.ts";
 
 test("Huber reweights an isolated outlier in a location fit", () => {
   const values = [2, 2, 2, 10];
-  const solve = (weights: Float64Array) => [
-    weights.reduce((sum, weight, i) => sum + weight * (values[i] ?? 0), 0) /
-      weights.reduce((sum, weight) => sum + weight, 0),
-  ];
-  const residuals = ([center = 0]: readonly number[], into: Float64Array) =>
-    into.set(values.map((value) => value - center));
-  expect(fitHuber(values.length, solve, residuals, false).coefficients[0]).toBe(4);
-  const robust = fitHuber(values.length, solve, residuals);
+  const design = values.map(() => [1]);
+  expect(fitHuber(design, values, [[0]], false).coefficients[0]).toBe(4);
+  const robust = fitHuber(design, values, [[0]]);
   // MAD is zero. At convergence the outlier contributes the cutoff, balanced by three residuals.
   expect(robust.huberScale).toBe(1e-8);
   expect(robust.coefficients[0]).toBeCloseTo(2 + (1.345 * 1e-8) / 3, 5);

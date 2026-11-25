@@ -1,6 +1,7 @@
 import { formatUsd } from "../shared/money.ts";
 import { FARM_ASSUMPTIONS as assumptions } from "./assumptions.ts";
 import { formatEconomics } from "./board-steps.ts";
+import { expectedHoldYears } from "./hold.ts";
 import type { FarmPlan } from "./plans.ts";
 
 type Verdict = "FARM" | "THIN" | "SKIP";
@@ -17,7 +18,7 @@ interface DepositEconomics {
 export interface FarmEconomics {
   launchProbability12: number;
   airdropYieldApr: number;
-  deposits: [DepositEconomics, DepositEconomics];
+  deposits: DepositEconomics[];
   breakEvenDepositUsd: number | "never";
 }
 
@@ -45,7 +46,8 @@ export function farmEconomicsTerms(
   let capitalApr = plan.capitalApr;
   if (capitalApr === assumptions.capitalApr.yieldBearing) capitalApr = yieldBearing;
   else if (capitalApr === assumptions.capitalApr.nonYielding) capitalApr = nonYielding;
-  const capitalCarry = capitalApr * horizonYears;
+  // You hold until launch or one year, whichever comes first. The drop still uses P12.
+  const capitalCarry = capitalApr * expectedHoldYears(launchProbability, horizonYears);
   const k =
     (valueUsd * settings.airdropShareOfLaunchCap * launchProbability * settings.farmerHaircut) /
     tvlUsd;
@@ -64,15 +66,13 @@ export function estimateFarmEconomics(
   const atDeposit = (depositUsd: number): DepositEconomics => {
     const amounts = depositAmounts(terms, depositUsd);
     const { netUsd, netPerHourUsd } = amounts;
-    const verdict =
-      netUsd <= 0 ? "SKIP" : netPerHourUsd >= settings.hourlyRateUsd ? "FARM" : "THIN";
+    const verdict = netUsd <= 0 ? "SKIP" : netPerHourUsd > settings.hourlyRateUsd ? "FARM" : "THIN";
     return { depositUsd, ...amounts, verdict };
   };
-  const [small, large] = assumptions.depositsUsd;
   return {
     launchProbability12: launchProbability,
     airdropYieldApr: k / horizonYears,
-    deposits: [atDeposit(small), atDeposit(large)],
+    deposits: assumptions.depositsUsd.map(atDeposit),
     breakEvenDepositUsd: k > capitalCarry ? cashFees / (k - capitalCarry) : "never",
   };
 }
@@ -90,5 +90,10 @@ export function depositAmounts(
 }
 
 export function renderEconomics(economics: FarmEconomics): string {
-  return formatEconomics(economics, formatUsd, assumptions);
+  return formatEconomics(
+    economics,
+    expectedHoldYears(economics.launchProbability12) * assumptions.weeksPerYear,
+    formatUsd,
+    assumptions,
+  );
 }

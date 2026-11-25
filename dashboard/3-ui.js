@@ -1,4 +1,22 @@
 (() => {
+var verdictOrder = {SKIP: 0, THIN: 1, FARM: 2}
+function compareRows(a, b, sort, direction, compareText) {
+	if (sort === "name") return direction * compareText(a.name.toLowerCase(), b.name.toLowerCase())
+	if (sort === "verdict") return direction * (verdictOrder[a.verdict] - verdictOrder[b.verdict])
+	const first = a[sort]
+	const second = b[sort]
+	if (first === null || second === null) return Number(first === null) - Number(second === null)
+	return direction * (Number(first) - Number(second))
+}
+function selectRows(rows, state, compareText) {
+	const {sort, dir, cat, chain, wl} = state
+	const query = state.q.trim().toLowerCase()
+	const direction = dir === "asc" ? 1 : -1
+	return rows
+		.filter(row => (!cat || row.category === cat) && (!chain || row.chains.includes(chain)) && (!wl || row.watchlist) && (!query || row.name.toLowerCase().includes(query)))
+		.sort((a, b) => compareRows(a, b, sort, direction, compareText) || compareText(a.slug, b.slug))
+}
+
 function formatInteger(value) {
 	return value === null ? "—" : value.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")
 }
@@ -51,9 +69,10 @@ var columns = {
 	odds: "Odds 12m",
 	tvl: "TVL",
 	growth: "7d %",
-	age: "Days with no token",
-	cost: "12-mo fees",
+	cost: "Plan fees",
 	time: "Plan time",
+	verdict: "$10K verdict",
+	netPerHour: "$10K net/h",
 	watchlist: "Watchlist"
 }
 var statusLabels = {
@@ -62,45 +81,45 @@ var statusLabels = {
 	"pre-token": "Records no token",
 	excluded: "Excluded by the house rule"
 }
-var defaultState = {
-	sort: "rank",
-	dir: "asc",
-	cat: "",
-	chain: "",
-	wl: false,
-	q: ""
+var defaultSort = "rank"
+function isSortKey(value) {
+	return Object.hasOwn(columns, value ?? "")
 }
 function isCensusSortKey(value) {
 	return value === "tvl" || value === "name" || value === "status" || value === "reason"
 }
-function pageRoute(hash, readBoard) {
+function parseRoute(hash) {
 	const [path, query] = hash.slice(1).split(/\?(.*)/s, 2)
 	if (path === "/method") return {page: "method"}
 	if (path === "/plan") return {page: "plan"}
 	const params = new URLSearchParams(query)
 	if (path === "/census") {
 		const status = params.get("status")
-		const sort = params.get("sort")
+		const sort2 = params.get("sort")
 		return {
 			page: "census",
 			state: {
 				status: status && Object.hasOwn(statusLabels, status) ? status : "",
-				sort: isCensusSortKey(sort) ? sort : "tvl",
+				sort: isCensusSortKey(sort2) ? sort2 : "tvl",
 				dir: params.get("dir") === "asc" ? "asc" : "desc",
 				unranked: params.get("unranked") === "1"
 			}
 		}
 	}
-	const state = readBoard?.(params) ?? defaultState
+	const sort = params.get("sort")
+	const state = {
+		sort: isSortKey(sort) ? sort : defaultSort,
+		dir: params.get("dir") === "desc" ? "desc" : "asc",
+		cat: params.get("cat") ?? "",
+		chain: params.get("chain") ?? "",
+		wl: params.get("wl") === "1",
+		q: params.get("q") ?? ""
+	}
 	if (!path || path === "/") return {page: "board", state}
 	const segment = /^\/p\/([^/]+)$/.exec(path)?.[1]
-	if (segment) {
-		try {
-			return {page: "protocol", slug: decodeURIComponent(segment), state}
-		} catch {
-			return {page: "unknown", state}
-		}
-	}
+	try {
+		if (segment) return {page: "protocol", slug: decodeURIComponent(segment), state}
+	} catch {}
 	return {page: "unknown", state}
 }
 function protocolHref(slug, back) {
@@ -122,26 +141,26 @@ function boardRows(rows, back, maxLogValue, usd) {
 	const scale = value => (Math.log1p(value) / maxLogValue) * 100
 	return tableBody(
 		rows.map(row => {
-			const href = escapeHtml(protocolHref(row.slug, back))
-			const remaining = row.chains.length - 2
+			const {slug, chains} = row
+			const href = escapeHtml(protocolHref(slug, back))
+			const labels = [row.category ?? "Unlisted category", ...chains.slice(0, 2)]
+			if (chains.length > 2) labels.push(`+${chains.length - 2}`)
 			const [low, high] = row.interval ?? [0, 0]
 			const band = row.interval ? `<rect class="band" x="${scale(low).toFixed(2)}" y="5" width="${(scale(high) - scale(low)).toFixed(2)}" height="3"></rect>` : ""
 			return [
 				formatInteger(row.rank),
 				`<a class="protocol-name" href="${href}">${escapeHtml(row.name)}</a>
-       <div class="chips" title="${escapeHtml(row.chains.join(", "))}">${chip(row.category ?? "Unlisted category")}${row.chains
-					.slice(0, 2)
-					.map(chain => chip(chain))
-					.join("")}${remaining > 0 ? chip(`+${remaining}`) : ""}</div>`,
+       <div class="chips" title="${escapeHtml(chains.join(", "))}">${labels.map(label => chip(label)).join("")}</div>`,
 				`<div class="value" ${row.interval ? `title="P10–P90: ${usd(low)}–${usd(high)}"` : ""}><strong>${usd(row.value)}</strong>
         ${svg(100, 8, `<rect width="${scale(row.value).toFixed(2)}" height="3"></rect>${band}`)}</div>`,
 				usd(row.launchValue),
 				formatOdds(row.odds),
 				usd(row.tvl),
 				growthText(row.growth),
-				formatInteger(row.age),
 				usd(row.cost),
 				`${formatInteger(row.time)} min`,
+				row.verdict,
+				usd(row.netPerHour),
 				row.watchlist ? chip("Watchlist", "badge") : "—"
 			]
 		}),
@@ -234,11 +253,12 @@ function integrityChecks(mismatches, published, watchlist, {fitted, houseRule, i
 	]
 }
 function integrityStrip(checks) {
-	return `<ul class="integrity">${checks
-		.map(({pass, label}) =>
-			pass === null ? `<li class="check-unavailable">${escapeHtml(label)}</li>` : `<li class="${pass ? "check" : "check-failed"}">${pass ? "✓" : "✗"} ${escapeHtml(label)}</li>`
-		)
-		.join("")}</ul>`
+	const items = checks.map(({pass, label}) => {
+		const style = pass === null ? "check-unavailable" : pass ? "check" : "check-failed"
+		const mark = pass === null ? "" : pass ? "✓ " : "✗ "
+		return `<li class="${style}">${mark}${escapeHtml(label)}</li>`
+	})
+	return `<ul class="integrity">${items.join("")}</ul>`
 }
 function multiplier(value) {
 	return value === null ? "—" : `×${value.toFixed(2)}`
@@ -300,7 +320,6 @@ function methodView({model, odds, scatter}, notes, renderTrials) {
 	} = model
 	const {baselines, scores} = odds.validation
 	const brier = x => x?.toFixed(4) ?? "—"
-	const oddsHeaders = ["10-fold Brier", "Walk-forward Brier"]
 	const cards = [
 		'<div class="method-value">',
 		methodPanel(
@@ -338,13 +357,13 @@ function methodView({model, odds, scatter}, notes, renderTrials) {
 		),
 		methodPanel(
 			"Held-out token status",
-			["Model", ...oddsHeaders],
+			["Model", "10-fold Brier", "Walk-forward Brier"],
 			[
-				["Base rate", ...baselines.baseRate.map(brier)],
-				["Raw PAVA clock", ...baselines.pava.map(brier)],
-				["Clock-only model (step 0)", ...baselines.clockOnly.map(brier)],
-				["Final model", ...scores.map(brier)]
-			],
+				["Base rate", baselines.baseRate],
+				["Raw PAVA clock", baselines.pava],
+				["Clock-only model (step 0)", baselines.clockOnly],
+				["Final model", scores]
+			].map(([label, pair]) => [label, ...pair.map(brier)]),
 			"Each fold refits its clock. Brier scores current token status. P₁₂ assumes the cross-section behaves like a cohort."
 		),
 		renderTrials?.(odds.validation, "Odds", table) ?? "",
@@ -359,7 +378,7 @@ function methodView({model, odds, scatter}, notes, renderTrials) {
 var tolerance = 1e-9
 function matchesFields(a, b, field = "") {
 	if (a === b) return true
-	if (typeof a === "number" && typeof b === "number" && !Number.isInteger(a) && !/cost/i.test(field)) {
+	if (typeof a === "number" && typeof b === "number" && !Number.isInteger(a) && !/^plan_/.test(field)) {
 		const delta = Math.abs(a - b)
 		return Number.isFinite(delta) && delta <= tolerance * Math.max(1, Math.abs(a), Math.abs(b))
 	}
@@ -376,11 +395,11 @@ function boardMismatches(computed, published, steps) {
 	const slugs = published.slice(computed.length).map(row => (typeof row?.slug === "string" ? row.slug : "(missing slug)"))
 	for (const [index, row] of computed.entries()) {
 		const {
-			protocol: {slug},
 			rank,
 			launch_value_usd,
 			implied_value_usd,
-			plan
+			plan,
+			protocol: {slug}
 		} = row
 		const saved = published[index]
 		const farm_steps = steps?.(row) ?? row.farm_steps ?? saved?.farm_steps
@@ -404,20 +423,22 @@ function boardMismatches(computed, published, steps) {
 	}
 	return slugs
 }
-function prepareBoard({board, families}, published, watchlist, age, steps) {
+function prepareBoard({board, families}, published, watchlist, steps) {
 	const evidence = new Map(published.flatMap(row => (row ? [[row.slug, row]] : [])))
 	return {
 		diagnostics: evidence,
 		families: new Map(families.map(family => [family.representative.slug, family])),
 		protocols: new Map(board.map(row => [row.protocol.slug, row])),
 		mismatches: boardMismatches(board, published, steps),
-		rows: boardViewRows(board, evidence, watchlist, age)
+		rows: boardViewRows(board, evidence, watchlist)
 	}
 }
-function boardViewRows(board, evidence, watchlist, age) {
+function boardViewRows(board, evidence, watchlist) {
 	const watchlisted = new Set(watchlist)
-	return board.map(({protocol, rank, status, implied_value_usd: value, launch_value_usd: launchValue, launchProbability12: odds, plan}) => {
+	return board.map(({protocol, rank, implied_value_usd: value, launch_value_usd: launchValue, launchProbability12: odds, plan, economics}) => {
 		const {slug, name, tvl_usd, change_7d, category, chains} = protocol
+		const deposit = economics.deposits.find(({depositUsd}) => depositUsd === 1e4)
+		if (!deposit) throw new Error("Missing $10K farm economics.")
 		return {
 			slug,
 			name,
@@ -430,9 +451,10 @@ function boardViewRows(board, evidence, watchlist, age) {
 			tvl: tvl_usd,
 			growth: change_7d,
 			interval: boardInterval(evidence.get(slug)),
-			age: status === "traded" || status === "token-unpriced" ? null : age(protocol),
 			cost: plan.totalCostUsd,
 			time: plan.totalMinutes,
+			verdict: deposit.verdict,
+			netPerHour: deposit.netPerHourUsd,
 			watchlist: watchlisted.has(slug)
 		}
 	})
@@ -485,9 +507,9 @@ function valueFormula(model, row) {
 	return `${intercept.toFixed(decimals)} ${signedTerm(lnTvl, decimals)} × ln(${tvl}${model.momentum ? ` × ${growth}` : ""})${ageTerm}${category}`
 }
 function protocolView(row, {age, model, lnValue, back, usd, farm, diagnostics, families, maxOddsAge}, {nearestComparables, protocolClock, protocolFacts}) {
-	const {protocol, plan, economics, oddsAge, oddsAt} = row
-	const {hourlyRateUsd, farmerHaircut} = farm
-	const {airdropYieldApr, breakEvenDepositUsd} = economics
+	const {protocol, plan, oddsAge, oddsAt, launchProbability12: p12} = row
+	const {airdropYieldApr, breakEvenDepositUsd, deposits} = row.economics
+	const implied = usd(row.implied_value_usd)
 	const interval = boardInterval(diagnostics)?.map(usd).join("–") ?? "—"
 	const influence = diagnostics?.influence
 	const comparable = influence && families.get(influence.slug)?.representative.name
@@ -495,34 +517,38 @@ function protocolView(row, {age, model, lnValue, back, usd, farm, diagnostics, f
 		influence?.rank_delta === 0 ? "No single comparable moves this rank" : influence && comparable ? `Without ${escapeHtml(comparable)}, rank moves by ${Math.abs(influence.rank_delta)}` : ""
 	const steps = table(
 		["Action", "Est. fee", "Min", "When"],
-		plan.steps.map(step => [escapeHtml(step.action) + (step.exitCondition ? `<small>${escapeHtml(step.exitCondition)}</small>` : ""), usd(step.costUsd), formatInteger(step.minutes), step.cadence]),
+		plan.steps.map(step => [escapeHtml(step.action), usd(step.costUsd), formatInteger(step.minutes), step.cadence]),
 		{total: ["Total", usd(plan.totalCostUsd), formatInteger(plan.totalMinutes), "—"]}
 	)
 	return `<a class="back" href="${escapeHtml(back)}">← Back to board</a>
     <header class="protocol-heading"><div><h2>${escapeHtml(protocol.name)}</h2>
-      <div class="chips">${chip(protocol.category ?? "Unlisted category")}${protocol.chains.map(chain => chip(chain)).join("")}</div>
+    <div class="chips">${[protocol.category ?? "Unlisted category", ...protocol.chains].map(label => chip(label)).join("")}</div>
     </div>${chip(`Board rank ${row.rank}`, "badge")}</header>
     <div class="detail-grid">
       <div class="detail-facts">
         <section class="panel"><h3>Implied value</h3>
-          <p class="figure">${usd(row.implied_value_usd)}</p>
+          <p class="figure">${implied}</p>
           <p>P10–P90 · ${interval}</p>
           ${decomposition(row, usd)}
-          <p class="value-equation">ln V ≈ ${valueFormula(model, row)} ≈ ${lnValue.toFixed(3)} → ${usd(row.launch_value_usd)} × P₁₂(${oddsAge.toFixed(0)} d) ${formatOdds(row.launchProbability12)} → ${usd(row.implied_value_usd)}</p>
+          <p class="value-equation">ln V ≈ ${valueFormula(model, row)} ≈ ${lnValue.toFixed(3)} → ${usd(row.launch_value_usd)} × P₁₂(${oddsAge.toFixed(0)} d) ${formatOdds(p12)} → ${implied}</p>
           ${influenceLine ? `<p class="caption">${influenceLine}</p>` : ""}
         </section>
         ${protocolFacts?.(row, age, usd, viewTools) ?? ""}
-        ${protocolClock?.(maxOddsAge, oddsAge, row.launchProbability12, age === null, oddsAt, viewTools) ?? ""}
-      </div>
-      <div class="detail-facts">
+        ${protocolClock?.(maxOddsAge, oddsAge, p12, age === null, oddsAt, viewTools) ?? ""}
+      </div><div class="detail-facts">
         <section class="panel farm"><h3>Farm plan</h3>
-          <p class="plan-meta"><strong>${escapeHtml(plan.chain ?? "Chain unlisted")}</strong> · ${usd(plan.depositUsd)} plan · ${plan.horizonMonths} months</p>
-          <div class="chips">${economics.deposits.map(({depositUsd, verdict, netUsd, netPerHourUsd}) => chip(`${usd(depositUsd)} ${verdict} · ${usd(netUsd)} net · ${usd(netPerHourUsd)}/h`, "badge")).join("")}</div>
-          <p class="caption">${usd(hourlyRateUsd)}/h for labor · ${farmerHaircut * 100}% farmer haircut</p>
+          <p class="plan-meta"><strong>${escapeHtml(plan.chain ?? "Chain unlisted")}</strong> · ${usd(plan.depositUsd)} plan · ${plan.holdWeeks.toFixed(1)} weeks expected</p>
+          ${table(
+						["Deposit", "Net", "Net per hour", "Verdict"],
+						deposits.map(({depositUsd, netUsd, netPerHourUsd, verdict}) => [usd(depositUsd), usd(netUsd), usd(netPerHourUsd), verdict]),
+						{className: "deposit-grid"}
+					)}
+          <p class="caption">${usd(farm.hourlyRateUsd)}/h for labor · ${farm.farmerHaircut * 100}% farmer haircut</p>
           <p>Expected airdrop yield ${(airdropYieldApr * 100).toFixed(2)}% APR · Capital cost ${(plan.capitalApr * 100).toFixed(2)}% APR</p>
           <p>Break-even deposit · ${breakEvenDepositUsd === "never" ? "never" : usd(breakEvenDepositUsd)}</p>
+          <p class="caption">${escapeHtml(plan.steps.at(-1)?.exitCondition ?? "")}</p>
           ${steps}
-          <p class="caption">Per-occurrence minutes and fees. Assumptions ${plan.assumptionsAsOf}${plan.flags.length ? " · fallback fees" : ""}.</p>
+          <p class="caption">Minutes and fees per occurrence. Assumptions ${plan.assumptionsAsOf}${plan.flags.length ? " · fallback fees" : ""}.</p>
         </section>
         ${nearestComparables?.(diagnostics?.twins ?? [], families, usd, viewTools) ?? ""}
       </div>
@@ -538,37 +564,32 @@ function boot(start2) {
 		root.innerHTML = fallback
 	}
 	try {
-		const {RADAR_DATA: publishedData, Radar: core} = window
-		const input = publishedData && core.readPublishedSnapshot(publishedData)
-		const validation = publishedData?.model?.validation
+		const {RADAR_DATA: data, Radar} = window
+		const input = data && Radar.readPublishedSnapshot(data)
+		if (!data || !input) throw new Error("Missing snapshot")
+		const {board, census, model, odds} = data
+		const validation = model?.validation
 		if (
-			!publishedData ||
-			!input ||
-			!Array.isArray(publishedData.board?.rows) ||
-			!Array.isArray(publishedData.odds?.terms) ||
-			!Array.isArray(publishedData.odds?.validation?.steps) ||
-			!Array.isArray(publishedData.model?.fit?.terms) ||
-			!Array.isArray(publishedData.model?.selection?.steps) ||
-			[validation?.leaveOneFamilyOut, validation?.seededFiveFold, validation?.walkForward].some(scheme => !scheme?.model || !scheme.flatMultiple || !scheme.categoryMultiple) ||
-			!Array.isArray(publishedData.census) ||
-			publishedData.census.length !== input.protocols.length
+			![board?.rows, odds?.terms, odds?.validation?.steps, model?.fit?.terms, model?.selection?.steps, census].every(Array.isArray) ||
+			census.length !== input.protocols.length ||
+			[validation?.leaveOneFamilyOut, validation?.seededFiveFold, validation?.walkForward].some(scheme => !scheme?.model || !scheme.flatMultiple || !scheme.categoryMultiple)
 		)
 			throw new Error("Incomplete snapshot")
-		start2(root, input, publishedData, core, fail)
+		start2(root, input, data, Radar, fail)
 	} catch {
 		fail()
 	}
 }
 
-function mountBoard(main, rows, summary, {formatUsd: usd, compareText, selectRows, boardControls, view, boardHash}) {
+function mountBoard(main, rows, summary, {formatUsd: usd, compareText, boardControls, view, boardHash}) {
 	main.innerHTML = summary + element("#board-filters").innerHTML + boardTable()
 	const sync = view && boardControls?.(main, view, rows)
 	const results = element("#results", main)
 	const body = element("tbody", main)
-	const maxLogValue = Math.log1p(Math.max(1, ...rows.flatMap(({value, interval}) => [value, interval?.[1] ?? 0])))
+	const maxLogValue = Math.log1p(Math.max(1, ...rows.map(({value, interval}) => Math.max(value, interval?.[1] ?? 0))))
 	return state => {
 		sync?.(state)
-		const selected = selectRows?.(rows, state, compareText) ?? rows
+		const selected = selectRows(rows, state, compareText)
 		results.textContent = `${formatInteger(selected.length)} of ${formatInteger(rows.length)} protocols`
 		body.innerHTML = boardRows(selected, boardHash?.(state) ?? "#/", maxLogValue, usd)
 	}
@@ -579,10 +600,11 @@ function start(main, snapshot, data, api, fail) {
 	const {meta} = data
 	const radar = buildRadar(snapshot, data.model.fit, data.odds.terms, meta)
 	const {model, odds, houseRule} = radar
-	const {validation} = data.model
-	const published = data.board.rows
-	const age = ({listed_at}) => (listed_at === null ? null : daysBetween(listed_at, snapshot.as_of))
-	const {families, diagnostics, protocols, mismatches, rows} = prepareBoard(radar, published, snapshot.watchlist, age, api.boardFarmSteps)
+	const {
+		census,
+		board: {rows: published}
+	} = data
+	const {families, diagnostics, protocols, mismatches, rows} = prepareBoard(radar, published, snapshot.watchlist, api.boardFarmSteps)
 	const scatter = scatterCoverage(data.looScatter ?? [], families)
 	const checks = integrityChecks(mismatches, published, snapshot.watchlist, {
 		fitted: model.n,
@@ -590,9 +612,9 @@ function start(main, snapshot, data, api, fail) {
 		intervalCounts: scatter.counts,
 		invalidPoints: scatter.invalidPoints,
 		coverageUnavailable: data.looScatter === null && model.n < api.MIN_BAND_FAMILIES,
-		loo: validation.leaveOneFamilyOut
+		loo: data.model.validation.leaveOneFamilyOut
 	})
-	if (!api.boardFarmSteps && checks[0]) checks[0].label += " · step text unchecked"
+	if (checks[0] && !api.boardFarmSteps) checks[0].label += " · step text unchecked"
 	element("#snapshot-date").textContent = `Snapshot · ${snapshot.as_of}`
 	const counts = [snapshot.protocols.length, model.n, rows.length, odds.n]
 	document.querySelectorAll("#summary dd, #clock-count").forEach((count, i) => {
@@ -603,65 +625,62 @@ function start(main, snapshot, data, api, fail) {
 	let updateBoard
 	let updatePlan
 	let lastPage
-	const parseRoute = hash => pageRoute(hash, api.readBoardState)
-	function render() {
-		const route = parseRoute(location.hash)
-		const page = route.page === "protocol" ? `protocol/${route.slug}` : route.page
-		const changedPage = lastPage && lastPage !== page
-		lastPage = page
-		if (changedPage) {
-			updateBoard = void 0
-			updatePlan = void 0
-		}
-		if (route.page === "board") {
-			updateBoard ??= mountBoard(main, rows, censusSummary(data.census, protocols), api)
-			updateBoard(route.state)
-		} else if (route.page === "plan") {
-			updatePlan ??= api.mountPlanner?.(main, radar.board, meta, api)
-			if (updatePlan) updatePlan(location.hash)
-			else main.innerHTML = element("#plan-unavailable").innerHTML
-		} else if (route.page === "census") {
-			main.innerHTML = censusView(data.census, route.state, formatUsd, api.compareText, protocols)
-		} else if (route.page === "method") {
-			main.innerHTML = methodView(
-				{
-					model: {...data.model, ...model},
-					odds: {...data.odds, ...odds},
-					scatter
-				},
-				panel => api.methodNotes?.(houseRule, farmAssumptions, formatUsd, formatOdds, panel) ?? "",
-				api.termTrials
-			)
-		} else {
-			const back = api.boardHash?.(route.state) ?? "#/"
-			const detail = route.page === "protocol" ? protocols.get(route.slug) : void 0
-			main.innerHTML = detail
-				? protocolView(
-						detail,
-						{
-							age: age(detail.protocol),
-							model,
-							lnValue: api.logValue(detail.features, model),
-							back,
-							usd: formatUsd,
-							farm: farmAssumptions,
-							diagnostics: diagnostics.get(detail.protocol.slug),
-							families,
-							maxOddsAge: odds.maxAgeDays
-						},
-						api
-					)
-				: `<h2>Page unavailable</h2><a href="${escapeHtml(back)}">Back to board</a>`
-		}
-		if (changedPage) {
-			window.scrollTo(0, 0)
-			main.focus({preventScroll: true})
-		}
-		main.dataset.ready = ""
-	}
 	function draw() {
 		try {
-			render()
+			const route = parseRoute(location.hash)
+			const page = route.page === "protocol" ? `protocol/${route.slug}` : route.page
+			const changedPage = lastPage && lastPage !== page
+			lastPage = page
+			if (changedPage) {
+				updateBoard = void 0
+				updatePlan = void 0
+			}
+			if (route.page === "board") {
+				updateBoard ??= mountBoard(main, rows, censusSummary(census, protocols), api)
+				updateBoard(route.state)
+			} else if (route.page === "plan") {
+				updatePlan ??= api.mountPlanner?.(main, radar.board, meta, api)
+				if (updatePlan) updatePlan(location.hash)
+				else main.innerHTML = element("#plan-unavailable").innerHTML
+			} else if (route.page === "census") {
+				main.innerHTML = censusView(census, route.state, formatUsd, api.compareText, protocols)
+			} else if (route.page === "method") {
+				main.innerHTML = methodView(
+					{
+						model: {...data.model, ...model},
+						odds: {...data.odds, ...odds},
+						scatter
+					},
+					panel => api.methodNotes?.(houseRule, farmAssumptions, formatUsd, formatOdds, panel) ?? "",
+					api.termTrials
+				)
+			} else {
+				const back = api.boardHash?.(route.state) ?? "#/"
+				const detail = route.page === "protocol" ? protocols.get(route.slug) : void 0
+				const listed = detail?.protocol.listed_at
+				main.innerHTML = detail
+					? protocolView(
+							detail,
+							{
+								age: listed ? daysBetween(listed, snapshot.as_of) : null,
+								model,
+								lnValue: api.logValue(detail.features, model),
+								back,
+								usd: formatUsd,
+								farm: farmAssumptions,
+								diagnostics: diagnostics.get(detail.protocol.slug),
+								families,
+								maxOddsAge: odds.maxAgeDays
+							},
+							api
+						)
+					: `<h2>Page unavailable</h2><a href="${escapeHtml(back)}">Back to board</a>`
+			}
+			if (changedPage) {
+				window.scrollTo(0, 0)
+				main.focus({preventScroll: true})
+			}
+			main.dataset.ready = ""
 		} catch {
 			lastPage = "error"
 			fail()
@@ -669,7 +688,7 @@ function start(main, snapshot, data, api, fail) {
 	}
 	draw()
 	window.addEventListener("hashchange", draw)
-	api.bindControls?.(main, draw, {isCensusSortKey, parseRoute})
+	api.bindControls?.(main, draw, {isCensusSortKey, isSortKey, parseRoute})
 }
 boot(start)
 })();

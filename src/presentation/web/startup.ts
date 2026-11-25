@@ -11,6 +11,7 @@ export interface RadarData
   extends BrowserApi.PublishedSnapshot,
     Pick<RadarResult, "odds" | "census" | "looScatter"> {
   model: Omit<RadarResult["model"], "coefficients">;
+  valueCoefficients: RadarResult["model"]["coefficients"];
   meta: BrowserApi.PublishedSnapshot["meta"] & FarmTables;
   board: { rows: (PublishedRow | null)[] };
 }
@@ -32,25 +33,27 @@ export function boot(
     root.innerHTML = fallback;
   };
   try {
-    const { RADAR_DATA: publishedData, Radar: core } = window;
-    const input = publishedData && core.readPublishedSnapshot(publishedData);
-    const validation = publishedData?.model?.validation;
+    const { RADAR_DATA: data, Radar } = window;
+    const input = data && Radar.readPublishedSnapshot(data);
+    if (!data || !input) throw new Error("Missing snapshot");
+    const { board, census, model, odds } = data;
+    const validation = model?.validation;
     if (
-      !publishedData ||
-      !input ||
-      !Array.isArray(publishedData.board?.rows) ||
-      !Array.isArray(publishedData.odds?.terms) ||
-      !Array.isArray(publishedData.odds?.validation?.steps) ||
-      !Array.isArray(publishedData.model?.fit?.terms) ||
-      !Array.isArray(publishedData.model?.selection?.steps) ||
+      ![
+        board?.rows,
+        odds?.terms,
+        odds?.validation?.steps,
+        model?.fit?.terms,
+        model?.selection?.steps,
+        census,
+      ].every(Array.isArray) ||
+      census.length !== input.protocols.length ||
       [validation?.leaveOneFamilyOut, validation?.seededFiveFold, validation?.walkForward].some(
         (scheme) => !scheme?.model || !scheme.flatMultiple || !scheme.categoryMultiple,
-      ) ||
-      !Array.isArray(publishedData.census) ||
-      publishedData.census.length !== input.protocols.length
+      )
     )
       throw new Error("Incomplete snapshot");
-    start(root, input, publishedData, core, fail);
+    start(root, input, data, Radar, fail);
   } catch {
     fail();
   }

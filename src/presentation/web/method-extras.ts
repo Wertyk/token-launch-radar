@@ -39,7 +39,7 @@ export function methodFarmAssumptions(
   return {
     title: `Farm assumptions · ${farm.asOf}`,
     rows: [
-      ["Horizon", `${farm.horizonMonths} months`],
+      ["Hold", "Until launch or one year, whichever comes first. Count whole review periods."],
       ["Airdrop share of launch cap", pct(farm.airdropShareOfLaunchCap)],
       ["Farmer haircut (retained)", pct(farm.farmerHaircut)],
       ["Labor", `${usd(farm.hourlyRateUsd)}/h`],
@@ -48,7 +48,7 @@ export function methodFarmAssumptions(
         `${pct(farm.capitalApr.yieldBearing)} yield-bearing · ${pct(farm.capitalApr.nonYielding)} non-yielding`,
       ],
       ["Verdict test deposits", farm.depositsUsd.map(usd).join(" · ")],
-      ["Verdicts", `FARM ≥ ${usd(farm.hourlyRateUsd)}/h · THIN if net > $0 · SKIP if net ≤ $0`],
+      ["Verdicts", `FARM > ${usd(farm.hourlyRateUsd)}/h · THIN if net > $0 · SKIP if net ≤ $0`],
     ],
   };
 }

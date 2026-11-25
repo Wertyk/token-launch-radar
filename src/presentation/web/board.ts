@@ -1,4 +1,5 @@
 import type { browserApi } from "../../application/browser-api.ts";
+import type { FarmEconomics } from "../../domain/farming/economics.ts";
 import type { BoardState, SortKey } from "./state.ts";
 
 export interface BoardRow {
@@ -11,13 +12,16 @@ export interface BoardRow {
   interval: readonly [number, number] | null;
   tvl: number;
   growth: number | null;
-  age: number | null;
   cost: number;
   time: number;
+  verdict: FarmEconomics["deposits"][number]["verdict"];
+  netPerHour: number;
   watchlist: boolean;
   category: string | null;
   chains: readonly string[];
 }
+
+const verdictOrder = { SKIP: 0, THIN: 1, FARM: 2 };
 
 function compareRows(
   a: BoardRow,
@@ -27,11 +31,10 @@ function compareRows(
   compareText: typeof browserApi.compareText,
 ): number {
   if (sort === "name") return direction * compareText(a.name.toLowerCase(), b.name.toLowerCase());
+  if (sort === "verdict") return direction * (verdictOrder[a.verdict] - verdictOrder[b.verdict]);
   const first = a[sort];
   const second = b[sort];
-  if (first === second) return 0;
-  if (first === null) return 1;
-  if (second === null) return -1;
+  if (first === null || second === null) return Number(first === null) - Number(second === null);
   return direction * (Number(first) - Number(second));
 }
 

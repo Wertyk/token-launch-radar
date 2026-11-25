@@ -2,6 +2,7 @@ import { formatUsd } from "../shared/money.ts";
 import { FARM_ASSUMPTIONS as assumptions } from "./assumptions.ts";
 
 interface Playbook {
+  label: string;
   categories: readonly string[];
   minutes: readonly [number, number, number];
   transactions: readonly [entry: number, review: number, exit: number];
@@ -64,38 +65,49 @@ const gas: FarmTables["gas"] = {
 export function farmTables(): FarmTables {
   const playbooks: FarmTables["playbooks"] = {
     lending: {
-      categories: [
-        "lending",
-        "uncollateralized lending",
-        "cdp",
-        "cdp manager",
-        "collateral markets",
-      ],
+      label: "Lending",
+      categories: ["lending", "uncollateralized lending", "collateral markets"],
       minutes: [12, 6, 10],
       transactions: [1, 0, 1],
       capitalApr: assumptions.capitalApr.yieldBearing,
       enter:
-        "Supply {deposit} as collateral through {protocol} on {chain}. Log the rate and liquidation limit if borrowing.",
+        "Supply {deposit} on {chain}. Record the supply rate and available liquidity before depositing.",
       review:
-        "Check {protocol}'s supply rate for the position opened with {deposit} and the health factor of any debt.",
+        "Check available withdrawal liquidity and the supply rate. If borrowing, track health factor and the liquidation buffer.",
       cadence: "monthly",
-      exit: "Repay any debt and withdraw collateral from the {protocol} position opened with {deposit} on {chain}.",
-      exitCondition: "At the horizon or sooner if collateral nears liquidation.",
+      exit: "Repay any debt before withdrawing the supplied assets. Verify the amount received.",
+      exitCondition: "Unwind sooner if the health factor breaches your limit.",
+    },
+    cdp: {
+      label: "CDP",
+      categories: ["cdp", "cdp manager"],
+      minutes: [18, 8, 14],
+      transactions: [1, 0, 1],
+      capitalApr: assumptions.capitalApr.yieldBearing,
+      enter:
+        "Before posting {deposit} on {chain}, check accepted collateral, the stability fee and any minimum debt.",
+      review:
+        "Compare your collateral ratio with the liquidation ratio. Check oracle prices and leave enough buffer for a price drop.",
+      cadence: "weekly",
+      exit: "Repay the minted debt before reclaiming collateral. Record the stability fees paid.",
+      exitCondition: "Close early if the collateral buffer breaches your limit.",
     },
     dex: {
+      label: "DEX and liquidity",
       categories: ["dex", "dexs", "liquidity manager"],
       minutes: [15, 8, 12],
       transactions: [1, 1, 1],
       capitalApr: assumptions.capitalApr.yieldBearing,
       enter:
-        "Add {deposit} of liquidity to a {protocol} pool on {chain}. Save its fee tier, range and entry amounts.",
+        "Add {deposit} to a liquidity pool on {chain}. Save the fee tier, range and entry amounts.",
       review:
-        "Compare the value and fees of the {protocol} pool position opened with {deposit} against holding. Rebalance if the range breaks.",
+        "Track pool share and impermanent loss against holding the assets. Rebalance if the position leaves its range.",
       cadence: "weekly",
-      exit: "Remove liquidity from the {protocol} pool position opened with {deposit} on {chain}. Compare proceeds with holding.",
-      exitCondition: "At the horizon or when fees fail to cover divergence loss.",
+      exit: "Remove liquidity and compare proceeds, including fees, with holding the original assets.",
+      exitCondition: "Close early if fees fail to cover impermanent loss.",
     },
     derivatives: {
+      label: "Derivatives and basis",
       categories: [
         "derivatives",
         "interest rate derivatives",
@@ -108,33 +120,43 @@ export function farmTables(): FarmTables {
       transactions: [1, 2, 1],
       capitalApr: assumptions.capitalApr.nonYielding,
       enter:
-        "Post {deposit} as margin at {protocol} on {chain} and record funding and liquidation terms.",
-      review: `Use the margin posted with {deposit} at {protocol} for an eligible round trip within ${formatUsd(assumptions.tradeVolumeUsd)} of gross volume at ${(assumptions.tradingFeeRate * 100).toFixed(2)}% in trading fees. Log funding.`,
+        "Post {deposit} as margin on {chain} after checking maintenance and liquidation terms.",
+      review: `Check funding and margin headroom on each leg. If a qualifying round trip makes sense, budget ${formatUsd(assumptions.tradeVolumeUsd)} gross volume at ${(assumptions.tradingFeeRate * 100).toFixed(2)}% in trading fees.`,
       cadence: "weekly",
-      exit: "Close any {protocol} positions on {chain} and withdraw available margin from the account funded with {deposit}.",
-      exitCondition: "At the horizon or sooner if funding or margin hits your limit.",
+      exit: "Close any open legs and withdraw available margin. Reconcile trading fees and funding.",
+      exitCondition: "Close early if funding or margin breaches your limit.",
     },
     yield: {
-      categories: [
-        "yield",
-        "yield aggregator",
-        "leveraged farming",
-        "farm",
-        "onchain capital allocator",
-        "risk curators",
-      ],
+      label: "Vaults and allocators",
+      categories: ["yield", "yield aggregator", "leveraged farming", "farm", "risk curators"],
       minutes: [12, 5, 9],
       transactions: [1, 0, 1],
       capitalApr: assumptions.capitalApr.yieldBearing,
       enter:
-        "Deposit {deposit} into {protocol}'s vault on {chain}. Record shares, strategy, fees and withdrawal terms.",
+        "Before depositing {deposit} into a vault on {chain}, verify who can reallocate assets and how redemptions work.",
       review:
-        "For the {deposit} {protocol} vault entry, check share price, strategy changes and exit liquidity.",
+        "Compare allocation weights with your entry. Check curator permissions, strategy changes and liquidity to redeem.",
       cadence: "monthly",
-      exit: "Redeem {protocol} vault shares from the {deposit} entry on {chain}. Record assets received.",
-      exitCondition: "When withdrawals open at the horizon or after a strategy change.",
+      exit: "Redeem vault shares or enter the withdrawal queue. Check the assets received against the share price.",
+      exitCondition: "Request redemption sooner if the mandate or curator changes.",
+    },
+    allocator: {
+      label: "Capital allocators",
+      categories: ["onchain capital allocator"],
+      minutes: [16, 8, 12],
+      transactions: [2, 0, 1],
+      capitalApr: assumptions.capitalApr.yieldBearing,
+      enter:
+        "Review destination vaults before allocating {deposit} on {chain}. Budget for a separate approval if needed and cap the allowance at the deposit.",
+      review:
+        "Check allocation weights, curator permissions and strategy shifts. Track liquidity in the underlying vaults as well as the allocator.",
+      cadence: "monthly",
+      exit: "Request withdrawal from the allocator and check which underlying vaults determine when the funds settle.",
+      exitCondition:
+        "Request withdrawal sooner if concentration or redemption delays breach your limits.",
     },
     staking: {
+      label: "Staking and restaking",
       categories: [
         "liquid staking",
         "staking pool",
@@ -147,79 +169,94 @@ export function farmTables(): FarmTables {
       transactions: [1, 0, 1],
       capitalApr: assumptions.capitalApr.yieldBearing,
       enter:
-        "Stake {deposit} with {protocol} on {chain}. Record validator or pool commission and the unbonding period.",
+        "Stake {deposit} on {chain} after checking validator or operator commission and unbonding terms.",
       review:
-        "For the {protocol} stake opened with {deposit}, check validator uptime, rewards and slashing notices.",
+        "Track the withdrawal queue and slashing terms, including which operators or services can trigger a slash.",
       cadence: "monthly",
-      exit: "Request unstaking for the {protocol} position opened with {deposit} on {chain} and schedule the claim after unbonding.",
-      exitCondition: "Allow for unbonding before the horizon or exit after a slash.",
+      exit: "Request unstaking and schedule the claim after the unbonding period. Record any slashing losses.",
+      exitCondition: "Allow for unbonding and exit sooner after a slash.",
     },
     rwa: {
+      label: "RWA",
       categories: ["rwa"],
       minutes: [45, 6, 15],
       transactions: [1, 0, 1],
       capitalApr: assumptions.capitalApr.yieldBearing,
       enter:
-        "Complete {protocol}'s eligibility checks and KYC. If approved, subscribe with {deposit} on {chain} and log the redemption window.",
+        "Check eligibility and any KYC requirements before subscribing with {deposit} on {chain}.",
       review:
-        "For the {protocol} subscription placed with {deposit}, check issuer updates, access restrictions and redemption liquidity.",
+        "If a peg applies, compare the price with redeemable value. Check the next redemption window and issuer liquidity.",
       cadence: "monthly",
-      exit: "Submit a redemption for the {protocol} subscription placed with {deposit} on {chain} and track settlement.",
-      exitCondition: "At the first eligible window near the horizon or after a terms change.",
+      exit: "Request redemption at the first available window and track settlement through the issuer.",
+      exitCondition: "Submit early if issuer terms or access changes.",
+    },
+    stablecoin: {
+      label: "Stablecoins",
+      categories: ["stablecoin", "dual-token stablecoin", "stablecoin wrapper"],
+      minutes: [14, 5, 12],
+      transactions: [1, 0, 1],
+      capitalApr: assumptions.capitalApr.nonYielding,
+      enter:
+        "Before converting {deposit} on {chain}, verify reserves or backing, who can redeem, and minimum redemption size.",
+      review:
+        "Track the peg and the next redemption window. Compare executable exit quotes with the published redemption value.",
+      cadence: "weekly",
+      exit: "Redeem through an eligible route or compare available swap quotes if direct redemption is inaccessible.",
+      exitCondition: "Exit sooner if the peg breaches your limit or redemption is suspended.",
     },
     prediction: {
+      label: "Prediction markets",
       categories: ["prediction market", "prediction markets"],
       minutes: [12, 9, 8],
       transactions: [1, 0, 1],
       capitalApr: assumptions.capitalApr.nonYielding,
       enter:
-        "Budget {deposit} for {protocol} on {chain}. Read the market’s resolution rules and set a loss limit before buying shares.",
+        "Set a loss limit for the {deposit} budget on {chain}. Read the resolution rules before buying shares.",
       review:
-        "Check resolution updates and available bids for the {protocol} position opened with {deposit}.",
+        "Check the resolution source, any dispute deadline and available bids for an early exit.",
       cadence: "weekly",
-      exit: "Claim settled proceeds from the {protocol} position opened with {deposit} on {chain} or close against available bids.",
-      exitCondition: "At resolution, the loss limit or the horizon.",
+      exit: "Claim settled proceeds or close against available bids. Record the loss or payout.",
+      exitCondition: "Close sooner at resolution or when the loss limit is hit.",
     },
     bridge: {
+      label: "Bridges",
       categories: ["bridge", "canonical bridge", "cross chain bridge"],
       minutes: [16, 4, 6],
       transactions: [1, 0, 0],
       capitalApr: assumptions.capitalApr.nonYielding,
       enter:
-        "Quote a {deposit} transfer through {protocol} from {chain}. Verify the destination asset and minimum received before sending.",
+        "Quote a {deposit} transfer from {chain}. Confirm transfer limits, finality, the destination asset and minimum received before sending.",
       review:
-        "Check the {deposit} transfer through {protocol} and follow the documented recovery path if unresolved.",
+        "Check finality and claim deadlines if a transfer is pending. Follow the documented recovery path if it stalls.",
       cadence: "monthly",
-      exit: "Reconcile the destination balance after the {deposit} transfer through {protocol} and save both transaction IDs.",
-      exitCondition: "Once the transfer settles or recovery completes.",
+      exit: "Reconcile the destination balance once the transfer settles. Save both transaction IDs.",
+      exitCondition: "Stop sending new funds if finality exceeds the documented window.",
     },
     generic: {
+      label: "Other products",
       categories: [],
       minutes: [12, 5, 8],
       transactions: [1, 0, 1],
       capitalApr: assumptions.capitalApr.nonYielding,
-      enter:
-        "Use a documented {protocol} deposit or transfer for {deposit} on {chain} and save the receipt.",
+      enter: "Use a documented deposit or transfer for {deposit} on {chain} and save the receipt.",
       review:
-        "Check balances and changes to access or withdrawal terms after the original {deposit} deposit or transfer through {protocol}.",
+        "Check balances and changes to access or withdrawal terms. Confirm any eligibility requirements before repeating an action.",
       cadence: "monthly",
-      exit: "Withdraw through the documented {protocol} route on {chain} for the plan started with {deposit} and reconcile proceeds.",
-      exitCondition: "At the horizon or when access or withdrawal terms change.",
+      exit: "Use the documented withdrawal or recovery route and reconcile the proceeds.",
+      exitCondition: "Exit sooner if access or withdrawal terms change.",
     },
   };
   const funding = {
-    wallet: "Set aside {deposit} for {protocol} and keep {gas} on {chain}.",
-    unlisted: "Verify a chain supported by {protocol} before setting aside {deposit} and {gas}.",
+    wallet: "Set aside {deposit} and keep {gas} on {chain}.",
+    unlisted: "Verify a supported chain before setting aside {deposit} and {gas}.",
     bridge:
-      "If your funds sit on another chain, bridge {deposit} to {chain} for {protocol}. Verify the receiving asset first.",
+      "If your funds sit on another chain, bridge {deposit} to {chain}. Verify the receiving asset first.",
   };
   const uncollateralized = {
-    enter:
-      "Supply {deposit} to {protocol} on {chain}. Record the supply rate and withdrawal terms.",
-    review:
-      "Check the supply rate and withdrawal liquidity for the {protocol} position opened with {deposit}.",
-    exit: "Withdraw the supplied funds from the {protocol} position opened with {deposit} on {chain}.",
-    exitCondition: "At the horizon, when withdrawals are available.",
+    enter: "Supply {deposit} on {chain} after checking the supply rate and withdrawal terms.",
+    review: "Check the borrower concentration, overdue loans and available withdrawal liquidity.",
+    exit: "Withdraw the supplied funds through an eligible redemption route.",
+    exitCondition: "Request withdrawal sooner if a borrower misses payments.",
   };
   return { playbooks, gas, funding, uncollateralized };
 }

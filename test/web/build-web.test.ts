@@ -28,7 +28,17 @@ test("checks the generated bundles byte for byte without writing them", () => {
       /jackknifePlusBands|heldOutBands|selectLambda|leaveOneFamilyOut|seededFolds|medianLogError|validateOdds/,
     );
     expect(core).not.toMatch(/parseSnapshot|duplicate slug|Log the supply rate|Ethereum:\[3,8\]/);
-    expect(core).toContain("function fitOddsModel");
+    expect(core).toContain("function fitOddsModel(");
+    expect(core).toContain("function fitValueModel(");
+    for (const name of [
+      "fitLogistic",
+      "fitRidge",
+      "fitHuber",
+      "weightedLeastSquares",
+      "choleskySolve",
+    ]) {
+      expect(core).toContain(`function ${name}(`);
+    }
     expect(core).toContain("function pava");
     expect(core).toContain("function launchProbability12");
     expect(core).not.toMatch(/function (boardFarmSteps|formatFarmStep|formatEconomics)/);
@@ -36,6 +46,9 @@ test("checks the generated bundles byte for byte without writing them", () => {
     const extras = readFileSync(join(cwd, "dashboard/5-extras.js"), "utf8");
     expect(extras).toContain("function mountPlanner");
     expect(extras).toContain("function optimizePortfolio");
+    expect(extras).not.toMatch(
+      /function (fitLogistic|fitRidge|fitHuber|weightedLeastSquares|choleskySolve)\(/,
+    );
     expect(extras).toContain("function parsePlanState");
     expect(extras).toContain("function censusHash(");
     expect(extras).toContain("function ageSparkline");
@@ -105,6 +118,8 @@ test("ships one copy of every screenshot-visible board check and row helper in t
     "boardMismatches",
     "matchesFields",
     "boardInterval",
+    "selectRows",
+    "compareRows",
   ]) {
     const declaration = new RegExp(`\\bfunction ${name}\\(`, "g");
     const counts = bundles.map((bundle) => [...bundle.matchAll(declaration)].length);

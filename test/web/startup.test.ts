@@ -120,42 +120,52 @@ test("clears the board link's unranked filter when changing census status", () =
   expect(page.main.innerHTML).toContain('value="pre-token" selected>Records no token');
 }, 20_000);
 
-test("uses the refit when the only injected field is a changed intercept", () => {
-  const payload = data();
-  const row = radar.board[0];
-  if (!row) throw new Error("Missing first board row");
-  const { coefficients } = radar.model;
-  payload.model.coefficients = { ...coefficients, intercept: coefficients.intercept + 1 };
-  payload.odds.coefficients = [0, -1];
-  payload.odds.clock = [];
+test.each([true, false])(
+  "uses the refits with loadExtras=%s even when the published fits change",
+  (loadExtras) => {
+    const payload = data();
+    const row = radar.board[0];
+    if (!row) throw new Error("Missing first board row");
+    const { coefficients } = radar.model;
+    payload.valueCoefficients = { ...coefficients, intercept: coefficients.intercept + 1 };
+    payload.odds.coefficients = [0, -1];
+    payload.odds.clock = [];
 
-  const page = open(payload, `#/p/${row.protocol.slug}`);
-  const checks = page.markup.get("#checks")?.innerHTML;
-  const lnValue = logValue(row.features, radar.model);
-  expect
-    .soft(page.main.innerHTML)
-    .toContain(`ln V ≈ ${radar.model.coefficients.intercept.toFixed(4)}`);
-  expect
-    .soft(page.main.innerHTML)
-    .toContain(`≈ ${lnValue.toFixed(3)} → ${formatUsd(Math.round(Math.exp(lnValue)))}`);
-  expect.soft(checks?.match(/class="check"/g)).toHaveLength(5);
-  expect.soft(checks).toContain('class="check">✓ 104/128 held-out traded caps inside P10–P90');
+    const page = open(payload, `#/p/${row.protocol.slug}`, loadExtras);
+    const checks = page.markup.get("#checks")?.innerHTML;
+    const lnValue = logValue(row.features, radar.model);
+    expect
+      .soft(page.main.innerHTML)
+      .toContain(`ln V ≈ ${radar.model.coefficients.intercept.toFixed(4)}`);
+    expect
+      .soft(page.main.innerHTML)
+      .toContain(`≈ ${lnValue.toFixed(3)} → ${formatUsd(Math.round(Math.exp(lnValue)))}`);
+    expect.soft(checks?.match(/class="check"/g)).toHaveLength(5);
+    expect.soft(checks).toContain('class="check">✓ Recompute = board.json');
+    expect.soft(checks).toContain('class="check">✓ 104/128 held-out traded caps inside P10–P90');
 
-  page.navigate("#/method");
-  expect
-    .soft(page.main.innerHTML)
-    .toContain(`<td>Intercept</td><td>${radar.model.coefficients.intercept.toFixed(6)}</td>`);
-  expect.soft(page.main.innerHTML).toContain("104/128 inside held-out P10–P90");
-  expect.soft(page.main.innerHTML.match(/class="inside"/g)).toHaveLength(104);
-  expect(page.main.innerHTML).toContain(
-    `<td>logit(S(a))</td><td>${radar.odds.coefficients[1]?.toFixed(6)}</td>`,
-  );
-}, 20_000);
+    page.navigate("#/method");
+    expect
+      .soft(page.main.innerHTML)
+      .toContain(`<td>Intercept</td><td>${radar.model.coefficients.intercept.toFixed(6)}</td>`);
+    expect.soft(page.main.innerHTML).toContain("104/128 inside held-out P10–P90");
+    expect.soft(page.main.innerHTML.match(/class="inside"/g)).toHaveLength(104);
+    expect(page.main.innerHTML).toContain(
+      `<td>logit(S(a))</td><td>${radar.odds.coefficients[1]?.toFixed(6)}</td>`,
+    );
+  },
+  20_000,
+);
 
-test("matches recomputed farm-step text with the browser serializers loaded", () => {
+test("flags a changed TVL trigger in the published exit step", () => {
   const payload = data();
   const row = payload.board.rows[0];
-  row.farm_steps[0] += " Changed.";
+  const exit = row.farm_steps.findIndex((step: string) => step.includes("TVL drops under"));
+  expect(exit).toBeGreaterThanOrEqual(0);
+  row.farm_steps[exit] = row.farm_steps[exit].replace(
+    /TVL drops under \$[\d,.]+/,
+    "TVL drops under $1",
+  );
   const page = open(payload);
   expect(page.markup.get("#checks")?.innerHTML).toContain(`1 mismatched · ${row.slug}`);
 });
@@ -320,13 +330,35 @@ test.each([true, false])("renders all required routes with loadExtras=%s", (load
     expect(checks?.match(/class="check"/g)).toHaveLength(5);
   }
   if (!loadExtras) {
-    expect(page.markup.get("#checks")?.innerHTML).toContain("step text unchecked");
+    const checks = page.markup.get("#checks")?.innerHTML;
+    expect(checks).toContain('class="check">✓ Recompute = board.json');
+    expect(checks).not.toContain("published fits");
     page.navigate("#/plan");
     expect(page.main.innerHTML).toContain("Farm portfolio");
     expect(page.main.dataset).toHaveProperty("ready");
   }
   page.navigate("#/method");
   expect(page.main.innerHTML.includes("Verdict test deposits")).toBe(loadExtras);
+});
+
+test("uses board filters and sort order without extras", () => {
+  const page = open(data(), "#/?q=lend&sort=rank&dir=desc", false);
+  const expected = radar.board.filter(({ protocol }) =>
+    protocol.name.toLowerCase().includes("lend"),
+  );
+  expect(expected.length).toBeGreaterThan(1);
+  const slugs = [
+    ...(page.markup.get("tbody")?.innerHTML ?? "").matchAll(/href="#\/p\/([^"?]+)/g),
+  ].map(([, slug]) => slug);
+  expect(slugs).toEqual(expected.reverse().map(({ protocol }) => protocol.slug));
+});
+
+test("shows the startup alert when the protected model fit throws", () => {
+  const payload = data();
+  for (const protocol of payload.protocols) protocol.mcap_usd = null;
+  const page = open(payload, "#/", false);
+  expect(page.main.innerHTML).toContain('role="alert"');
+  expect(page.main.dataset).not.toHaveProperty("ready");
 });
 
 test("shows the startup alert for incomplete data even without extras", () => {

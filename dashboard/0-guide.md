@@ -1,8 +1,8 @@
 - **Criterion 1 (1-board).** 758 accounted for. `recomputeRadar` and `integrityChecks` verify 198 rows (40/40 watchlist). Does the other board rank WBTC, Binance staked ETH, Coinbase Bridge or USDT0 as pre-token? Our census excludes all four by their Bridge or Liquid Staking category (3-filtered).
 - **Criterion 2 (2-detail, 4-method).** Implied value = launch value × 12-month launch odds.
   - **Launch value.** `fitValueModel` fits ln(TVL) on 128 traded families. Current traded-family caps proxy for V. Median error vs flat (×3.56/×5.07 family LOO, ×3.84/×4.98 seeded 5-fold, ×3.15/×4.86 walk-forward). P10–P90 holds 104/128 held-out traded caps. Terms stay only if both tests improve.
-  - **Launch odds.** `launchProbability12` uses calibrated PAVA (518 listed candidates). Brier (10-fold/WF) 0.1700/0.2123 vs base 0.2340/0.3726 and PAVA 0.1869/0.2525. P₁₂ assumes the cross-section behaves like a cohort.
+  - **Launch odds.** `launchProbability12` fits token status on a PAVA clock (518 listed candidates). Brier (10-fold/WF) 0.1700/0.2123 vs base 0.2340/0.3726 and PAVA 0.1869/0.2525. P₁₂ assumes the cross-section behaves like a cohort.
   - **Separation.** `buildCensus` splits 758 = 198 pre-token + 128 traded + 288 unpriced + 144 excluded.
-- **Criterion 3 (2-detail).** `makeFarmPlan` lists fees/time/cadence. `estimateFarmEconomics` gives break-even, FARM/THIN/SKIP ($1K 0/122/76, $10K 90/54/54).
+- **Criterion 3 (2-detail).** `makeFarmPlan` uses category risks, a snapshot TVL exit (pooled below 10 rows), and an odds-based hold. `estimateFarmEconomics` gives four verdicts and break-even.
 - **Criterion 4 (1-board, 3-filtered, 2-detail).** `selectRows`, `selectCensus` sort/filter.
 - **Criterion 5 (1-board, 2-detail).** `boardTable`, `protocolView` use `1-tokens.css`.

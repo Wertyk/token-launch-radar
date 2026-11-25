@@ -153,11 +153,9 @@ export function fitValueModel(
       0,
     ) ?? 0;
   const categoryEffects = category && categoryTotals();
-  if (category && categoryEffects) {
-    category.groups.forEach((key, i) => {
-      categoryEffects[key] = (i ? (coefficients[i] ?? 0) : 0) - center;
-    });
-  }
+  category?.groups.forEach((key, i) => {
+    if (categoryEffects) categoryEffects[key] = (i ? (coefficients[i] ?? 0) : 0) - center;
+  });
   return {
     ...prepared.metadata,
     lambda,

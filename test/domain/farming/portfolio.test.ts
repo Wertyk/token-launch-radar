@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { FARM_ASSUMPTIONS } from "../../../src/domain/farming/assumptions.ts";
-import { makeFarmPlan, occurrences } from "../../../src/domain/farming/plans.ts";
+import { makeFarmPlan } from "../../../src/domain/farming/plans.ts";
 import { farmTables } from "../../../src/domain/farming/playbook-data.ts";
 import { planPortfolio, scheduleFarmMinutes } from "../../../src/domain/farming/portfolio.ts";
 import { mulberry32 } from "../../../src/domain/shared/prng.ts";
@@ -15,14 +15,19 @@ function row(
   value = 8_000_000,
   chains = ["Base"],
   category = "Lending",
+  probability?: number,
 ) {
   const record = protocol({ slug, category, tvl_usd: 10_000_000, chains });
   return {
     protocol: record,
     rank,
     launch_value_usd: value,
-    plan: makeFarmPlan(record, tables),
-    economics: { launchProbability12: 1 },
+    plan: makeFarmPlan(
+      record,
+      tables,
+      probability === undefined ? {} : { launchProbability12: probability },
+    ),
+    economics: { launchProbability12: probability ?? 1 },
   };
 }
 
@@ -124,10 +129,10 @@ test("rescores after paying for funding and charges its fee and time once per ch
 });
 
 test("requires $20,016 for two Ethereum protocols with their own $8 transfers", () => {
-  // At a 5.1% expected yield, $10,000 is the only deposit above break-even.
+  // At 3.75% drop yield and about 3.61% carry, only $10,000 covers the $8 fee.
   const rows = [
-    row("a", 1, 4_080_000, ["Ethereum"], "Bridge"),
-    row("b", 2, 4_080_000, ["Ethereum"], "Canonical Bridge"),
+    row("a", 1, 6_000_000, ["Ethereum"], "Bridge", 0.5),
+    row("b", 2, 6_000_000, ["Ethereum"], "Canonical Bridge", 0.5),
   ];
   const options = { hoursPerWeek: 3, assumptions };
   for (const budgetUsd of [20_008, 20_015.99]) {
@@ -218,7 +223,7 @@ test("selects multiple seeded offers while limiting the busiest week", () => {
   );
   const weeklyMinutes = Array<number>(assumptions.weeksPerYear).fill(0);
   for (const [i, { plan }] of selected.entries()) {
-    for (const [week, minutes] of scheduleFarmMinutes(plan, occurrences).entries()) {
+    for (const [week, minutes] of scheduleFarmMinutes(plan, assumptions).entries()) {
       const waived = i > 0 && week === 0 ? (plan.fundingStep?.minutes ?? 0) : 0;
       weeklyMinutes[week] = (weeklyMinutes[week] ?? 0) + minutes - waived;
     }

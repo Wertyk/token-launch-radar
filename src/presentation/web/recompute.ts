@@ -1,5 +1,4 @@
-import type { BoardRows, buildRadar, RadarRow } from "../../application/browser-api.ts";
-import type { Protocol } from "../../domain/snapshot.ts";
+import type { BoardRows, browserApi, RadarRow } from "../../application/browser-api.ts";
 import type { ValueDiagnostics } from "../../domain/valuation/diagnostics.ts";
 import type { BoardRow } from "./board.ts";
 
@@ -34,7 +33,8 @@ export type CheckRow = RankedFields &
     };
   };
 
-// Different engines round transcendental functions differently in the last ulp.
+// Different engines round transcendental functions differently, including capital carry in costUsd.
+// Plan fees use exact cents and must match exactly.
 const tolerance = 1e-9;
 
 function matchesFields(a: unknown, b: unknown, field = ""): boolean {
@@ -43,7 +43,7 @@ function matchesFields(a: unknown, b: unknown, field = ""): boolean {
     typeof a === "number" &&
     typeof b === "number" &&
     !Number.isInteger(a) &&
-    !/cost/i.test(field)
+    !/^plan_/.test(field)
   ) {
     const delta = Math.abs(a - b);
     return Number.isFinite(delta) && delta <= tolerance * Math.max(1, Math.abs(a), Math.abs(b));
@@ -73,11 +73,11 @@ export function boardMismatches<Row extends RecomputedRow>(
     .map((row) => (typeof row?.slug === "string" ? row.slug : "(missing slug)"));
   for (const [index, row] of computed.entries()) {
     const {
-      protocol: { slug },
       rank,
       launch_value_usd,
       implied_value_usd,
       plan,
+      protocol: { slug },
     } = row;
     const saved = published[index];
     const farm_steps = steps?.(row) ?? row.farm_steps ?? saved?.farm_steps;
@@ -106,10 +106,9 @@ export function boardMismatches<Row extends RecomputedRow>(
 }
 
 export function prepareBoard(
-  { board, families }: ReturnType<typeof buildRadar>,
+  { board, families }: ReturnType<typeof browserApi.buildRadar>,
   published: readonly ((CheckRow & ValueDiagnostics) | null)[],
   watchlist: readonly string[],
-  age: (row: Protocol) => number | null,
   steps?: (row: RadarRow) => string[],
 ) {
   const evidence = new Map(published.flatMap((row) => (row ? [[row.slug, row]] : [])));
@@ -118,7 +117,7 @@ export function prepareBoard(
     families: new Map(families.map((family) => [family.representative.slug, family])),
     protocols: new Map(board.map((row) => [row.protocol.slug, row])),
     mismatches: boardMismatches(board, published, steps),
-    rows: boardViewRows(board, evidence, watchlist, age),
+    rows: boardViewRows(board, evidence, watchlist),
   };
 }
 
@@ -126,20 +125,21 @@ function boardViewRows(
   board: readonly RadarRow[],
   evidence: ReadonlyMap<string, Interval>,
   watchlist: readonly string[],
-  age: (row: Protocol) => number | null,
 ): BoardRow[] {
   const watchlisted = new Set(watchlist);
   return board.map(
     ({
       protocol,
       rank,
-      status,
       implied_value_usd: value,
       launch_value_usd: launchValue,
       launchProbability12: odds,
       plan,
+      economics,
     }) => {
       const { slug, name, tvl_usd, change_7d, category, chains } = protocol;
+      const deposit = economics.deposits.find(({ depositUsd }) => depositUsd === 10_000);
+      if (!deposit) throw new Error("Missing $10K farm economics.");
       return {
         slug,
         name,
@@ -152,9 +152,10 @@ function boardViewRows(
         tvl: tvl_usd,
         growth: change_7d,
         interval: boardInterval(evidence.get(slug)),
-        age: status === "traded" || status === "token-unpriced" ? null : age(protocol),
         cost: plan.totalCostUsd,
         time: plan.totalMinutes,
+        verdict: deposit.verdict,
+        netPerHour: deposit.netPerHourUsd,
         watchlist: watchlisted.has(slug),
       };
     },

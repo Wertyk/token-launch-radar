@@ -3,6 +3,8 @@ import { compareText } from "../shared/order.ts";
 import type { Protocol } from "../snapshot.ts";
 import { FARM_ASSUMPTIONS as assumptions } from "./assumptions.ts";
 import { formatFarmStep } from "./board-steps.ts";
+import { type ExitThreshold, farmGroup } from "./exit-rules.ts";
+import { expectedHoldYears } from "./hold.ts";
 import type { FarmTables } from "./playbook-data.ts";
 
 type Cadence = "once" | "weekly" | "monthly";
@@ -23,7 +25,9 @@ export interface FarmPlan {
   fundingStep: FarmStep | null;
   flags: "fee-assumed"[];
   assumptionsAsOf: string;
-  horizonMonths: number;
+  holdWeeks: number;
+  reviewCounts: Record<Cadence, number>;
+  exitThreshold: ExitThreshold | null;
   capitalApr: number;
   oneTimeCostUsd: number;
   recurringCostUsd: number;
@@ -31,49 +35,24 @@ export interface FarmPlan {
   totalMinutes: number;
 }
 
-const horizonYears = assumptions.horizonMonths / assumptions.monthsPerYear;
-export const occurrences = {
-  once: 1,
-  weekly: Math.floor(assumptions.weeksPerYear * horizonYears),
-  monthly: assumptions.horizonMonths,
-};
-
-function estimate(
-  chain: string | null,
-  gasTransactions: number,
-  bridgeTransfers: number,
-  { chains, fallback }: FarmTables["gas"],
-) {
-  const fees = chain !== null && Object.hasOwn(chains, chain) ? chains[chain] : undefined;
-  const [transactionUsd, bridgeUsd] = fees ?? fallback;
-  const cost = roundUsd(bridgeTransfers * bridgeUsd + gasTransactions * transactionUsd);
-  return { chain, transactionUsd, bridgeUsd, cost, feeAssumed: fees === undefined };
-}
-
 function chooseChain(
   chains: readonly string[],
-  gasTransactions: number,
-  bridgeTransfers: number,
+  transactions: number,
+  transfers: number,
   gas: FarmTables["gas"],
 ) {
-  let cheapest: ReturnType<typeof estimate> | undefined;
-  for (const chain of chains) {
-    const candidate = estimate(chain, gasTransactions, bridgeTransfers, gas);
-    if (
-      !cheapest ||
-      candidate.cost < cheapest.cost ||
-      (candidate.cost === cheapest.cost && compareText(chain, cheapest.chain ?? "") < 0)
-    ) {
-      cheapest = candidate;
-    }
-  }
-  return cheapest ?? estimate(null, gasTransactions, bridgeTransfers, gas);
-}
-
-export function shorten(text: string, max: number): string {
-  const normalized = text.trim().replace(/\s+/g, " ");
-  if (normalized.length <= max) return normalized;
-  return `${normalized.slice(0, max - 1).trimEnd()}…`;
+  const quote = (chain: string | null) => {
+    const fees = chain !== null && Object.hasOwn(gas.chains, chain) ? gas.chains[chain] : undefined;
+    const [transactionUsd, bridgeUsd] = fees ?? gas.fallback;
+    const cost = roundUsd(transfers * bridgeUsd + transactions * transactionUsd);
+    return { chain, transactionUsd, bridgeUsd, cost, feeAssumed: fees === undefined };
+  };
+  return (
+    chains
+      .map(quote)
+      .sort((a, b) => a.cost - b.cost || compareText(a.chain ?? "", b.chain ?? ""))[0] ??
+    quote(null)
+  );
 }
 
 function roundUsd(value: number): number {
@@ -81,36 +60,46 @@ function roundUsd(value: number): number {
 }
 
 export function makeFarmPlan(
-  protocol: Pick<Protocol, "category" | "chains" | "name">,
+  protocol: Pick<Protocol, "category" | "chains" | "tvl_usd">,
   { playbooks, gas, funding, uncollateralized }: FarmTables,
-  depositUsd: number = assumptions.depositsUsd[0],
+  {
+    depositUsd = assumptions.depositsUsd[0],
+    launchProbability12 = 0,
+    exitThreshold = null,
+  }: {
+    depositUsd?: number;
+    launchProbability12?: number;
+    exitThreshold?: ExitThreshold | null;
+  } = {},
 ): FarmPlan {
   if (!Number.isFinite(depositUsd) || depositUsd <= 0) {
     throw new Error("The farm plan needs a positive, finite deposit size.");
   }
-  const category = protocol.category?.trim().toLowerCase() ?? "";
-  const [group, playbook] = Object.entries(playbooks).find(([, book]) =>
-    book.categories.includes(category),
-  ) ?? ["generic", playbooks.generic];
-  const copy = category.includes("uncollateralized") ? uncollateralized : playbook;
+  const group = farmGroup(protocol.category, playbooks);
+  const playbook = playbooks[group] ?? playbooks.generic;
+  const copy = protocol.category?.toLowerCase().includes("uncollateralized")
+    ? uncollateralized
+    : playbook;
   const bridge = group === "bridge";
-  const repeats = occurrences[playbook.cadence];
-  const [entryTransactions, reviewTransactions, exitTransactions] = playbook.transactions;
-  const gasTransactions =
-    (bridge ? 0 : entryTransactions) + reviewTransactions * repeats + exitTransactions;
+  const holdYears = expectedHoldYears(launchProbability12);
+  const holdWeeks = holdYears * assumptions.weeksPerYear;
+  const reviewCounts = {
+    once: 1,
+    weekly: Math.floor(holdWeeks),
+    monthly: Math.floor(assumptions.monthsPerYear * holdYears),
+  };
+  const repeats = reviewCounts[playbook.cadence];
+  const [entry, review, exit] = playbook.transactions;
+  const gasTransactions = (bridge ? 0 : entry) + review * repeats + exit;
   const { chain, transactionUsd, bridgeUsd, feeAssumed } = chooseChain(
     protocol.chains,
     gasTransactions,
-    bridge ? entryTransactions : 1,
+    bridge ? entry : 1,
     gas,
   );
-  const [entryMinutes, reviewMinutes, exitMinutes] = playbook.minutes;
-  const tradingFees =
-    group === "derivatives" ? assumptions.tradeVolumeUsd * assumptions.tradingFeeRate : 0;
   const fields: Record<string, string> = {
     deposit: formatUsd(depositUsd),
-    protocol: shorten(protocol.name, 140),
-    chain: shorten(chain ?? "a verified chain", 110),
+    chain: chain ?? "a verified chain",
     gas: gasTransactions
       ? `about ${formatUsd(gasTransactions * transactionUsd)} for gas`
       : "gas as needed",
@@ -121,65 +110,59 @@ export function makeFarmPlan(
     minutes: number,
     cadence: Cadence = "once",
   ): FarmStep => ({
-    action: action.replace(
-      /\{(deposit|protocol|chain|gas)\}/g,
-      (_, key: string) => fields[key] ?? "",
-    ),
+    action: action.replace(/\{(\w+)\}/g, (_, key: string) => fields[key] ?? ""),
     chain,
-    costUsd,
+    costUsd: roundUsd(costUsd),
     minutes,
     cadence,
   });
-  const fundingStep: FarmStep | null = bridge
-    ? null
-    : step(funding.bridge, bridgeUsd, assumptions.bridgeMinutes);
+  const [entryMinutes, reviewMinutes, exitMinutes] = playbook.minutes;
+  const tradingFees =
+    group === "derivatives" ? assumptions.tradeVolumeUsd * assumptions.tradingFeeRate : 0;
+  const fundingStep = bridge ? null : step(funding.bridge, bridgeUsd, assumptions.bridgeMinutes);
+  const recurring = step(
+    copy.review,
+    tradingFees + review * transactionUsd,
+    reviewMinutes,
+    playbook.cadence,
+  );
+  const floor = `TVL drops under ${formatUsd(protocol.tvl_usd / 2)}`;
+  const drawdown = exitThreshold?.change.toFixed(1).replace("-", "−");
+  const trigger = exitThreshold
+    ? `Exit if 7-day TVL change falls below ${drawdown}% (bottom tenth of ${exitThreshold.label} in this snapshot) or ${floor}.`
+    : `Exit if ${floor}. No listed pre-token 7-day TVL data.`;
   const steps = [
     step(chain === null ? funding.unlisted : funding.wallet, 0, assumptions.setupMinutes),
-  ];
-  if (fundingStep) steps.push(fundingStep);
-  steps.push(
-    step(
-      copy.enter,
-      roundUsd(entryTransactions * (bridge ? bridgeUsd : transactionUsd)),
-      entryMinutes,
-    ),
-    step(
-      copy.review,
-      roundUsd(tradingFees + reviewTransactions * transactionUsd),
-      reviewMinutes,
-      playbook.cadence,
-    ),
+    ...(fundingStep ? [fundingStep] : []),
+    step(copy.enter, entry * (bridge ? bridgeUsd : transactionUsd), entryMinutes),
+    recurring,
     {
-      ...step(copy.exit, roundUsd(exitTransactions * transactionUsd), exitMinutes),
-      exitCondition: copy.exitCondition,
+      ...step(copy.exit, exit * transactionUsd, exitMinutes),
+      exitCondition: `${trigger} ${copy.exitCondition}`,
     },
+  ];
+  const oneTimeCostUsd = roundUsd(
+    steps.reduce((sum, item) => sum + item.costUsd, 0) - recurring.costUsd,
   );
-
-  let oneTimeCostUsd = 0;
-  let recurringCostUsd = 0;
-  let totalMinutes = 0;
-  for (const { costUsd, minutes, cadence } of steps) {
-    const count = occurrences[cadence];
-    if (cadence === "once") oneTimeCostUsd += costUsd;
-    else recurringCostUsd += costUsd * count;
-    totalMinutes += minutes * count;
-  }
+  const recurringCostUsd = roundUsd(recurring.costUsd * repeats);
   return {
     chain,
     depositUsd,
     steps,
     fundingStep,
+    exitThreshold,
+    reviewCounts,
+    holdWeeks,
     flags: feeAssumed ? ["fee-assumed"] : [],
     assumptionsAsOf: assumptions.asOf,
-    horizonMonths: assumptions.horizonMonths,
     capitalApr: playbook.capitalApr,
-    oneTimeCostUsd: roundUsd(oneTimeCostUsd),
-    recurringCostUsd: roundUsd(recurringCostUsd),
+    oneTimeCostUsd,
+    recurringCostUsd,
     totalCostUsd: roundUsd(oneTimeCostUsd + recurringCostUsd),
-    totalMinutes,
+    totalMinutes: steps.reduce((sum, item) => sum + item.minutes * reviewCounts[item.cadence], 0),
   };
 }
 
 export function renderFarmStep(step: FarmStep): string {
-  return formatFarmStep(step, formatUsd, shorten);
+  return formatFarmStep(step, formatUsd);
 }

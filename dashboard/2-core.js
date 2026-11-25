@@ -12,7 +12,7 @@ var defaults = {
 	monthsPerYear: 12,
 	weeksPerYear: 52,
 	minutesPerHour: 60,
-	depositsUsd: [1e3, 1e4],
+	depositsUsd: [1e3, 5e3, 1e4, 25e3],
 	tradeVolumeUsd: 200,
 	tradingFeeRate: 6e-4,
 	setupMinutes: 5,
@@ -20,37 +20,40 @@ var defaults = {
 }
 
 function formatUsd(value) {
-	const [whole = "0", cents] = Math.abs(value).toFixed(2).split(".")
-	const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
-	const fraction = cents && cents !== "00" ? `.${cents}` : ""
-	return `${value < 0 ? "-" : ""}$${grouped}${fraction}`
+	const amount = Math.abs(value).toFixed(2).replace(/\.00$/, "")
+	return `${value < 0 ? "-" : ""}$${amount.replace(/\B(?=(\d{3})+(?:\.|$))/g, ",")}`
+}
+
+function expectedHoldYears(p12, capYears = 1) {
+	if (p12 === 0) return capYears
+	const hazard = -Math.log1p(-p12)
+	return -Math.expm1(-hazard * capYears) / hazard
 }
 
 function farmEconomicsTerms(plan, valueUsd, tvlUsd, launchProbability, settings = defaults) {
 	const hours = plan.totalMinutes / settings.minutesPerHour
-	const horizonYears2 = settings.horizonMonths / settings.monthsPerYear
+	const horizonYears = settings.horizonMonths / settings.monthsPerYear
 	const {yieldBearing, nonYielding} = settings.capitalApr ?? defaults.capitalApr
 	let capitalApr = plan.capitalApr
 	if (capitalApr === defaults.capitalApr.yieldBearing) capitalApr = yieldBearing
 	else if (capitalApr === defaults.capitalApr.nonYielding) capitalApr = nonYielding
-	const capitalCarry = capitalApr * horizonYears2
+	const capitalCarry = capitalApr * expectedHoldYears(launchProbability, horizonYears)
 	const k = (valueUsd * settings.airdropShareOfLaunchCap * launchProbability * settings.farmerHaircut) / tvlUsd
-	return {cashFees: plan.totalCostUsd, hours, horizonYears: horizonYears2, capitalCarry, k}
+	return {cashFees: plan.totalCostUsd, hours, horizonYears, capitalCarry, k}
 }
 function estimateFarmEconomics(plan, valueUsd, tvlUsd, launchProbability, settings = defaults) {
 	const terms = farmEconomicsTerms(plan, valueUsd, tvlUsd, launchProbability, settings)
-	const {cashFees, horizonYears: horizonYears2, capitalCarry, k} = terms
+	const {cashFees, horizonYears, capitalCarry, k} = terms
 	const atDeposit = depositUsd => {
 		const amounts = depositAmounts(terms, depositUsd)
 		const {netUsd, netPerHourUsd} = amounts
-		const verdict = netUsd <= 0 ? "SKIP" : netPerHourUsd >= settings.hourlyRateUsd ? "FARM" : "THIN"
+		const verdict = netUsd <= 0 ? "SKIP" : netPerHourUsd > settings.hourlyRateUsd ? "FARM" : "THIN"
 		return {depositUsd, ...amounts, verdict}
 	}
-	const [small, large] = defaults.depositsUsd
 	return {
 		launchProbability12: launchProbability,
-		airdropYieldApr: k / horizonYears2,
-		deposits: [atDeposit(small), atDeposit(large)],
+		airdropYieldApr: k / horizonYears,
+		deposits: defaults.depositsUsd.map(atDeposit),
 		breakEvenDepositUsd: k > capitalCarry ? cashFees / (k - capitalCarry) : "never"
 	}
 }
@@ -69,96 +72,109 @@ function compareText(first, second) {
 	return 0
 }
 
-var horizonYears = defaults.horizonMonths / defaults.monthsPerYear
-var occurrences = {
-	once: 1,
-	weekly: Math.floor(defaults.weeksPerYear * horizonYears),
-	monthly: defaults.horizonMonths
+var MIN_GROUP_CHANGES = 10
+function farmGroup(category, playbooks) {
+	const label = category?.trim().toLowerCase() ?? ""
+	return Object.keys(playbooks).find(group => playbooks[group]?.categories.includes(label)) ?? "generic"
 }
-function estimate(chain, gasTransactions, bridgeTransfers, {chains, fallback}) {
-	const fees = chain !== null && Object.hasOwn(chains, chain) ? chains[chain] : void 0
-	const [transactionUsd, bridgeUsd] = fees ?? fallback
-	const cost = roundUsd(bridgeTransfers * bridgeUsd + gasTransactions * transactionUsd)
-	return {chain, transactionUsd, bridgeUsd, cost, feeAssumed: fees === void 0}
+function farmExitThresholds(census, playbooks) {
+	const changes = census
+		.flatMap(({protocol, status}) => {
+			const {listed_at, change_7d, slug, category} = protocol
+			return status === "pre-token" && listed_at !== null && change_7d !== null ? [{change: change_7d, slug, group: farmGroup(category, playbooks)}] : []
+		})
+		.sort((a, b) => a.change - b.change || compareText(a.slug, b.slug))
+	const decile = group => group[Math.ceil(group.length / 10) - 1]?.change
+	const pooled = decile(changes)
+	const fallback = pooled === void 0 ? null : {change: pooled, label: "pooled categories"}
+	return new Map(
+		Object.entries(playbooks).map(([group, {label}]) => {
+			const sample = changes.filter(row => row.group === group)
+			const change = sample.length < MIN_GROUP_CHANGES ? void 0 : decile(sample)
+			return [group, change === void 0 ? fallback : {change, label}]
+		})
+	)
 }
-function chooseChain(chains, gasTransactions, bridgeTransfers, gas) {
-	let cheapest
-	for (const chain of chains) {
-		const candidate = estimate(chain, gasTransactions, bridgeTransfers, gas)
-		if (!cheapest || candidate.cost < cheapest.cost || (candidate.cost === cheapest.cost && compareText(chain, cheapest.chain ?? "") < 0)) {
-			cheapest = candidate
-		}
+
+function chooseChain(chains, transactions, transfers, gas) {
+	const quote = chain => {
+		const fees = chain !== null && Object.hasOwn(gas.chains, chain) ? gas.chains[chain] : void 0
+		const [transactionUsd, bridgeUsd] = fees ?? gas.fallback
+		const cost = roundUsd(transfers * bridgeUsd + transactions * transactionUsd)
+		return {chain, transactionUsd, bridgeUsd, cost, feeAssumed: fees === void 0}
 	}
-	return cheapest ?? estimate(null, gasTransactions, bridgeTransfers, gas)
-}
-function shorten(text, max) {
-	const normalized = text.trim().replace(/\s+/g, " ")
-	if (normalized.length <= max) return normalized
-	return `${normalized.slice(0, max - 1).trimEnd()}…`
+	return chains.map(quote).sort((a, b) => a.cost - b.cost || compareText(a.chain ?? "", b.chain ?? ""))[0] ?? quote(null)
 }
 function roundUsd(value) {
 	return Math.round(value * 100) / 100
 }
-function makeFarmPlan(protocol, {playbooks, gas, funding, uncollateralized}, depositUsd = defaults.depositsUsd[0]) {
+function makeFarmPlan(protocol, {playbooks, gas, funding, uncollateralized}, {depositUsd = defaults.depositsUsd[0], launchProbability12: launchProbability122 = 0, exitThreshold = null} = {}) {
 	if (!Number.isFinite(depositUsd) || depositUsd <= 0) {
 		throw new Error("The farm plan needs a positive, finite deposit size.")
 	}
-	const category = protocol.category?.trim().toLowerCase() ?? ""
-	const [group, playbook] = Object.entries(playbooks).find(([, book]) => book.categories.includes(category)) ?? ["generic", playbooks.generic]
-	const copy = category.includes("uncollateralized") ? uncollateralized : playbook
+	const group = farmGroup(protocol.category, playbooks)
+	const playbook = playbooks[group] ?? playbooks.generic
+	const copy = protocol.category?.toLowerCase().includes("uncollateralized") ? uncollateralized : playbook
 	const bridge = group === "bridge"
-	const repeats = occurrences[playbook.cadence]
-	const [entryTransactions, reviewTransactions, exitTransactions] = playbook.transactions
-	const gasTransactions = (bridge ? 0 : entryTransactions) + reviewTransactions * repeats + exitTransactions
-	const {chain, transactionUsd, bridgeUsd, feeAssumed} = chooseChain(protocol.chains, gasTransactions, bridge ? entryTransactions : 1, gas)
-	const [entryMinutes, reviewMinutes, exitMinutes] = playbook.minutes
-	const tradingFees = group === "derivatives" ? defaults.tradeVolumeUsd * defaults.tradingFeeRate : 0
+	const holdYears = expectedHoldYears(launchProbability122)
+	const holdWeeks = holdYears * defaults.weeksPerYear
+	const reviewCounts = {
+		once: 1,
+		weekly: Math.floor(holdWeeks),
+		monthly: Math.floor(defaults.monthsPerYear * holdYears)
+	}
+	const repeats = reviewCounts[playbook.cadence]
+	const [entry, review, exit] = playbook.transactions
+	const gasTransactions = (bridge ? 0 : entry) + review * repeats + exit
+	const {chain, transactionUsd, bridgeUsd, feeAssumed} = chooseChain(protocol.chains, gasTransactions, bridge ? entry : 1, gas)
 	const fields = {
 		deposit: formatUsd(depositUsd),
-		protocol: shorten(protocol.name, 140),
-		chain: shorten(chain ?? "a verified chain", 110),
+		chain: chain ?? "a verified chain",
 		gas: gasTransactions ? `about ${formatUsd(gasTransactions * transactionUsd)} for gas` : "gas as needed"
 	}
 	const step = (action, costUsd, minutes, cadence = "once") => ({
-		action: action.replace(/\{(deposit|protocol|chain|gas)\}/g, (_, key) => fields[key] ?? ""),
+		action: action.replace(/\{(\w+)\}/g, (_, key) => fields[key] ?? ""),
 		chain,
-		costUsd,
+		costUsd: roundUsd(costUsd),
 		minutes,
 		cadence
 	})
+	const [entryMinutes, reviewMinutes, exitMinutes] = playbook.minutes
+	const tradingFees = group === "derivatives" ? defaults.tradeVolumeUsd * defaults.tradingFeeRate : 0
 	const fundingStep = bridge ? null : step(funding.bridge, bridgeUsd, defaults.bridgeMinutes)
-	const steps = [step(chain === null ? funding.unlisted : funding.wallet, 0, defaults.setupMinutes)]
-	if (fundingStep) steps.push(fundingStep)
-	steps.push(
-		step(copy.enter, roundUsd(entryTransactions * (bridge ? bridgeUsd : transactionUsd)), entryMinutes),
-		step(copy.review, roundUsd(tradingFees + reviewTransactions * transactionUsd), reviewMinutes, playbook.cadence),
+	const recurring = step(copy.review, tradingFees + review * transactionUsd, reviewMinutes, playbook.cadence)
+	const floor = `TVL drops under ${formatUsd(protocol.tvl_usd / 2)}`
+	const drawdown = exitThreshold?.change.toFixed(1).replace("-", "−")
+	const trigger = exitThreshold
+		? `Exit if 7-day TVL change falls below ${drawdown}% (bottom tenth of ${exitThreshold.label} in this snapshot) or ${floor}.`
+		: `Exit if ${floor}. No listed pre-token 7-day TVL data.`
+	const steps = [
+		step(chain === null ? funding.unlisted : funding.wallet, 0, defaults.setupMinutes),
+		...(fundingStep ? [fundingStep] : []),
+		step(copy.enter, entry * (bridge ? bridgeUsd : transactionUsd), entryMinutes),
+		recurring,
 		{
-			...step(copy.exit, roundUsd(exitTransactions * transactionUsd), exitMinutes),
-			exitCondition: copy.exitCondition
+			...step(copy.exit, exit * transactionUsd, exitMinutes),
+			exitCondition: `${trigger} ${copy.exitCondition}`
 		}
-	)
-	let oneTimeCostUsd = 0
-	let recurringCostUsd = 0
-	let totalMinutes = 0
-	for (const {costUsd, minutes, cadence} of steps) {
-		const count = occurrences[cadence]
-		if (cadence === "once") oneTimeCostUsd += costUsd
-		else recurringCostUsd += costUsd * count
-		totalMinutes += minutes * count
-	}
+	]
+	const oneTimeCostUsd = roundUsd(steps.reduce((sum, item) => sum + item.costUsd, 0) - recurring.costUsd)
+	const recurringCostUsd = roundUsd(recurring.costUsd * repeats)
 	return {
 		chain,
 		depositUsd,
 		steps,
 		fundingStep,
+		exitThreshold,
+		reviewCounts,
+		holdWeeks,
 		flags: feeAssumed ? ["fee-assumed"] : [],
 		assumptionsAsOf: defaults.asOf,
-		horizonMonths: defaults.horizonMonths,
 		capitalApr: playbook.capitalApr,
-		oneTimeCostUsd: roundUsd(oneTimeCostUsd),
-		recurringCostUsd: roundUsd(recurringCostUsd),
+		oneTimeCostUsd,
+		recurringCostUsd,
 		totalCostUsd: roundUsd(oneTimeCostUsd + recurringCostUsd),
-		totalMinutes
+		totalMinutes: steps.reduce((sum, item) => sum + item.minutes * reviewCounts[item.cadence], 0)
 	}
 }
 
@@ -297,63 +313,61 @@ function comparablesFromFamilies(families, asOf) {
 	})
 }
 
-function zeroMatrix(size) {
-	return Array.from({length: size}, () => Array(size).fill(0))
+function dot(a, b) {
+	let sum = 0
+	for (let i = 0; i < a.length; i++) sum += a[i] * (b[i] ?? 0)
+	return sum
 }
-function addOuterProduct(matrix, row, weight, columns) {
-	for (const [i, column] of columns.entries()) {
-		const line = matrix[column]
-		if (!line) throw new Error("Incomplete normal matrix.")
-		const scaled = weight * (row[i] ?? 0)
+function diagonalPenalty(width, lambda) {
+	return Array.from({length: width}, (_, i) => [...Array(i).fill(0), i ? lambda : 0])
+}
+//! Solve (XᵀWX + penalty) b = XᵀWy.
+function weightedLeastSquares(design, targets, weights, penalty, ridge = false) {
+	const normal = penalty.map(row => [...row])
+	const rhs = normal.map(() => 0)
+	for (let i = 0; i < design.length; i++) {
+		const row = design[i]
+		const weight = weights[i] ?? 1
+		const target = targets[i]
+		for (let j = 0; j < normal.length; j++) {
+			const value = row[j]
+			if (value === 0) continue
+			const line = normal[j]
+			const scaled = weight * value
+			rhs[j] = rhs[j] + scaled * target
+			for (let k = 0; k <= j; k++) line[k] = line[k] + scaled * row[k]
+		}
+	}
+	const [, [, tvl = 0] = [], [, cross = 0, age = 0] = []] = normal
+	if (ridge && normal.length === 3 && penalty[2]?.[2] === 0 && tvl > 0 && age > 0 && cross ** 2 >= (1 - 8 * Number.EPSILON) * tvl * age) {
+		normal[2] = [0, 0, 1]
+		rhs[2] = 0
+	}
+	for (const [i, row] of normal.entries()) {
+		if (ridge && i >= normal.length - 2 && row[i] === 0) row[i] = 1
+	}
+	return choleskySolve(normal, rhs)
+}
+//! Cholesky with in-place triangular solves.
+function choleskySolve(lower, solution) {
+	for (const [i, row] of lower.entries()) {
 		for (let j = 0; j <= i; j++) {
-			const other = columns[j] ?? 0
-			line[other] = (line[other] ?? 0) + scaled * (row[j] ?? 0)
+			const previous = lower[j]
+			const pivot = row[j] - dot(row.slice(0, j), previous)
+			if (j === i && !(pivot > 0 && Number.isFinite(pivot))) throw new Error("Cholesky requires positive, finite pivots.")
+			row[j] = j === i ? Math.sqrt(pivot) : pivot / previous[j]
 		}
+		solution[i] = (solution[i] - dot(row.slice(0, i), solution)) / row[i]
 	}
-}
-function at(values, index) {
-	const value = values[index]
-	if (value === void 0) throw new Error("Incomplete linear system.")
-	return value
-}
-function choleskySolve(matrix, rhs) {
-	const n = matrix.length
-	if (rhs.length !== n || matrix.some(row => row.length !== n)) {
-		throw new Error("The linear system requires a square matrix and a matching right-hand side.")
-	}
-	const lower = []
-	const solution = []
-	for (const [i, row] of matrix.entries()) {
-		const factor = []
-		let diagonal = at(row, i)
-		let target = at(rhs, i)
-		for (const [j, previous] of lower.entries()) {
-			let value = at(row, j)
-			for (const [k, entry2] of factor.entries()) value -= entry2 * at(previous, k)
-			const entry = value / at(previous, j)
-			factor.push(entry)
-			diagonal -= entry ** 2
-			target -= entry * at(solution, j)
-		}
-		if (!(diagonal > 0) || !Number.isFinite(diagonal)) {
-			throw new Error("Cholesky factorization requires a positive-definite matrix.")
-		}
-		const root = Math.sqrt(diagonal)
-		factor.push(root)
-		lower.push(factor)
-		solution.push(target / root)
-	}
-	for (let i = n - 1; i >= 0; i--) {
-		const row = lower[i] ?? []
-		const value = at(solution, i) / at(row, i)
+	for (let i = lower.length - 1; i >= 0; i--) {
+		const row = lower[i]
+		const value = solution[i] / row[i]
 		solution[i] = value
-		for (let j = 0; j < i; j++) solution[j] = at(solution, j) - value * at(row, j)
+		for (let j = 0; j < i; j++) solution[j] = solution[j] - value * row[j]
 	}
 	return solution
 }
 
-var MAX_ITERATIONS = 80
-var TOLERANCE = 1e-10
 function sigmoid(logit) {
 	const exp = Math.exp(-Math.abs(logit))
 	return logit < 0 ? exp / (1 + exp) : 1 / (1 + exp)
@@ -361,42 +375,34 @@ function sigmoid(logit) {
 function linearScore(features, coefficients) {
 	return dot([1, ...features], coefficients)
 }
-function dot(a, b) {
-	return a.reduce((sum, value, i) => sum + value * (b[i] ?? 0), 0)
-}
-function fitLogistic(features, labels, penalty) {
-	const n = features.length
-	const width = (features[0]?.length ?? 0) + 1
-	if (!n || labels.length !== n) throw new Error("The token-status model needs labeled observations.")
-	const rate = labels.reduce((sum, label) => sum + label, 0) / n
-	const coefficients = Array(width).fill(0)
-	coefficients[0] = Math.log(rate / (1 - rate))
+//! Logistic IRLS uses w = p(1−p) and z = logit + (label − p)/w.
+function fitLogistic(features, labels, lambda) {
+	const first = features[0]
+	if (!first || labels.length !== features.length) throw new Error("Logistic fitting requires labeled rows.")
+	const rate = labels.reduce((sum, label) => sum + label, 0) / labels.length
+	const coefficients = [Math.log(rate / (1 - rate)), ...first.map(() => 0)]
 	if (rate === 0 || rate === 1) return coefficients
-	const stats = features[0]?.map((_, j) => featureStats(features.map(row => row[j] ?? 0))) ?? []
+	const stats = first.map((_, j) => featureStats(features.map(row => row[j] ?? 0)))
 	const design = features.map(row => [1, ...stats.map(({mean, scale}, j) => ((row[j] ?? 0) - mean) / (scale || 1))])
-	const columns = coefficients.map((_, i) => i)
-	for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-		const gradient = coefficients.map((slope, j) => (j ? -penalty * slope : 0))
-		const information = zeroMatrix(width)
-		for (const [i, line] of information.entries()) line[i] = i ? penalty : 0
-		for (const [i, row] of design.entries()) {
+	const penalty = diagonalPenalty(coefficients.length, lambda)
+	const weights = []
+	for (let iteration = 0; iteration < 80; iteration++) {
+		const working = design.map((row, i) => {
 			const logit = dot(row, coefficients)
-			const probability = sigmoid(logit)
-			const error = (labels[i] ?? 0) - probability
-			const weight = probability * sigmoid(-logit)
-			addOuterProduct(information, row, weight, columns)
-			for (const [j, value] of row.entries()) gradient[j] = (gradient[j] ?? 0) + value * error
-		}
-		const delta = choleskySolve(information, gradient)
-		const magnitude = Math.max(...delta.map(Math.abs))
-		const maxLogitStep = Math.max(...design.map(row => Math.abs(dot(row, delta))))
-		const step = Math.min(1, 2 / maxLogitStep)
+			const p = sigmoid(logit)
+			const weight = p * sigmoid(-logit)
+			weights[i] = weight
+			return logit + ((labels[i] ?? 0) - p) / weight
+		})
+		const next = weightedLeastSquares(design, working, weights, penalty)
+		const delta = next.map((value, j) => value - (coefficients[j] ?? 0))
+		const step = Math.min(1, 2 / Math.max(...design.map(row => Math.abs(dot(row, delta)))))
 		delta.forEach((value, j) => {
 			coefficients[j] = (coefficients[j] ?? 0) + step * value
 		})
-		if (magnitude <= TOLERANCE) {
-			const slopes = stats.map(({scale}, j) => (coefficients[j + 1] ?? 0) / (scale || 1))
-			const intercept = stats.reduce((sum, {mean}, j) => sum - mean * (slopes[j] ?? 0), coefficients[0] ?? 0)
+		if (delta.every(value => Math.abs(value) <= 1e-10)) {
+			const slopes = coefficients.slice(1).map((value, j) => value / (stats[j]?.scale || 1))
+			const intercept = stats.reduce((value, {mean}, j) => value - mean * (slopes[j] ?? 0), coefficients[0] ?? 0)
 			return [intercept, ...slopes]
 		}
 	}
@@ -493,105 +499,41 @@ function protocolOdds(model, protocol, asOf) {
 	return {oddsAge: ageDays, oddsAt, launchProbability12: oddsAt(ageDays)}
 }
 
-var HUBER_K = 1.345
-var MAD_NORMAL_SCALE = 1.4826
-var MIN_SCALE = 1e-8
-var MAX_ITERATIONS2 = 20
-var TOLERANCE2 = 1e-5
-function weightedRidge(rows, weights, lambda, groupPenalty) {
-	const width = groupPenalty.length + 3
-	const normal = zeroMatrix(width)
-	const rhs = Array(width).fill(0)
-	for (const [i, {values, columns, target}] of rows.entries()) {
-		const weight = weights[i] ?? 1
-		addOuterProduct(normal, values, weight, columns)
-		for (const [j, column] of columns.entries()) {
-			rhs[column] = (rhs[column] ?? 0) + weight * (values[j] ?? 0) * target
-		}
-	}
-	const tvlColumn = width - 2
-	const ageColumn = width - 1
-	const tvl = normal[tvlColumn] ?? []
-	const age = normal[ageColumn] ?? []
-	const tvlSquared = tvl[tvlColumn] ?? 0
-	const ageSquared = age[ageColumn] ?? 0
-	if (lambda === 0 && width === 3 && tvlSquared > 0 && ageSquared > 0 && (age[tvlColumn] ?? 0) ** 2 >= (1 - 8 * Number.EPSILON) * tvlSquared * ageSquared) {
-		return [
-			...choleskySolve(
-				normal.slice(0, 2).map(row => row.slice(0, 2)),
-				rhs.slice(0, 2)
-			),
-			0
-		]
-	}
-	for (const [i, penalties] of groupPenalty.entries()) {
-		const line = normal[i + 1] ?? []
-		penalties.forEach((penalty, j) => {
-			line[j + 1] = (line[j + 1] ?? 0) + penalty
-		})
-	}
-	tvl[tvlColumn] = (tvlSquared || 1) + lambda
-	age[ageColumn] = (ageSquared || 1) + lambda
-	return choleskySolve(normal, rhs)
-}
 function medianInPlace(values) {
 	values.sort()
 	const middle = Math.floor(values.length / 2)
 	const upper = values[middle] ?? 0
 	return values.length % 2 ? upper : ((values[middle - 1] ?? upper) + upper) / 2
 }
-function madScale(residuals, scratch) {
-	scratch.set(residuals)
-	const center = medianInPlace(scratch)
-	for (let i = 0; i < residuals.length; i++) scratch[i] = Math.abs((residuals[i] ?? 0) - center)
-	return Math.max(MIN_SCALE, MAD_NORMAL_SCALE * medianInPlace(scratch))
-}
-function fitHuber(size, solve, evaluateResiduals, robust = true) {
-	const weights = new Float64Array(size).fill(1)
-	const residuals = new Float64Array(size)
-	const scratch = new Float64Array(size)
-	let coefficients = solve(weights)
-	evaluateResiduals(coefficients, residuals)
-	let huberScale = madScale(residuals, scratch)
-	if (robust) {
-		for (let iteration = 0; iteration < MAX_ITERATIONS2; iteration++) {
-			const cutoff = HUBER_K * huberScale
-			for (let i = 0; i < residuals.length; i++) {
-				weights[i] = Math.min(1, cutoff / Math.abs(residuals[i] ?? 0))
-			}
-			const next = solve(weights)
-			const converged = next.every((value, i) => Math.abs(value - (coefficients[i] ?? 0)) < TOLERANCE2)
-			coefficients = next
-			evaluateResiduals(coefficients, residuals)
-			huberScale = madScale(residuals, scratch)
-			if (converged) break
+//! Huber IRLS uses w = min(1, 1.345 × scaled MAD / |residual|).
+function fitHuber(design, targets, penalty, robust = true, ridge = false) {
+	const weights = new Float64Array(targets.length).fill(1)
+	const residuals = weights.slice()
+	const scratch = weights.slice()
+	let coefficients = []
+	let huberScale = 1e-8
+	for (let iteration = 0; iteration <= 20; iteration++) {
+		const next = weightedLeastSquares(design, targets, weights, penalty, ridge)
+		for (let i = 0; i < design.length; i++) {
+			residuals[i] = scratch[i] = targets[i] - dot(design[i], next)
 		}
+		const center = medianInPlace(scratch)
+		for (const [i, value] of residuals.entries()) scratch[i] = Math.abs(value - center)
+		huberScale = Math.max(1e-8, 1.4826 * medianInPlace(scratch))
+		const converged = next.every((value, i) => Math.abs(value - (coefficients[i] ?? Infinity)) < 1e-5)
+		coefficients = next
+		if (!robust || converged) break
+		for (const [i, residual] of residuals.entries()) weights[i] = Math.min(1, (1.345 * huberScale) / Math.abs(residual))
 	}
 	return {coefficients, huberScale}
 }
+//! Ridge uses unit weights.
 function fitRidge(rows, lambda, robust, groupPenalty = []) {
-	const tvlColumn = groupPenalty.length + 1
-	const ageColumn = tvlColumn + 1
-	const design = rows.map(({target, group = 0, tvl, age}) => ({
-		target,
-		values: group ? [1, 1, tvl, age] : [1, tvl, age],
-		columns: group ? [0, group, tvlColumn, ageColumn] : [0, tvlColumn, ageColumn]
-	}))
-	return fitHuber(
-		rows.length,
-		weights => weightedRidge(design, weights, lambda, groupPenalty),
-		(coefficients, residuals) => {
-			const intercept = coefficients[0] ?? 0
-			const tvlSlope = coefficients[tvlColumn] ?? 0
-			const ageSlope = coefficients[ageColumn] ?? 0
-			let i = 0
-			for (const {target, group = 0, tvl, age} of rows) {
-				const base = group ? intercept + (coefficients[group] ?? 0) : intercept
-				residuals[i++] = target - (base + tvlSlope * tvl + ageSlope * age)
-			}
-		},
-		robust
-	)
+	const penalty = diagonalPenalty(groupPenalty.length + 3, lambda)
+	for (const [i, row] of groupPenalty.entries()) penalty[i + 1] = [0, ...row.slice(0, i + 1)]
+	const design = rows.map(({group, tvl, age}) => [1, ...groupPenalty.map((_, i) => Number(group === i + 1)), tvl, age])
+	const targets = rows.map(({target}) => target)
+	return fitHuber(design, targets, penalty, robust, true)
 }
 
 var FITTED_KEYS = ["lnTvl", "lnAge"]
@@ -653,11 +595,9 @@ function fitValueModel(rows, lambda, {drop, robust = true, momentum = true} = {}
 	const tvlColumn = category?.groups.length ?? 1
 	const center = category?.contrastShares.reduce((sum, share, i) => sum + share * (coefficients[i + 1] ?? 0), 0) ?? 0
 	const categoryEffects = category && categoryTotals()
-	if (category && categoryEffects) {
-		category.groups.forEach((key, i) => {
-			categoryEffects[key] = (i ? (coefficients[i] ?? 0) : 0) - center
-		})
-	}
+	category?.groups.forEach((key, i) => {
+		if (categoryEffects) categoryEffects[key] = (i ? (coefficients[i] ?? 0) : 0) - center
+	})
 	return {
 		...prepared.metadata,
 		lambda,
@@ -850,9 +790,13 @@ function rankRadar({watchlist, as_of}, entries, model, odds, tables) {
 		...entry,
 		...protocolOdds(odds, entry.protocol, as_of)
 	}))
+	const thresholds = farmExitThresholds(entries, tables.playbooks)
 	return rankBoard(candidates, as_of, model).map(row => {
 		const {protocol, launch_value_usd, launchProbability12: p12} = row
-		const plan = makeFarmPlan(protocol, tables)
+		const plan = makeFarmPlan(protocol, tables, {
+			launchProbability12: p12,
+			exitThreshold: thresholds.get(farmGroup(protocol.category, tables.playbooks)) ?? null
+		})
 		return {
 			...row,
 			plan,
@@ -885,8 +829,6 @@ var browserApi = {
 	depositAmounts,
 	farmEconomicsTerms,
 	makeFarmPlan,
-	occurrences,
-	shorten,
 	farmAssumptions: defaults,
 	estimateFarmEconomics,
 	formatUsd,

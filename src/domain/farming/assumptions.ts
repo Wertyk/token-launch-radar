@@ -18,7 +18,7 @@ const defaults = {
   monthsPerYear: 12,
   weeksPerYear: 52,
   minutesPerHour: 60,
-  depositsUsd: [1_000, 10_000],
+  depositsUsd: [1_000, 5_000, 10_000, 25_000],
   tradeVolumeUsd: 200,
   tradingFeeRate: 0.0006,
   setupMinutes: 5,

@@ -179,19 +179,19 @@ test("the nested kit LOO model matches or improves on the flat multiple", () => 
   }
 });
 
-test("kit farm plans vary in costs and time and publish two verdicts per protocol", () => {
+test("kit farm plans vary in costs and time and publish four verdicts per protocol", () => {
   const { rows } = toBoardRows(result);
   expect(ASSUMPTIONS_AS_OF).toBe(snapshot.as_of);
   expect(new Set(rows.map((row) => row.plan_total_minutes)).size).toBeGreaterThan(1);
   expect(new Set(rows.map((row) => row.plan_total_cost_usd)).size).toBeGreaterThan(11);
   for (const row of rows) {
-    expect(row.farm_steps.at(-1)).toMatch(/^Economics at \$1,000 over 12 months/);
+    expect(row.farm_steps.at(-1)).toMatch(/^Economics for an expected \d+\.\d-week hold/);
     expect(row.airdrop_yield_apr).toBeCloseTo(
       (row.launch_value_usd / row.tvl_usd) * 0.25 * 0.5 * row.farm_economics.launchProbability12,
       12,
     );
     expect(row.farm_economics.deposits.map(({ depositUsd }) => depositUsd)).toEqual([
-      1_000, 10_000,
+      1_000, 5_000, 10_000, 25_000,
     ]);
     expect(row.flags.includes("fee-assumed")).toBe(
       result.board[row.rank - 1]?.plan.flags.includes("fee-assumed"),

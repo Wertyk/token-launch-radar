@@ -68,6 +68,7 @@ const outputs = await Promise.all(
       format: "esm",
       target: "es2022",
       charset: "utf8",
+      legalComments: "inline",
       sourcemap: false,
       write: false,
     });

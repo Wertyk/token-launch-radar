@@ -1,6 +1,5 @@
 import { FARM_ASSUMPTIONS as farmAssumptions } from "../domain/farming/assumptions.ts";
 import { boardFarmSteps } from "../domain/farming/board-steps.ts";
-import { shorten } from "../domain/farming/plans.ts";
 import { formatUsd } from "../domain/shared/money.ts";
 import type { RadarResult } from "./build-radar.ts";
 
@@ -12,7 +11,7 @@ export function toBoardRows(result: Pick<RadarResult, "board" | "houseRule">) {
     rank: row.rank,
     launch_value_usd: row.launch_value_usd,
     implied_value_usd: row.implied_value_usd,
-    farm_steps: boardFarmSteps(row, { formatUsd, shorten, farmAssumptions }),
+    farm_steps: boardFarmSteps(row, { formatUsd, farmAssumptions }),
     category: row.protocol.category,
     chains: row.protocol.chains,
     tvl_usd: row.protocol.tvl_usd,

@@ -39,14 +39,14 @@ function validationRows(protocols: readonly Protocol[]) {
 const rows = validationRows(fixtureRows);
 
 test.each(["Risk Curators", "Onchain Capital Allocator"])(
-  "treats %s as other for valuation and yield for farming",
+  "treats %s as other for valuation and uses a yield-bearing vault plan",
   (category) => {
     const example = protocol({ category, mcap_usd: 100 });
     expect(validationRows([example])[0]?.category).toBe("other");
     const tables = farmTables();
     const plan = makeFarmPlan(example, tables);
-    expect(plan).toEqual(makeFarmPlan({ ...example, category: "Yield" }, tables));
-    expect(plan).not.toEqual(makeFarmPlan({ ...example, category: null }, tables));
+    expect(plan.capitalApr).toBe(0);
+    expect(plan.steps.some(({ action }) => /vault/i.test(action))).toBe(true);
   },
 );
 

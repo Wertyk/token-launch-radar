@@ -26,8 +26,10 @@ export function boardRows(
   const scale = (value: number) => (Math.log1p(value) / maxLogValue) * 100;
   return tableBody(
     rows.map((row) => {
-      const href = esc(protocolHref(row.slug, back));
-      const remaining = row.chains.length - 2;
+      const { slug, chains } = row;
+      const href = esc(protocolHref(slug, back));
+      const labels = [row.category ?? "Unlisted category", ...chains.slice(0, 2)];
+      if (chains.length > 2) labels.push(`+${chains.length - 2}`);
       const [low, high] = row.interval ?? [0, 0];
       const band = row.interval
         ? `<rect class="band" x="${scale(low).toFixed(2)}" y="5" width="${(scale(high) - scale(low)).toFixed(2)}" height="3"></rect>`
@@ -35,19 +37,17 @@ export function boardRows(
       return [
         formatInteger(row.rank),
         `<a class="protocol-name" href="${href}">${esc(row.name)}</a>
-       <div class="chips" title="${esc(row.chains.join(", "))}">${chip(row.category ?? "Unlisted category")}${row.chains
-         .slice(0, 2)
-         .map((chain) => chip(chain))
-         .join("")}${remaining > 0 ? chip(`+${remaining}`) : ""}</div>`,
+       <div class="chips" title="${esc(chains.join(", "))}">${labels.map((label) => chip(label)).join("")}</div>`,
         `<div class="value" ${row.interval ? `title="P10–P90: ${usd(low)}–${usd(high)}"` : ""}><strong>${usd(row.value)}</strong>
         ${svg(100, 8, `<rect width="${scale(row.value).toFixed(2)}" height="3"></rect>${band}`)}</div>`,
         usd(row.launchValue),
         formatOdds(row.odds),
         usd(row.tvl),
         growthText(row.growth),
-        formatInteger(row.age),
         usd(row.cost),
         `${formatInteger(row.time)} min`,
+        row.verdict,
+        usd(row.netPerHour),
         row.watchlist ? chip("Watchlist", "badge") : "—",
       ];
     }),
