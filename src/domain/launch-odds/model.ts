@@ -120,9 +120,15 @@ export function fitOddsClock(rows: readonly TokenStatusRow[]) {
   };
 }
 
-export function fitOddsModel(rows: readonly TokenStatusRow[], terms: readonly OddsTerm[]) {
-  const shares = categoryTokenShares(rows);
-  const clockFit = fitOddsClock(rows);
+export function prepareOddsFit(rows: readonly TokenStatusRow[]) {
+  return { ...fitOddsClock(rows), shares: categoryTokenShares(rows) };
+}
+
+export function fitOddsModel(
+  rows: readonly TokenStatusRow[],
+  terms: readonly OddsTerm[],
+  { shares, ...clockFit } = prepareOddsFit(rows),
+) {
   const coefficients = fitLogistic(
     rows.map((row) => oddsFeatures(row, terms, shares, clockFit.clock, clockFit.medianAgeDays)),
     rows.map(({ label }) => label),

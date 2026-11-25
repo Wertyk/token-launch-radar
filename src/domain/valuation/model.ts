@@ -6,6 +6,7 @@ import type { CategoryGroup } from "./categories.ts";
 import { categoryGroup, categoryTotals } from "./categories.ts";
 import type { Comparable } from "./comparables.ts";
 import { logAge, logMomentum } from "./comparables.ts";
+import { medianInPlace } from "./huber.ts";
 import type { RidgeRow } from "./ridge.ts";
 import { fitRidge } from "./ridge.ts";
 
@@ -64,6 +65,7 @@ export interface FitOptions {
   drop?: FittedTerm;
   robust?: boolean;
   momentum?: boolean;
+  reportScale?: boolean;
 }
 
 export function valueFeatures(protocol: Protocol, asOf: string, medianLnAge: number): FeatureRow {
@@ -81,13 +83,15 @@ export function valueFeatures(protocol: Protocol, asOf: string, medianLnAge: num
   };
 }
 
-export function prepareFit(rows: readonly Comparable[], drop?: FittedTerm) {
+export function prepareFit(
+  rows: readonly Comparable[],
+  drop?: FittedTerm,
+  category?: CategoryDesign,
+) {
   const n = rows.length;
   if (n === 0) throw new Error("The value model needs at least one traded comparable.");
 
-  const medianLnAge =
-    median(rows.flatMap(({ slug, lnAge }) => (lnAge === null ? [] : [{ slug, value: lnAge }]))) ??
-    0;
+  const medianLnAge = medianAge(rows);
   const tvl = featureStats(rows.map(({ lnTvl }) => lnTvl));
   const age = featureStats(rows.map(({ lnAge }) => lnAge ?? medianLnAge));
   const targetMean = rows.reduce((sum, row) => sum + row.target, 0) / n;
@@ -97,6 +101,7 @@ export function prepareFit(rows: readonly Comparable[], drop?: FittedTerm) {
     target: row.target - targetMean,
     tvl: tvlScale ? (row.lnTvl - tvl.mean) / tvlScale : 0,
     age: ageScale ? ((row.lnAge ?? medianLnAge) - age.mean) / ageScale : 0,
+    group: category?.groupBySlug.get(row.slug) ?? 0,
   }));
   return {
     design,
@@ -110,6 +115,23 @@ export function prepareFit(rows: readonly Comparable[], drop?: FittedTerm) {
       featureRanges: { lnTvl: tvl.range, lnAge: age.range },
     },
   };
+}
+
+function medianAge(rows: readonly Comparable[]): number {
+  const ages = new Float64Array(rows.length);
+  let count = 0;
+  for (const { lnAge } of rows) {
+    if (lnAge === null) continue;
+    if (!Number.isFinite(lnAge) || Object.is(lnAge, -0)) {
+      return (
+        median(
+          rows.flatMap(({ slug, lnAge }) => (lnAge === null ? [] : [{ slug, value: lnAge }])),
+        ) ?? 0
+      );
+    }
+    ages[count++] = lnAge;
+  }
+  return medianInPlace(ages.subarray(0, count));
 }
 
 export function restoreCoefficients(
@@ -127,7 +149,7 @@ export function restoreCoefficients(
 
 export interface CategoryDesign {
   groups: CategoryGroup[];
-  groupBySlug: Record<string, number>;
+  groupBySlug: ReadonlyMap<string, number>;
   contrastShares: number[];
   penalty: number[][];
 }
@@ -135,17 +157,17 @@ export interface CategoryDesign {
 export function fitValueModel(
   rows: readonly Comparable[],
   lambda: number,
-  { drop, robust = true, momentum = true }: FitOptions = {},
+  { drop, robust = true, momentum = true, reportScale = true }: FitOptions = {},
   category?: CategoryDesign,
 ): ValueModel {
-  const prepared = prepareFit(rows, drop);
-  const design = category
-    ? prepared.design.map((row, i) => ({
-        ...row,
-        group: category.groupBySlug[rows[i]?.slug ?? ""] ?? 0,
-      }))
-    : prepared.design;
-  const { coefficients, huberScale } = fitRidge(design, lambda, robust, category?.penalty);
+  const prepared = prepareFit(rows, drop, category);
+  const { coefficients, huberScale } = fitRidge(
+    prepared.design,
+    lambda,
+    robust,
+    category?.penalty,
+    reportScale,
+  );
   const tvlColumn = category?.groups.length ?? 1;
   const center =
     category?.contrastShares.reduce(

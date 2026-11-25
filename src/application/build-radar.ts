@@ -65,14 +65,14 @@ export interface RadarResult {
 
 export function buildRadar(snapshot: Snapshot, tables = farmTables()): RadarResult {
   const { entries, comparables, population } = radarInputs(snapshot);
+  const calibrationFit = cacheCalibrationFits(comparables);
   const oddsValidation = validateOdds(population);
   const odds = fitOddsModel(population, oddsValidation.selection.terms);
-  const { looPredictions, ...validation } = validateModel(comparables);
+  const { looPredictions, ...validation } = validateModel(comparables, calibrationFit);
   const { terms } = validation.selection;
   const fit = { terms, lambda: VALUE_RIDGE_LAMBDA, categoryPenalty: VALUE_CATEGORY_PENALTY };
   const model = refitValue(comparables, terms);
   const board = rankRadar(snapshot, entries, model, odds, tables);
-  const calibrationFit = cacheCalibrationFits(comparables);
   const refits = leaveOneFamilyOut(comparables, calibrationFit);
   const boardValues = describeBoardValues(board, comparables, refits, snapshot.as_of);
   const bands =

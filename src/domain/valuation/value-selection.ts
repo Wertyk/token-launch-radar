@@ -1,3 +1,4 @@
+import { median } from "../shared/math.ts";
 import { selectTerms } from "../shared/term-selection.ts";
 import type { CategoryComparable } from "./categories.ts";
 import { type Fold, splitFolds, walkForwardSplit } from "./folds.ts";
@@ -35,17 +36,36 @@ function valueSelection(
   fit: ValueTrialFit | undefined,
   termsOnly: boolean,
 ) {
-  const loo = splitFolds(rows.map((row) => [row]));
   const walkForward = walkForwardSplit(rows);
+  const futureError = (terms: readonly ValueTerm[]) =>
+    medianLogError(predictValueTrial(walkForward, terms, fit)) ?? null;
+  if (termsOnly) {
+    const baseline = futureError([]);
+    // Even the baseline LOO fits are unnecessary if no challenger can be kept.
+    if (
+      baseline === null ||
+      !VALUE_CANDIDATES.some((term) => {
+        const score = futureError([term]);
+        return score !== null && score < baseline;
+      })
+    )
+      return { terms: [] as ValueTerm[], steps: [], scores: [null, baseline] };
+  }
+  const loo = rows.length < 2 ? [] : splitFolds(rows.map((row) => [row]));
+  const fitTrial = fit ?? refitValue;
   return selectTerms(VALUE_CANDIDATES, (terms, baseline) => {
-    const future = medianLogError(predictValueTrial(walkForward, terms, fit)) ?? null;
+    const future = futureError(terms);
     // A failed walk-forward trial cannot be kept. Score both tests for the published trial table.
     if (termsOnly && baseline && (future === null || baseline[1] == null || future >= baseline[1]))
       return [null, future];
-    return [
-      medianLogError(loo.flatMap((fold) => predictValueTrial(fold, terms, fit))) ?? null,
-      future,
-    ];
+    const errors = loo.map(({ train, test }) => {
+      const row = test[0] as CategoryComparable;
+      return {
+        slug: row.slug,
+        value: Math.abs(row.target - predictComparable(row, fitTrial(train, terms))),
+      };
+    });
+    return [median(errors) ?? null, future];
   });
 }
 

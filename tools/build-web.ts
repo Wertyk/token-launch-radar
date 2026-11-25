@@ -8,8 +8,8 @@ import { build, type Plugin, transformSync } from "esbuild";
 const supportModules = {
   "domain/shared/order": ["compareText"],
   "domain/shared/math": ["clamp", "featureStats", "median"],
-  "domain/valuation/huber": ["fitHuber"],
-  "domain/valuation/linalg": ["diagonalPenalty"],
+  "domain/valuation/huber": ["fitHuber", "medianInPlace"],
+  "domain/valuation/linalg": ["diagonalPenalty", "stabilizeRidge"],
   "domain/launch-odds/logistic": ["fitLogistic", "linearScore", "sigmoid"],
   "presentation/web/route": ["isCensusSortKey", "isSortKey", "parseRoute"],
   "presentation/web/startup": ["boot"],

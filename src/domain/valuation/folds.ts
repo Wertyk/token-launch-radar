@@ -42,10 +42,14 @@ export function seededFolds<Row extends FoldRow>(
 
 /** Test each held-out group with the remaining families in a stable order. */
 export function splitFolds<Row extends FoldRow>(heldOut: readonly Row[][]): Fold<Row>[] {
-  return heldOut.map((test, i) => ({
-    train: heldOut.flatMap((fold, j) => (i === j ? [] : fold)).sort(bySlug),
-    test,
-  }));
+  const ordered = heldOut
+    .flatMap((fold, index) => fold.map((row) => ({ row, index })))
+    .sort((a, b) => bySlug(a.row, b.row));
+  return heldOut.map((test, i) => {
+    const train: Row[] = [];
+    for (const { row, index } of ordered) if (index !== i) train.push(row);
+    return { train, test };
+  });
 }
 
 export function walkForwardSplit<Row extends FoldRow>(rows: readonly Row[]): Fold<Row> {

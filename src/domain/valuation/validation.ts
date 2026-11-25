@@ -7,9 +7,9 @@ import {
   scorePredictions,
   type ValidationScore,
 } from "./metrics.ts";
-import { predictionsFor } from "./selection.ts";
+import { modelPredictions, predictionsFor } from "./selection.ts";
 import { VALUE_RIDGE_LAMBDA } from "./value-fit.ts";
-import { predictValueTrial, selectValueTerms } from "./value-selection.ts";
+import { predictValueTrial, refitSelectedValue, selectValueTerms } from "./value-selection.ts";
 
 type Scores = {
   model: ValidationScore;
@@ -31,8 +31,16 @@ export interface ModelValidation {
 export function fitOuterFold(fold: Fold<CategoryComparable>) {
   const { train, test } = fold;
   const terms = train.length && test.length ? selectValueTerms(train).terms : [];
+  const predictions = foldPredictions(fold, predictValueTrial(fold, terms));
+  return { terms, lambda: VALUE_RIDGE_LAMBDA, predictions };
+}
+
+function foldPredictions(
+  { train, test }: Fold<CategoryComparable>,
+  model: Prediction[],
+): FoldPredictions {
   const predictions: FoldPredictions = {
-    model: predictValueTrial(fold, terms),
+    model,
     flatMultiple: [],
     categoryMultiple: [],
   };
@@ -44,7 +52,7 @@ export function fitOuterFold(fold: Fold<CategoryComparable>) {
       (row) => (category[row.category] ?? flat) + row.lnTvl,
     );
   }
-  return { terms, lambda: VALUE_RIDGE_LAMBDA, predictions };
+  return predictions;
 }
 
 function scoreValueFolds(folds: readonly FoldPredictions[]): Scores {
@@ -87,15 +95,22 @@ export function scoreValueEvidence(
   };
 }
 
-export function validateModel(rows: readonly CategoryComparable[]) {
+export function validateModel(
+  rows: readonly CategoryComparable[],
+  refit: (
+    train: readonly CategoryComparable[],
+  ) => ReturnType<typeof refitSelectedValue> = refitSelectedValue,
+) {
   const folds = valueValidationFolds(rows);
-  const loo = folds.leaveOneFamilyOut.map(fitOuterFold);
-  const collect = (fits: ReturnType<typeof fitOuterFold>[]) =>
-    fits.map(({ predictions }) => predictions);
+  const scoreFold = (fold: Fold<CategoryComparable>) =>
+    foldPredictions(
+      fold,
+      fold.train.length && fold.test.length ? modelPredictions(fold.test, refit(fold.train)) : [],
+    );
   const evidence = {
-    leaveOneFamilyOut: collect(loo),
-    seededFiveFold: collect(folds.seededFiveFold.map(fitOuterFold)),
-    walkForward: collect(folds.walkForward.map(fitOuterFold)),
+    leaveOneFamilyOut: folds.leaveOneFamilyOut.map(scoreFold),
+    seededFiveFold: folds.seededFiveFold.map(scoreFold),
+    walkForward: folds.walkForward.map(scoreFold),
   };
   return {
     evidence,
@@ -105,6 +120,6 @@ export function validateModel(rows: readonly CategoryComparable[]) {
       walkForward: scoreValueFolds(evidence.walkForward),
     },
     selection: selectValueTerms(rows),
-    looPredictions: loo.flatMap(({ predictions }) => predictions.model),
+    looPredictions: evidence.leaveOneFamilyOut.flatMap(({ model }) => model),
   };
 }

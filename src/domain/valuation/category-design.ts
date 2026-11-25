@@ -14,15 +14,15 @@ export function categoryDesign(
   for (const { category } of rows) counts[category]++;
   const groups = (Object.keys(counts) as CategoryGroup[]).filter((key) => counts[key] > 0);
   const shares = groups.map((category) => counts[category] / rows.length);
+  const groupBySlug = new Map<string, number>();
+  for (const { slug, category } of rows) groupBySlug.set(slug, groups.indexOf(category));
 
   // Use a separate unpenalized intercept and K−1 treatment contrasts. The
   // penalty applies to deviations from the family-weighted intercept.
   const contrastShares = shares.slice(1);
   return {
     groups,
-    groupBySlug: Object.fromEntries(
-      rows.map(({ slug, category }) => [slug, groups.indexOf(category)]),
-    ),
+    groupBySlug,
     contrastShares,
     penalty: contrastShares.map((left, i) =>
       contrastShares.map(

@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import type { BoardRows } from "../../src/application/board-rows.ts";
@@ -53,7 +54,9 @@ test("writes a byte-identical output tree and the vendor dossier on both runs", 
   writeAssetFixture(assets);
 
   const args = ["--input", input, "--assets", assets];
+  const start = performance.now();
   const firstRun = run(...args, "--output", first);
+  expect(performance.now() - start, "full snapshot CLI runtime in ms").toBeLessThan(15_000);
   const secondRun = run(...args, "--output", second);
   for (const result of [firstRun, secondRun]) {
     expect(result.status, result.stderr || result.error?.message).toBe(0);

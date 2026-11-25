@@ -7,7 +7,10 @@ export function sigmoid(logit: number): number {
 }
 
 export function linearScore(features: readonly number[], coefficients: readonly number[]): number {
-  return dot([1, ...features], coefficients);
+  let score = 0 + (coefficients[0] ?? 0);
+  for (let i = 0; i < features.length; i++)
+    score += (features[i] as number) * (coefficients[i + 1] ?? 0);
+  return score;
 }
 
 //! Logistic IRLS uses w = p(1−p) and z = logit + (label − p)/w.
@@ -31,18 +34,21 @@ export function fitLogistic(
   ]);
   const penalty = diagonalPenalty(coefficients.length, lambda);
   const weights: number[] = [];
+  const working: number[] = [];
   for (let iteration = 0; iteration < 80; iteration++) {
-    const working = design.map((row, i) => {
-      const logit = dot(row, coefficients);
+    for (let i = 0; i < design.length; i++) {
+      const logit = dot(design[i] as number[], coefficients);
       const p = sigmoid(logit);
       const weight = p * sigmoid(-logit);
       weights[i] = weight;
-      return logit + ((labels[i] ?? 0) - p) / weight;
-    });
+      working[i] = logit + ((labels[i] ?? 0) - p) / weight;
+    }
     const next = weightedLeastSquares(design, working, weights, penalty);
     const delta = next.map((value, j) => value - (coefficients[j] ?? 0));
     // Limit each step in logit space when far from the optimum.
-    const step = Math.min(1, 2 / Math.max(...design.map((row) => Math.abs(dot(row, delta)))));
+    let maxChange = 0;
+    for (const row of design) maxChange = Math.max(maxChange, Math.abs(dot(row, delta)));
+    const step = Math.min(1, 2 / maxChange);
     delta.forEach((value, j) => {
       coefficients[j] = (coefficients[j] ?? 0) + step * value;
     });

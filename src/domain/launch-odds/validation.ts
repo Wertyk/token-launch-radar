@@ -5,7 +5,14 @@ import { seededFolds, splitFolds, walkForwardSplit } from "../valuation/folds.ts
 import { matchesPredictions } from "../valuation/metrics.ts";
 import { linearScore, sigmoid } from "./logistic.ts";
 import type { OddsTerm, TokenStatusRow } from "./model.ts";
-import { baseRate, fitOddsClock, fitOddsModel, ODDS_CANDIDATES, oddsFeatures } from "./model.ts";
+import {
+  baseRate,
+  fitOddsClock,
+  fitOddsModel,
+  ODDS_CANDIDATES,
+  oddsFeatures,
+  prepareOddsFit,
+} from "./model.ts";
 
 export { baseRate };
 
@@ -52,8 +59,12 @@ export function scoreOdds(
   return scoreOddsFolds(predictOddsFolds(folds, fitPredictor));
 }
 
-export function statusPredictor(train: readonly TokenStatusRow[], terms: readonly OddsTerm[]) {
-  const { shares, clock, coefficients, medianAgeDays } = fitOddsModel(train, terms);
+export function statusPredictor(
+  train: readonly TokenStatusRow[],
+  terms: readonly OddsTerm[],
+  prep?: ReturnType<typeof prepareOddsFit>,
+) {
+  const { shares, clock, coefficients, medianAgeDays } = fitOddsModel(train, terms, prep);
   return (row: TokenStatusRow) =>
     sigmoid(linearScore(oddsFeatures(row, terms, shares, clock, medianAgeDays), coefficients));
 }
@@ -62,13 +73,32 @@ export function selectOddsTerms(
   rows: readonly TokenStatusRow[],
   folds = oddsValidationFolds(rows),
 ) {
-  return selectTerms(ODDS_CANDIDATES, (terms) =>
-    scoreOdds(folds, (train) => statusPredictor(train, terms)),
+  return oddsSelection(folds, false);
+}
+
+function oddsSelection(folds: ReturnType<typeof oddsValidationFolds>, termsOnly: boolean) {
+  const [seeded = [], future = []] = folds;
+  const prepared = new Map<readonly TokenStatusRow[], ReturnType<typeof prepareOddsFit>>(
+    folds
+      .flat()
+      .filter(({ train, test }) => train.length && test.length)
+      .map(({ train }) => [train, prepareOddsFit(train)]),
   );
+  return selectTerms(ODDS_CANDIDATES, (terms, baseline) => {
+    const predict = (train: readonly TokenStatusRow[]) =>
+      statusPredictor(train, terms, prepared.get(train));
+    if (!termsOnly) return scoreOdds(folds, predict);
+    const walk = scoreOdds([future], predict)[0] ?? null;
+    if (baseline && (walk === null || baseline[1] == null || walk >= baseline[1]))
+      return [null, walk];
+    return [scoreOdds([seeded], predict)[0] ?? null, walk];
+  });
 }
 
 export function fitOuterOddsFold(fold: Fold<TokenStatusRow>) {
-  return predictOddsFold(fold, (train) => statusPredictor(train, selectOddsTerms(train).terms));
+  return predictOddsFold(fold, (train) =>
+    statusPredictor(train, oddsSelection(oddsValidationFolds(train), true).terms),
+  );
 }
 
 const oddsKeys = ["model", "baseRate", "pava", "clockOnly"] as const;

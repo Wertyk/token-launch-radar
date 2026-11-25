@@ -1,14 +1,8 @@
 import { fitHuber } from "./huber.ts";
-import { diagonalPenalty } from "./linalg.ts";
+import { diagonalPenalty, type RidgeRow, stabilizeRidge } from "./linalg.ts";
 
 export { fitHuber } from "./huber.ts";
-
-export interface RidgeRow {
-  tvl: number;
-  age: number;
-  target: number;
-  group?: number;
-}
+export type { RidgeRow } from "./linalg.ts";
 
 //! Ridge uses unit weights.
 export function fitRidge(
@@ -16,31 +10,33 @@ export function fitRidge(
   lambda: number,
   robust: boolean,
   groupPenalty: readonly number[][] = [],
+  reportScale = true,
 ) {
   const penalty = diagonalPenalty(groupPenalty.length + 3, lambda);
   for (const [i, row] of groupPenalty.entries()) penalty[i + 1] = [0, ...row.slice(0, i + 1)];
-  const design = rows.map(({ group, tvl, age }) => [
-    1,
-    ...groupPenalty.map((_, i) => Number(group === i + 1)),
-    tvl,
-    age,
-  ]);
-  const targets = rows.map(({ target }) => target);
-  return fitHuber(design, targets, penalty, robust, (normal, rhs) => {
-    const [, [, tvl = 0] = [], [, cross = 0, age = 0] = []] = normal;
-    // In unpenalized ridge with collinear slopes, keep TVL and fix age at zero.
-    if (
-      normal.length === 3 &&
-      penalty[2]?.[2] === 0 &&
-      tvl > 0 &&
-      age > 0 &&
-      cross ** 2 >= (1 - 8 * Number.EPSILON) * tvl * age
-    ) {
-      normal[2] = [0, 0, 1];
-      rhs[2] = 0;
-    }
-    for (const [i, row] of normal.entries()) {
-      if (i >= normal.length - 2 && row[i] === 0) row[i] = 1;
-    }
-  });
+  const finite = rows.every(
+    ({ tvl, age, target }) =>
+      Number.isFinite(tvl) && Number.isFinite(age) && Number.isFinite(target),
+  );
+  const design =
+    finite && groupPenalty.every((line) => line.every((value) => !Object.is(value, -0)))
+      ? { rows }
+      : rows.map(({ group, tvl, age }) => [
+          1,
+          ...groupPenalty.map((_, i) => Number(group === i + 1)),
+          tvl,
+          age,
+        ]);
+  const targets = "rows" in design ? [] : rows.map(({ target }) => target);
+  //! For collinear unpenalized slopes, keep TVL and fix the final column (age) at zero.
+  return fitHuber(
+    design,
+    targets,
+    penalty,
+    robust,
+    lambda > 0
+      ? undefined
+      : (normal, rhs) => stabilizeRidge(normal, rhs, lambda === 0 ? 2 : undefined),
+    reportScale,
+  );
 }

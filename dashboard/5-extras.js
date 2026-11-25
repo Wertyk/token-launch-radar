@@ -375,6 +375,68 @@ function dot(a, b, end = a.length) {
 function diagonalPenalty(width, lambda) {
 	return Array.from({length: width}, (_, i) => [...Array(i).fill(0), i ? lambda : 0])
 }
+function stabilizeRidge(normal, rhs, pinnedColumn) {
+	const [, [, first = 0] = [], [, cross = 0, second = 0] = []] = normal
+	if (normal.length === 3 && pinnedColumn !== void 0 && first > 0 && second > 0 && cross ** 2 >= (1 - 8 * Number.EPSILON) * first * second) {
+		for (let i = pinnedColumn + 1; i < normal.length; i++) {
+			const row = normal[i]
+			row[pinnedColumn] = 0
+		}
+		normal[pinnedColumn] = Array.from({length: pinnedColumn + 1}, (_, i) => Number(i === pinnedColumn))
+		rhs[pinnedColumn] = 0
+	}
+	for (let i = normal.length - 2; i < normal.length; i++) {
+		const row = normal[i]
+		if (row[i] === 0) row[i] = 1
+	}
+}
+function ridgeGroup(group, tvlColumn) {
+	return group && group > 0 && group < tvlColumn && Number.isInteger(group) ? group : 0
+}
+function weightedRidgeLeastSquares(rows, weights, penalty, normal, rhs, stabilize) {
+	rhs.fill(0)
+	for (let i = 0; i < penalty.length; i++) {
+		const line = normal[i]
+		const prior = penalty[i]
+		for (let j = 0; j < prior.length; j++) line[j] = prior[j]
+	}
+	const ageColumn = normal.length - 1
+	const tvlColumn = ageColumn - 1
+	const intercept = normal[0]
+	const tvlLine = normal[tvlColumn]
+	const ageLine = normal[ageColumn]
+	for (let i = 0; i < rows.length; i++) {
+		const {tvl, age, target, group} = rows[i]
+		const contrast = ridgeGroup(group, tvlColumn)
+		const weight = weights[i]
+		const weightedTarget = weight * target
+		rhs[0] = rhs[0] + weightedTarget
+		intercept[0] = intercept[0] + weight
+		if (contrast) {
+			const line = normal[contrast]
+			rhs[contrast] = rhs[contrast] + weightedTarget
+			line[0] = line[0] + weight
+			line[contrast] = line[contrast] + weight
+		}
+		if (tvl !== 0) {
+			const scaled = weight * tvl
+			rhs[tvlColumn] = rhs[tvlColumn] + scaled * target
+			tvlLine[0] = tvlLine[0] + scaled
+			if (contrast) tvlLine[contrast] = tvlLine[contrast] + scaled
+			tvlLine[tvlColumn] = tvlLine[tvlColumn] + scaled * tvl
+		}
+		if (age !== 0) {
+			const scaled = weight * age
+			rhs[ageColumn] = rhs[ageColumn] + scaled * target
+			ageLine[0] = ageLine[0] + scaled
+			if (contrast) ageLine[contrast] = ageLine[contrast] + scaled
+			ageLine[tvlColumn] = ageLine[tvlColumn] + scaled * tvl
+			ageLine[ageColumn] = ageLine[ageColumn] + scaled * age
+		}
+	}
+	stabilize?.(normal, rhs)
+	return choleskySolve(normal, rhs)
+}
 //! Solve (XᵀWX + penalty) b = XᵀWy.
 function weightedLeastSquares(design, targets, weights, penalty, stabilize) {
 	const normal = penalty.map(row => [...row])
@@ -397,7 +459,8 @@ function weightedLeastSquares(design, targets, weights, penalty, stabilize) {
 }
 //! Cholesky with in-place triangular solves.
 function choleskySolve(lower, solution) {
-	for (const [i, row] of lower.entries()) {
+	for (let i = 0; i < lower.length; i++) {
+		const row = lower[i]
 		for (let j = 0; j <= i; j++) {
 			const previous = lower[j]
 			const pivot = row[j] - dot(row, previous, j)
@@ -416,28 +479,79 @@ function choleskySolve(lower, solution) {
 }
 
 function medianInPlace(values) {
-	values.sort()
 	const middle = Math.floor(values.length / 2)
+	let left = 0
+	let right = values.length - 1
+	let partitions = 2 * Math.ceil(Math.log2(values.length))
+	while (left < right && partitions-- > 0) {
+		let low = left
+		let high = right
+		const a = values[left]
+		const b = values[(left + right) >>> 1]
+		const c = values[right]
+		const pivot = a < b ? Math.max(a, Math.min(b, c)) : Math.max(b, Math.min(a, c))
+		if (Number.isNaN(pivot)) {
+			values.sort()
+			break
+		}
+		while (low <= high) {
+			while (values[low] < pivot) low++
+			while (!(values[high] <= pivot)) high--
+			if (low <= high) {
+				const value = values[low]
+				values[low++] = values[high]
+				values[high--] = value
+			}
+		}
+		if (middle <= high) right = high
+		else if (middle >= low) left = low
+		else break
+	}
+	if (partitions <= 0 || values[middle] === 0 || Number.isNaN(values[middle])) {
+		values.sort()
+		left = middle - 1
+	}
 	const upper = values[middle] ?? 0
-	return values.length % 2 ? upper : ((values[middle - 1] ?? upper) + upper) / 2
+	if (values.length % 2 || middle === 0) return upper
+	const from = left < middle ? left : 0
+	let lower = values[from]
+	for (let i = from + 1; i < middle; i++) lower = Math.max(lower, values[i])
+	return (lower + upper) / 2
 }
 //! Huber IRLS uses w = min(1, 1.345 × scaled MAD / |residual|).
-function fitHuber(design, targets, penalty, robust = true, stabilize) {
-	const weights = new Float64Array(targets.length).fill(1)
+function fitHuber(design, targets, penalty, robust = true, stabilize, reportScale = true) {
+	const count = "rows" in design ? design.rows.length : targets.length
+	const weights = new Float64Array(count).fill(1)
 	const residuals = weights.slice()
 	const scratch = weights.slice()
 	let coefficients = []
 	let huberScale = 1e-8
+	const ageColumn = penalty.length - 1
+	const tvlColumn = ageColumn - 1
+	const normal = penalty.map(row => [...row])
+	const solutions = [normal.map(() => 0), normal.map(() => 0)]
 	for (let iteration = 0; iteration <= 20; iteration++) {
-		const next = weightedLeastSquares(design, targets, weights, penalty, stabilize)
-		for (let i = 0; i < design.length; i++) {
-			residuals[i] = scratch[i] = targets[i] - dot(design[i], next)
+		const next =
+			"rows" in design ? weightedRidgeLeastSquares(design.rows, weights, penalty, normal, solutions[iteration % 2], stabilize) : weightedLeastSquares(design, targets, weights, penalty, stabilize)
+		const converged = next.every((value, i) => Math.abs(value - (coefficients[i] ?? Infinity)) < 1e-5)
+		coefficients = next
+		if (!reportScale && (!robust || converged || iteration === 20)) break
+		if ("rows" in design) {
+			for (let i = 0; i < design.rows.length; i++) {
+				const {target, tvl, age, group} = design.rows[i]
+				const contrast = ridgeGroup(group, tvlColumn)
+				const intercept = 0 + next[0]
+				const fitted = (contrast ? intercept + next[contrast] : intercept) + tvl * next[tvlColumn] + age * next[ageColumn]
+				residuals[i] = scratch[i] = target - fitted
+			}
+		} else {
+			for (let i = 0; i < design.length; i++) {
+				residuals[i] = scratch[i] = targets[i] - dot(design[i], next)
+			}
 		}
 		const center = medianInPlace(scratch)
 		for (let i = 0; i < residuals.length; i++) scratch[i] = Math.abs(residuals[i] - center)
 		huberScale = Math.max(1e-8, 1.4826 * medianInPlace(scratch))
-		const converged = next.every((value, i) => Math.abs(value - (coefficients[i] ?? Infinity)) < 1e-5)
-		coefficients = next
 		if (!robust || converged) break
 		for (let i = 0; i < residuals.length; i++) weights[i] = Math.min(1, (1.345 * huberScale) / Math.abs(residuals[i]))
 	}
@@ -449,7 +563,9 @@ function sigmoid(logit) {
 	return logit < 0 ? exp / (1 + exp) : 1 / (1 + exp)
 }
 function linearScore(features, coefficients) {
-	return dot([1, ...features], coefficients)
+	let score = 0 + (coefficients[0] ?? 0)
+	for (let i = 0; i < features.length; i++) score += features[i] * (coefficients[i + 1] ?? 0)
+	return score
 }
 //! Logistic IRLS uses w = p(1−p) and z = logit + (label − p)/w.
 function fitLogistic(features, labels, lambda) {
@@ -462,17 +578,20 @@ function fitLogistic(features, labels, lambda) {
 	const design = features.map(row => [1, ...stats.map(({mean, scale}, j) => ((row[j] ?? 0) - mean) / (scale || 1))])
 	const penalty = diagonalPenalty(coefficients.length, lambda)
 	const weights = []
+	const working = []
 	for (let iteration = 0; iteration < 80; iteration++) {
-		const working = design.map((row, i) => {
-			const logit = dot(row, coefficients)
+		for (let i = 0; i < design.length; i++) {
+			const logit = dot(design[i], coefficients)
 			const p = sigmoid(logit)
 			const weight = p * sigmoid(-logit)
 			weights[i] = weight
-			return logit + ((labels[i] ?? 0) - p) / weight
-		})
+			working[i] = logit + ((labels[i] ?? 0) - p) / weight
+		}
 		const next = weightedLeastSquares(design, working, weights, penalty)
 		const delta = next.map((value, j) => value - (coefficients[j] ?? 0))
-		const step = Math.min(1, 2 / Math.max(...design.map(row => Math.abs(dot(row, delta)))))
+		let maxChange = 0
+		for (const row of design) maxChange = Math.max(maxChange, Math.abs(dot(row, delta)))
+		const step = Math.min(1, 2 / maxChange)
 		delta.forEach((value, j) => {
 			coefficients[j] = (coefficients[j] ?? 0) + step * value
 		})
@@ -726,7 +845,23 @@ function optimizePortfolio(rows, {budgetUsd, hoursPerWeek, chains, assumptions},
 	return {positions, totals, rejected, closest}
 }
 
-window.Radar.support = {compareText, clamp, featureStats, median, fitHuber, diagonalPenalty, fitLogistic, linearScore, sigmoid, isCensusSortKey, isSortKey, parseRoute, boot}
+window.Radar.support = {
+	compareText,
+	clamp,
+	featureStats,
+	median,
+	fitHuber,
+	medianInPlace,
+	diagonalPenalty,
+	stabilizeRidge,
+	fitLogistic,
+	linearScore,
+	sigmoid,
+	isCensusSortKey,
+	isSortKey,
+	parseRoute,
+	boot
+}
 window.Radar.boardFarmSteps = row => boardFarmSteps(row, window.Radar)
 window.Radar.planPortfolio = (rows, options2) => optimizePortfolio(rows, options2, window.Radar)
 })();

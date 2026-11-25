@@ -13,7 +13,7 @@ import {
 } from "../../../src/domain/valuation/category-model.ts";
 import { comparablesFromFamilies } from "../../../src/domain/valuation/comparables.ts";
 import { seededFolds, splitFolds, walkForwardSplit } from "../../../src/domain/valuation/folds.ts";
-import { leaveOneFamilyOut } from "../../../src/domain/valuation/jackknife.ts";
+import { jackknifePlusBands, leaveOneFamilyOut } from "../../../src/domain/valuation/jackknife.ts";
 import { medianLogError, scorePredictions } from "../../../src/domain/valuation/metrics.ts";
 import {
   innerFolds,
@@ -21,10 +21,11 @@ import {
   selectByMedianError,
 } from "../../../src/domain/valuation/selection.ts";
 import { fitOuterFold, validateModel } from "../../../src/domain/valuation/validation.ts";
-import { VALUE_RIDGE_LAMBDA } from "../../../src/domain/valuation/value-fit.ts";
+import { refitValue, VALUE_RIDGE_LAMBDA } from "../../../src/domain/valuation/value-fit.ts";
 import { cacheCalibrationFits } from "../../../src/domain/valuation/value-fit-cache.ts";
 import {
   predictValueTrial,
+  refitSelectedValue,
   selectValueTerms,
 } from "../../../src/domain/valuation/value-selection.ts";
 import { readKitSnapshot } from "../../radar-fixtures.ts";
@@ -47,6 +48,41 @@ function validationRows(protocols: readonly Protocol[]) {
 }
 
 const rows = validationRows(fixtureRows);
+
+test("calibration refits and coverage match exhaustive term selection", () => {
+  const categorySignal = rows.map((row, i) => ({
+    ...row,
+    lnTvl: (i % 4) * 0.25,
+    target: 4 + (row.category === "dex" ? 5 : 0) + (i % 4) * 0.12,
+  }));
+  expect(selectValueTerms(categorySignal).terms).toContain("category");
+
+  const fitExhaustively = (train: Readonly<typeof rows>) =>
+    refitValue(train, selectValueTerms(train).terms);
+  for (const input of [rows.toReversed(), categorySignal]) {
+    const cachedRefit = cacheCalibrationFits(input);
+    expect(leaveOneFamilyOut(input, cachedRefit)).toStrictEqual(
+      leaveOneFamilyOut(input, fitExhaustively),
+    );
+    expect(jackknifePlusBands(input, cachedRefit)).toStrictEqual(
+      jackknifePlusBands(input, fitExhaustively),
+    );
+  }
+});
+
+test("a calibration set without walk-forward evidence skips leave-one-out trials", () => {
+  const input = rows.map((row) => ({ ...row, listedAt: null }));
+  const reference = selectValueTerms(input);
+  let trialFits = 0;
+  const selected = refitSelectedValue(input, (train, terms) => {
+    trialFits++;
+    return refitValue(train, terms);
+  });
+  expect(reference.terms).toEqual([]);
+  expect(reference.steps[0]?.baseline[0]).toBeTypeOf("number");
+  expect(selected).toStrictEqual(refitValue(input, reference.terms));
+  expect(trialFits).toBe(0);
+});
 
 test.each(["Risk Curators", "Onchain Capital Allocator"])(
   "treats %s as other for valuation and uses a yield-bearing vault plan",
