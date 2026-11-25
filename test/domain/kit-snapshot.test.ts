@@ -5,7 +5,7 @@ import { buildRadar, recomputeRadar } from "../../src/application/build-radar.ts
 import { ASSUMPTIONS_AS_OF, FARM_ASSUMPTIONS } from "../../src/domain/farming/assumptions.ts";
 import { farmTables } from "../../src/domain/farming/playbook-data.ts";
 import { planPortfolio } from "../../src/domain/farming/portfolio.ts";
-import { launchProbability12 } from "../../src/domain/launch-clock/clock.ts";
+import { protocolOdds } from "../../src/domain/launch-odds/model.ts";
 import type { Snapshot } from "../../src/domain/snapshot.ts";
 import { parseSnapshot } from "../../src/domain/snapshot.ts";
 import { valueFeatures } from "../../src/domain/valuation/model.ts";
@@ -39,6 +39,7 @@ beforeAll(() => {
 
 test("the kit snapshot produces a complete, valid and deterministic board", () => {
   const { census, board } = result;
+  const { rows } = toBoardRows(result);
 
   expect(census).toHaveLength(758);
   expect(census.map(({ slug }) => slug)).toEqual(snapshot.protocols.map(({ slug }) => slug));
@@ -106,24 +107,20 @@ test("the kit snapshot produces a complete, valid and deterministic board", () =
     if (!watchlist.has(row.protocol.slug)) {
       expect(excludedCategories, row.protocol.slug).not.toContain(row.protocol.category);
     }
-    expect(row.farm_steps.length).toBeGreaterThanOrEqual(3);
-    expect(row.farm_steps.length).toBeLessThanOrEqual(12);
+    const steps = rows[index]?.farm_steps ?? [];
+    expect(steps.length).toBeGreaterThanOrEqual(3);
+    expect(steps.length).toBeLessThanOrEqual(12);
     if (row.protocol.chains.length === 0) {
       expect(row.plan.chain).toBeNull();
     } else {
       expect(row.protocol.chains).toContain(row.plan.chain);
     }
-    for (const step of row.farm_steps) {
+    for (const step of steps) {
       expect(step.trim().length).toBeGreaterThanOrEqual(20);
       expect(step.trim().length).toBeLessThanOrEqual(600);
     }
   }
-  const recomputed = recomputeRadar(
-    snapshot,
-    result.model.lambda,
-    result.launchClock,
-    farmTables(),
-  );
+  const recomputed = recomputeRadar(snapshot, result.model.fit, result.odds.terms, farmTables());
   expect(toBoardRows({ board: recomputed.board, houseRule })).toEqual(toBoardRows(result));
 });
 
@@ -140,23 +137,16 @@ test("the parent flag still matches the house-rule audit on the published kit bo
 
 test("documents the age inputs computed for undated rows in the sealed snapshot", () => {
   const readme = readFileSync(new URL("../../README.md", import.meta.url), "utf8");
-  const { model, launchClock } = result;
-  const modelAge = Math.round(Math.exp(model.medianLnAge));
-  expect(modelAge).toBe(1000);
-  expect(launchClock.medianAgeDays).toBe(677);
-  const readmeModelAge = readme.match(
-    /median log age among dated fit families \(equivalent to ([\d,]+) days/,
-  )?.[1];
-  expect(Number(readmeModelAge?.replaceAll(",", ""))).toBe(modelAge);
-  expect(readme).toContain(
-    `median age across its dated protocols (${launchClock.medianAgeDays} days`,
-  );
-  expect(readme).toContain("one-day floor");
-  expect(readme).toContain("cannot validate future launch odds");
+  const { model, odds } = result;
+  expect(odds.medianAgeDays).toBe(665);
+  expect(readme).toContain(`population’s median age (${odds.medianAgeDays} days`);
+  expect(readme).toContain("clamped to [0.01, 0.99]");
+  expect(readme).toContain("assumes the cross-section behaves like a cohort");
   const row = result.board.find(({ protocol }) => protocol.listed_at === null);
   if (!row) throw new Error("Expected an undated board row");
-  expect(row.features.lnAge).toBe(model.medianLnAge);
-  expect(row.launchProbability12).toBe(launchProbability12(launchClock.points, 677));
+  const filled = protocolOdds(odds, row.protocol, snapshot.as_of);
+  expect(filled.oddsAge).toBe(odds.medianAgeDays);
+  expect(row.launchProbability12).toBe(filled.launchProbability12);
   expect(
     valueFeatures({ ...row.protocol, listed_at: snapshot.as_of }, snapshot.as_of, model.medianLnAge)
       .features.lnAge,
@@ -164,7 +154,7 @@ test("documents the age inputs computed for undated rows in the sealed snapshot"
 });
 
 test("the nested kit LOO model matches or improves on the flat multiple", () => {
-  const { validation, ablation } = result.model;
+  const { validation, selection } = result.model;
   const loo = validation.leaveOneFamilyOut;
   expect(loo.model.n).toBe(128);
   expect(loo.flatMultiple.n).toBe(128);
@@ -174,12 +164,18 @@ test("the nested kit LOO model matches or improves on the flat multiple", () => 
   expect(loo.model.medianMultiplier).not.toBeNull();
   expect(loo.flatMultiple.medianMultiplier).not.toBeNull();
   expect(loo.model.medianMultiplier).toBeLessThanOrEqual(loo.flatMultiple.medianMultiplier ?? 0);
-  expect(ablation.full).toEqual(loo.model);
-  expect(ablation.withCategory.medianMultiplier).toBeGreaterThan(loo.model.medianMultiplier ?? 0);
-  for (const score of Object.values(ablation)) {
-    expect(score.n).toBe(128);
-    expect(score.medianMultiplier).not.toBeNull();
-    expect(score.spearman).not.toBeNull();
+  expect(selection.terms).toEqual([]);
+  expect(selection.steps[0]?.trials.map(({ term, kept }) => [term, kept])).toEqual([
+    ["momentum", false],
+    ["age", false],
+    ["category", false],
+  ]);
+  expect(result.odds.terms).toEqual(["categoryShare", "lnTvl", "growth"]);
+  const { baselines, scores } = result.odds.validation;
+  for (const [i, score] of scores.entries()) {
+    expect(score).toBeLessThan(baselines.baseRate[i] ?? 0);
+    expect(score).toBeLessThan(baselines.pava[i] ?? 0);
+    expect(score).toBeLessThan(baselines.clockOnly[i] ?? 0);
   }
 });
 

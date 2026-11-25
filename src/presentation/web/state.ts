@@ -66,6 +66,10 @@ export function isCensusSortKey(value: string | null | undefined): value is Cens
 }
 
 export function parseRoute(hash: string): Route {
+  return pageRoute(hash, readBoardState);
+}
+
+export function pageRoute(hash: string, readBoard?: typeof readBoardState): Route {
   const [path, query] = hash.slice(1).split(/\?(.*)/s, 2);
   if (path === "/method") return { page: "method" };
   if (path === "/plan") return { page: "plan" };
@@ -83,15 +87,7 @@ export function parseRoute(hash: string): Route {
       },
     };
   }
-  const sort = params.get("sort") ?? undefined;
-  const state: BoardState = {
-    sort: isSortKey(sort) ? sort : defaultState.sort,
-    dir: params.get("dir") === "desc" ? "desc" : "asc",
-    cat: params.get("cat") ?? "",
-    chain: params.get("chain") ?? "",
-    wl: params.get("wl") === "1",
-    q: params.get("q") ?? "",
-  };
+  const state = readBoard?.(params) ?? defaultState;
   if (!path || path === "/") return { page: "board", state };
   const segment = /^\/p\/([^/]+)$/.exec(path)?.[1];
   if (segment) {
@@ -102,6 +98,18 @@ export function parseRoute(hash: string): Route {
     }
   }
   return { page: "unknown", state };
+}
+
+export function readBoardState(params: URLSearchParams): BoardState {
+  const sort = params.get("sort") ?? undefined;
+  return {
+    sort: isSortKey(sort) ? sort : defaultState.sort,
+    dir: params.get("dir") === "desc" ? "desc" : "asc",
+    cat: params.get("cat") ?? "",
+    chain: params.get("chain") ?? "",
+    wl: params.get("wl") === "1",
+    q: params.get("q") ?? "",
+  };
 }
 
 export function censusHash({ status, sort, dir, unranked }: CensusState): string {
@@ -130,5 +138,9 @@ export function boardHash(state: BoardState): string {
 }
 
 export function protocolHash(slug: string, state: BoardState): string {
-  return `#/p/${encodeURIComponent(slug)}${boardHash(state).slice(2)}`;
+  return protocolHref(slug, boardHash(state));
+}
+
+export function protocolHref(slug: string, back: string): string {
+  return `#/p/${encodeURIComponent(slug)}${back.slice(2)}`;
 }

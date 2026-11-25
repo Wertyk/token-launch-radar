@@ -1,51 +1,51 @@
-import type { farmAssumptions, formatUsd } from "../../application/browser-api.ts";
 import type { RadarResult } from "../../application/build-radar.ts";
-import { clockSampleSize } from "./clock-view.ts";
-import { formatInteger, formatOdds as pct } from "./format.ts";
-import type { HouseRuleEvidence } from "./integrity.ts";
 import { multiplier } from "./integrity.ts";
+import type { termTrials } from "./method-extras.ts";
 import { table } from "./render.ts";
 import type { scatterCoverage } from "./scatter-view.ts";
 import { launchValueScatter } from "./scatter-view.ts";
 
+export function methodPanel(title: string, headers: string[], rows: string[][], note?: string) {
+  return `<section class="panel"><h2>${title}</h2>${table(headers, rows)}${note ? `<p class="caption">${note}</p>` : ""}</section>`;
+}
+
 export function methodView(
   {
     model,
-    houseRule,
+    odds,
     scatter,
-    launchClock,
-  }: Pick<RadarResult, "model" | "launchClock"> & {
-    houseRule: HouseRuleEvidence;
+  }: Pick<RadarResult, "model" | "odds"> & {
     scatter: ReturnType<typeof scatterCoverage>;
   },
-  farm?: ReturnType<typeof methodFarmAssumptions>,
+  notes?: (panel: typeof methodPanel) => string,
+  renderTrials?: typeof termTrials,
 ): string {
   const {
     coefficients: { intercept, lnTvl, lnAge },
     validation,
-    ablation,
+    selection,
   } = model;
-  const score = ({ medianMultiplier, spearman }: typeof ablation.full) => [
-    multiplier(medianMultiplier),
-    spearman?.toFixed(3) ?? "—",
-  ];
-  const section = (title: string, headers: string[], rows: string[][], note?: string) =>
-    `<section class="panel"><h2>${title}</h2>${table(headers, rows)}${note ? `<p class="caption">${note}</p>` : ""}</section>`;
-  const { points } = launchClock;
+  const { baselines, scores } = odds.validation;
+  const brier = (x: number | null) => x?.toFixed(4) ?? "—";
+  const oddsHeaders = ["10-fold Brier", "Walk-forward Brier"];
   const cards = [
     '<div class="method-value">',
-    section(
+    methodPanel(
       "Launch value model",
       ["Term in ln V", "Coefficient"],
       [
         ["Intercept", intercept.toFixed(6)],
-        ["ln(TVL·(1+g₇))", lnTvl.toFixed(6)],
-        ["ln(age)", lnAge.toFixed(6)],
+        [model.momentum ? "ln(TVL·(1+g₇))" : "ln(TVL)", lnTvl.toFixed(6)],
+        ...(selection.terms.includes("age") ? [["ln(age)", lnAge.toFixed(6)]] : []),
+        ...Object.entries(model.categoryEffects ?? {}).map(([group, effect]) => [
+          group,
+          effect.toFixed(6),
+        ]),
         ["Ridge penalty λ", String(model.lambda)],
       ],
       `Huber ridge on ${model.n} traded families.`,
     ),
-    section(
+    methodPanel(
       "Out-of-sample validation",
       ["Scheme", "Model", "Flat", "Category"],
       (
@@ -56,63 +56,37 @@ export function methodView(
         ] as const
       ).map(([label, { model: fitted, flatMultiple, categoryMultiple }]) => [
         label,
-        ...[fitted, flatMultiple, categoryMultiple].map((s) => score(s).join(" · ")),
+        ...[fitted, flatMultiple, categoryMultiple].map(
+          ({ medianMultiplier, spearman }) =>
+            `${multiplier(medianMultiplier)} · ${spearman?.toFixed(3) ?? "—"}`,
+        ),
       ]),
       "Current traded-family market caps proxy for launch value. Median error ×k and Spearman ρ.",
     ),
+    renderTrials?.(selection, "Value", table) ?? "",
     "</div><div>",
-    section(
-      "Launch clock F(t)",
-      ["Mean listing age (days)", "Fitted token share (PAVA)", "Count"],
-      points.map(({ ageDays, share, count }) => [ageDays.toFixed(0), pct(share), String(count)]),
-      `${formatInteger(clockSampleSize(points))} protocols · P₁₂(t) = [F(t+365) − F(t)] / [1 − F(t)]<br>Flat windows and the tail use the last rising segment’s constant conditional hazard, or the pooled annual rate for a flat fit. The snapshot cannot validate future launch odds.`,
+    methodPanel(
+      "Token-status model",
+      ["Term in logit F(a)", "Coefficient"],
+      odds.names.map((name, i) => [name, odds.coefficients[i]?.toFixed(6) ?? "—"]),
+      `S(a) is the PAVA share clamped to 0.01–0.99. P₁₂ = [F(a+365) − F(a)] / [1 − F(a)]. Flat years use the annual tail hazard. Undated age ${odds.medianAgeDays} days.`,
     ),
-    section(
-      "House watchlist rule",
-      ["TP", "FP", "FN"],
+    methodPanel(
+      "Held-out token status",
+      ["Model", ...oddsHeaders],
       [
-        (["truePositives", "falsePositives", "falseNegatives"] as const).map((key) =>
-          String(houseRule[key].length),
-        ),
+        ["Base rate", ...baselines.baseRate.map(brier)],
+        ["Raw PAVA clock", ...baselines.pava.map(brier)],
+        ["Clock-only model (step 0)", ...baselines.clockOnly.map(brier)],
+        ["Final model", ...scores.map(brier)],
       ],
-      "DefiLlama marks extra matches with parentProtocol, absent from the snapshot.",
+      "Each fold refits its clock. Brier scores current token status. P₁₂ assumes the cross-section behaves like a cohort.",
     ),
+    renderTrials?.(odds.validation, "Odds", table) ?? "",
     "</div><div>",
-    section(
-      "Leave-one-family-out ablation",
-      ["Variant", "Median error", "Spearman ρ"],
-      (
-        [
-          ["Full", ablation.full],
-          ["−TVL", ablation.withoutTvl],
-          ["−Age", ablation.withoutAge],
-          ["−Momentum", ablation.withoutMomentum],
-          ["+Category", ablation.withCategory],
-          ["OLS", ablation.ols],
-        ] as const
-      ).map(([label, metrics]) => [label, ...score(metrics)]),
-    ),
     launchValueScatter(scatter, validation.leaveOneFamilyOut),
-    farm ? section(farm.title, ["Input", "Default"], farm.rows) : "",
+    notes?.(methodPanel) ?? "",
     "</div>",
   ];
   return `<div class="method compact">${cards.join("")}</div>`;
-}
-
-export function methodFarmAssumptions(farm: typeof farmAssumptions, usd: typeof formatUsd) {
-  return {
-    title: `Farm assumptions · ${farm.asOf}`,
-    rows: [
-      ["Horizon", `${farm.horizonMonths} months`],
-      ["Airdrop share of launch cap", pct(farm.airdropShareOfLaunchCap)],
-      ["Farmer haircut (retained)", pct(farm.farmerHaircut)],
-      ["Labor", `${usd(farm.hourlyRateUsd)}/h`],
-      [
-        "Capital APR",
-        `${pct(farm.capitalApr.yieldBearing)} yield-bearing · ${pct(farm.capitalApr.nonYielding)} non-yielding`,
-      ],
-      ["Verdict test deposits", farm.depositsUsd.map(usd).join(" · ")],
-      ["EV / cost cutoffs", `FARM ≥ ${farm.farmThreshold} · THIN ≥ ${farm.thinThreshold}`],
-    ],
-  };
 }

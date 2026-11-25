@@ -100,9 +100,14 @@ test("passes all seven gate checks and reproduces every byte with the repo asset
       ({ interval_p10_usd, interval_p90_usd, influence, twins, launch_p12, ...row }) => row,
     ),
   ).toEqual(rows);
+  const watchlist: string[] = JSON.parse(readFileSync(input, "utf8")).watchlist;
+  const slugs = new Set(rows.map(({ slug }) => slug));
+  expect(watchlist).toHaveLength(40);
+  expect(watchlist.filter((slug) => !slugs.has(slug))).toEqual([]);
   for (const row of rows) {
+    expect(Number.isInteger(row.implied_value_usd), row.slug).toBe(true);
     expect(row.implied_value_usd, row.slug).toBe(
-      Math.round(row.launch_value_usd * row.farm_economics.launchProbability12),
+      Math.max(1, Math.round(row.launch_value_usd * row.farm_economics.launchProbability12)),
     );
     expect(row.implied_value_usd, row.slug).toBeGreaterThanOrEqual(1);
   }

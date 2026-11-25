@@ -1,8 +1,9 @@
 import type * as BrowserApi from "../../application/browser-api.ts";
-import { escapeHtml as esc } from "./format.ts";
+import type { planPortfolio } from "../../domain/farming/portfolio.ts";
+import { options } from "./filter-options.ts";
 import type { Sliders } from "./plan-state.ts";
 import { sliderLimits } from "./plan-state.ts";
-import { options, table } from "./render.ts";
+import type { ViewTools } from "./view-tools.ts";
 
 const sliderLabels = {
   share: "Airdrop share of launch cap (%)",
@@ -33,14 +34,17 @@ export function plannerSettings(farm: typeof BrowserApi.farmAssumptions, sliders
   };
 }
 
-export function plannerForm(chains: readonly string[]): string {
+export function plannerForm(
+  chains: readonly string[],
+  escapeHtml: ViewTools["escapeHtml"],
+): string {
   return `<section class="panel farm portfolio"><h2>Farm portfolio</h2>
-    <p class="plan-meta">12-month estimates. Costs include fees, labor and capital.</p>
+    <p class="plan-meta">12-month estimates. Net deducts cash fees and capital carry.</p>
     <form>
       <div class="filters">
         <label class="field">Cash budget (USD)<input name="budget" type="number" min="0" step="any" required></label>
         <label class="field">Weekly hours cap<input name="hours" type="number" min="0" step="any" required></label>
-        <label class="field">Chains · leave empty for all<select name="chains" multiple size="4">${options(chains)}</select></label>
+        <label class="field">Chains · leave empty for all<select name="chains" multiple size="4">${options(chains, escapeHtml)}</select></label>
       </div>
       <fieldset class="sliders"><legend>Farm assumptions</legend>
         ${Object.entries(sliderLimits)
@@ -64,10 +68,11 @@ const reasons = {
 };
 
 export function plannerResults(
-  { positions, totals, rejected, closest }: ReturnType<typeof BrowserApi.planPortfolio>,
+  { positions, totals, rejected, closest }: ReturnType<typeof planPortfolio>,
   economics: ReturnType<typeof BrowserApi.estimateFarmEconomics>[],
   getName: (slug: string) => string,
   usd: typeof BrowserApi.formatUsd,
+  { escapeHtml: esc, table }: Pick<ViewTools, "escapeHtml" | "table">,
 ): string {
   const name = (slug: string) => esc(getName(slug));
   const values = ({

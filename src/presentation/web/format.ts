@@ -12,7 +12,7 @@ export function signedTerm(value: number, decimals = 3): string {
 }
 
 export function formatOdds(value: number): string {
-  return `${(value * 100).toFixed(1)}%`;
+  return `${(value * 100).toFixed(value < 0.05 ? 2 : 1)}%`;
 }
 
 export function formatPercent(value: number | null): string {

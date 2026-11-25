@@ -11,13 +11,13 @@ const defaults = {
   airdropShareOfLaunchCap: 0.25,
   farmerHaircut: 0.5,
   hourlyRateUsd: 25,
-  capitalApr: { yieldBearing: 0.02, nonYielding: 0.05 },
+  // Yield-bearing deposits keep their base yield. Compare the same asset in a
+  // vault without an airdrop. Non-yielding deposits forgo the cash rate.
+  capitalApr: { yieldBearing: 0, nonYielding: 0.05 },
   horizonMonths: 12,
   monthsPerYear: 12,
   weeksPerYear: 52,
   minutesPerHour: 60,
-  farmThreshold: 1.5,
-  thinThreshold: 0.75,
   depositsUsd: [1_000, 10_000],
   tradeVolumeUsd: 200,
   tradingFeeRate: 0.0006,

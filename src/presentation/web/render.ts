@@ -50,13 +50,3 @@ export function table(
 export function svg(width: number, height: number, content: string): string {
   return `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">${content}</svg>`;
 }
-
-export function options(values: readonly string[]): string {
-  return [...new Set(values)]
-    .sort()
-    .map((value) => {
-      const label = esc(value);
-      return `<option value="${label}">${label}</option>`;
-    })
-    .join("");
-}

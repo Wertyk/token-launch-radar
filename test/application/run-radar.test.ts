@@ -1,11 +1,10 @@
-import { createHash } from "node:crypto";
 import { expect, test } from "vitest";
 import { toBoardRows } from "../../src/application/board-rows.ts";
 import * as radarApi from "../../src/application/browser-api.ts";
 import { buildRadar } from "../../src/application/build-radar.ts";
 import type { DossierBuilder, OutputSink, SnapshotSource } from "../../src/application/ports.ts";
 import { runRadar } from "../../src/application/run-radar.ts";
-import { farmTables } from "../../src/domain/farming/playbook-data.ts";
+import { boardFarmSteps } from "../../src/domain/farming/board-steps.ts";
 import { parseSnapshot } from "../../src/domain/snapshot.ts";
 import type { ValueDiagnostics } from "../../src/domain/valuation/diagnostics.ts";
 import { integrityChecks } from "../../src/presentation/web/integrity.ts";
@@ -70,19 +69,6 @@ test("runs the ports in order and publishes the kit board and browser data", () 
 
   const board = JSON.parse(output.text("board.json")) as ReturnType<typeof toBoardRows>;
   const { rows } = board;
-  // Project the launch values back onto the v3 board to verify that V stayed identical.
-  const valuationBytes = JSON.stringify(
-    [...rows]
-      .sort((a, b) => b.launch_value_usd - a.launch_value_usd || (a.slug < b.slug ? -1 : 1))
-      .map(({ slug, launch_value_usd }, index) => ({
-        slug,
-        rank: index + 1,
-        implied_value_usd: launch_value_usd,
-      })),
-  );
-  expect(createHash("sha256").update(valuationBytes).digest("hex")).toBe(
-    "f4468f70d48b3e318dbf9655d0269bdd7954dedf619a04b54e15d77363e5e240",
-  );
   expect(summary).toEqual({
     rowCount: rows.length,
     watchlistCovered: 40,
@@ -139,10 +125,12 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     expect(point.p10).toBeLessThanOrEqual(point.p90);
     expect(point).not.toHaveProperty("inside");
   }
-  expect(data.launchClock.points).toHaveLength(6);
-  expect(
-    data.launchClock.points.reduce((sum: number, point: { count: number }) => sum + point.count, 0),
-  ).toBe(snapshot.protocols.filter(({ listed_at }) => listed_at !== null).length);
+  expect(data.odds.n).toBe(
+    snapshot.protocols.filter(
+      ({ listed_at }, i) => listed_at !== null && data.census[i].status !== "excluded",
+    ).length,
+  );
+  expect(data.odds.names).toEqual(["intercept", "logit(S(a))", ...data.odds.terms]);
   for (const [index, row] of rows.entries()) {
     const published = publishedRows[index];
     if (!published) throw new Error(`Missing data for ${row.slug}.`);
@@ -155,7 +143,7 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     expect(new Set(twins).size).toBe(5);
     expect(launch_p12).toBeGreaterThan(0);
     expect(launch_p12).toBeLessThanOrEqual(1);
-    expect(row.implied_value_usd).toBe(Math.round(row.launch_value_usd * launch_p12));
+    expect(row.implied_value_usd).toBe(Math.max(1, Math.round(row.launch_value_usd * launch_p12)));
     expect(published.flags).toEqual(row.flags);
   }
   const radar = buildRadar(snapshot);
@@ -171,6 +159,7 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     census: radar.census,
     model: publishedModel,
     looScatter: radar.looScatter,
+    odds: radar.odds,
   });
   expect(
     publishedRows.map(
@@ -185,8 +174,7 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     ),
   ).toEqual(rows);
   expect(data.model.validation.leaveOneFamilyOut.model.n).toBe(128);
-  expect(data.model.ablation.withCategory.n).toBe(128);
-  expect(data.model.ablation.ols.n).toBe(128);
+  expect(data.model.selection.terms).toEqual(data.model.fit.terms);
   expect(data.model).not.toHaveProperty("coefficients");
   expect(data.protocols).toHaveLength(758);
 
@@ -209,11 +197,12 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   expect(radarApi.readPublishedSnapshot({ ...data, watchlist: null })).toBeNull();
   const browserRadar = radarApi.buildRadar(
     browserSnapshot,
-    data.model.lambda,
-    data.launchClock,
+    data.model.fit,
+    data.odds.terms,
     data.meta,
   );
   expect(browserRadar.model.lambda).toBe(data.model.lambda);
+  expect(browserRadar.odds.coefficients).toEqual(data.odds.coefficients);
   expect(rows.every((row) => !("category" in row.decomposition.multipliers))).toBe(true);
   expect(browserRadar.model).not.toHaveProperty("validation");
   expect(radarApi).not.toHaveProperty("validateModel");
@@ -224,7 +213,9 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   const scatter = scatterCoverage(data.looScatter, families);
   expect(scatter.counts).toEqual({ missLow: 12, covered: 104, missHigh: 12 });
   const checks = integrityChecks(
-    boardMismatches(browserRadar.board, publishedRows),
+    boardMismatches(browserRadar.board, publishedRows, (row) =>
+      boardFarmSteps(row, radarApi.browserApi),
+    ),
     publishedRows,
     browserSnapshot.watchlist,
     {
@@ -237,14 +228,6 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   );
   expect(checks.filter(({ pass }) => !pass)).toEqual([]);
 
-  expect(() =>
-    radarApi.buildRadar(
-      browserSnapshot,
-      data.model.lambda,
-      { points: [], medianAgeDays: null },
-      data.meta,
-    ),
-  ).toThrow(/implied value rounds to \$0/);
   expect(
     board.rows.some(({ farm_economics }) =>
       farm_economics.deposits.some(({ expectedValueUsd }) => expectedValueUsd > 0),
@@ -303,45 +286,20 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   });
 }, 20_000);
 
-test("preserves v3 airdrop EV where the clock window stays inside the fitted points", () => {
-  const { board } = buildRadar(parseSnapshot(readKitSnapshot()));
-  const row = board.find(({ protocol: { slug } }) => slug === "sentora-curator");
-  expect(row?.economics.launchProbability12).toBe(0.20903935200201257);
-  expect(row?.economics.deposits.map(({ expectedValueUsd }) => expectedValueUsd)).toEqual([
-    1.001131156813365, 10.01131156813365,
-  ]);
-}, 20_000);
-
-test.each([
-  [0, 0],
-  [0.0000001, 0],
-  [0.5, 500_000],
-  [1, 1_000_000],
-])("publishes the exact rounded product or rejects it on a flat clock at %f", (share, implied) => {
+test("fails the build when the fitted token-status clock coefficient is non-positive", () => {
   const as_of = "2024-02-28";
-  const build = () =>
-    radarApi.buildRadar(
-      {
-        as_of,
-        source: "fixture",
-        floor_usd: 100,
-        watchlist: [],
-        protocols: [
-          protocol({ slug: "traded", mcap_usd: 1_000_000, gecko_id: "traded" }),
-          protocol({ slug: "candidate", listed_at: as_of }),
-        ],
-      },
-      1,
-      { points: [0, 730].map((ageDays) => ({ ageDays, share, count: 1 })), medianAgeDays: 365 },
-      farmTables(),
-    );
-  if (implied === 0) {
-    expect(build).toThrow("candidate: implied value rounds to $0");
-  } else {
-    expect(build().board).toMatchObject([
-      { launch_value_usd: 1_000_000, launchProbability12: share, implied_value_usd: implied },
-    ]);
-  }
+  expect(() =>
+    buildRadar({
+      as_of,
+      source: "fixture",
+      floor_usd: 100,
+      watchlist: [],
+      protocols: [
+        protocol({ slug: "traded", mcap_usd: 1_000_000, gecko_id: "traded", listed_at: as_of }),
+        protocol({ slug: "candidate", listed_at: "2023-03-01" }),
+      ],
+    }),
+  ).toThrow(/clock coefficient γ must be positive/);
 });
 
 test("fits a traded family once using its summed TVL, market cap and representative age", () => {
@@ -352,7 +310,8 @@ test("fits a traded family once using its summed TVL, market cap and representat
     protocols: [
       protocol({ slug: "z-member", gecko_id: "shared", tvl_usd: 30, mcap_usd: 100 }),
       protocol({ slug: "a-member", gecko_id: "shared", tvl_usd: 20, listed_at: "2024-03-01" }),
-      protocol({ slug: "candidate", tvl_usd: 40 }),
+      protocol({ slug: "candidate", tvl_usd: 40, listed_at: "2024-03-16" }),
+      protocol({ slug: "unpriced", gecko_id: "unpriced", listed_at: "2023-03-01" }),
     ],
     watchlist: [],
   });

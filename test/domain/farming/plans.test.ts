@@ -13,16 +13,16 @@ function makeFarmPlan(record: ReturnType<typeof protocol>, depositUsd?: number) 
 }
 
 const playbooks = [
-  ["Dexs", /pool/i, 0.02],
-  ["Uncollateralized Lending", /supply/i, 0.02],
-  ["CDP", /collateral/i, 0.02],
-  ["Liquid Restaking", /stake/i, 0.02],
-  ["Yield Aggregator", /vault/i, 0.02],
-  ["Risk Curators", /vault/i, 0.02],
-  ["Onchain Capital Allocator", /vault/i, 0.02],
+  ["Dexs", /pool/i, 0],
+  ["Uncollateralized Lending", /supply/i, 0],
+  ["CDP", /collateral/i, 0],
+  ["Liquid Restaking", /stake/i, 0],
+  ["Yield Aggregator", /vault/i, 0],
+  ["Risk Curators", /vault/i, 0],
+  ["Onchain Capital Allocator", /vault/i, 0],
   ["Interest Rate Derivatives", /margin/i, 0.05],
   ["Canonical Bridge", /destination/i, 0.05],
-  ["RWA", /KYC/i, 0.02],
+  ["RWA", /KYC/i, 0],
   ["Prediction Market", /resolution/i, 0.05],
   [null, /documented/i, 0.05],
 ] as const;

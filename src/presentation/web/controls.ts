@@ -1,15 +1,12 @@
+import type { BoardRow } from "./board.ts";
+import { options } from "./filter-options.ts";
 import type * as State from "./state.ts";
-import { censusHash } from "./state.ts";
+import { boardHash, censusHash, isSortKey } from "./state.ts";
 
 export function bindControls(
   main: HTMLElement,
   draw: () => void,
-  {
-    boardHash,
-    isCensusSortKey,
-    isSortKey,
-    parseRoute,
-  }: Pick<typeof State, "boardHash" | "isCensusSortKey" | "isSortKey" | "parseRoute">,
+  { isCensusSortKey, parseRoute }: Pick<typeof State, "isCensusSortKey" | "parseRoute">,
 ): void {
   main.addEventListener("click", (event) => {
     if (!(event.target instanceof Element)) return;
@@ -65,7 +62,7 @@ export function bindControls(
   });
 }
 
-export function setSelect(select: HTMLSelectElement, value: string): void {
+function setSelect(select: HTMLSelectElement, value: string): void {
   select.querySelector("[data-temporary]")?.remove();
   select.value = value;
   if (select.selectedIndex < 0) {
@@ -73,4 +70,46 @@ export function setSelect(select: HTMLSelectElement, value: string): void {
     option.dataset.temporary = "";
     select.add(option);
   }
+}
+
+export function boardControls(
+  main: HTMLElement,
+  { element, escapeHtml }: NonNullable<Window["Radar"]["view"]>,
+  rows: readonly BoardRow[],
+) {
+  const search = element<HTMLInputElement>('[name="q"]', main);
+  const category = element<HTMLSelectElement>('[name="cat"]', main);
+  const chain = element<HTMLSelectElement>('[name="chain"]', main);
+  category.insertAdjacentHTML(
+    "beforeend",
+    options(
+      rows.flatMap(({ category }) => category ?? []),
+      escapeHtml,
+    ),
+  );
+  chain.insertAdjacentHTML(
+    "beforeend",
+    options(
+      rows.flatMap(({ chains }) => chains),
+      escapeHtml,
+    ),
+  );
+  const watchlist = element<HTMLInputElement>('[name="wl"]', main);
+  const buttons = main.querySelectorAll<HTMLButtonElement>("button[data-sort]");
+  return (state: State.BoardState) => {
+    if (search.value !== state.q) search.value = state.q;
+    setSelect(category, state.cat);
+    setSelect(chain, state.chain);
+    watchlist.checked = state.wl;
+    for (const button of buttons) {
+      const th = button.parentElement;
+      if (th)
+        th.ariaSort =
+          button.dataset.sort !== state.sort
+            ? null
+            : state.dir === "asc"
+              ? "ascending"
+              : "descending";
+    }
+  };
 }

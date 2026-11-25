@@ -1,6 +1,5 @@
 import type * as BrowserApi from "../../application/browser-api.ts";
 import type { FarmTables } from "../../domain/farming/playbook-data.ts";
-import { element } from "./dom.ts";
 import type { PlanState, Sliders } from "./plan-state.ts";
 import { parsePlanState, planHash } from "./plan-state.ts";
 import { plannerForm, plannerResults, plannerSettings, sliderValues } from "./plan-view.ts";
@@ -9,15 +8,17 @@ export function mountPlanner(
   main: HTMLElement,
   board: readonly BrowserApi.RadarRow[],
   tables: FarmTables,
-  {
-    estimateFarmEconomics,
-    farmAssumptions,
-    formatUsd,
-    planPortfolio,
-  }: typeof BrowserApi.browserApi,
+  api: typeof BrowserApi.browserApi & Pick<Window["Radar"], "planPortfolio" | "view">,
 ) {
+  const { estimateFarmEconomics, farmAssumptions, formatUsd, planPortfolio, view } = api;
+  if (!planPortfolio || !view) throw new Error("Missing portfolio optimizer.");
+  const { element, escapeHtml, table } = view;
+  const optimize = planPortfolio;
   const names = new Map(board.map(({ protocol }) => [protocol.slug, protocol.name]));
-  main.innerHTML = plannerForm(board.flatMap(({ protocol }) => protocol.chains));
+  main.innerHTML = plannerForm(
+    board.flatMap(({ protocol }) => protocol.chains),
+    escapeHtml,
+  );
   const form = element<HTMLFormElement>("form", main);
   const budget = element<HTMLInputElement>('[name="budget"]', form);
   const hours = element<HTMLInputElement>('[name="hours"]', form);
@@ -79,7 +80,7 @@ export function mountPlanner(
         assumptions,
       ),
     );
-    const result = planPortfolio(board, {
+    const result = optimize(board, {
       budgetUsd,
       hoursPerWeek,
       assumptions,
@@ -90,6 +91,7 @@ export function mountPlanner(
       economics,
       (slug) => names.get(slug) ?? slug,
       formatUsd,
+      { escapeHtml, table },
     );
   }
   return (hash: string) => update(parsePlanState(hash));

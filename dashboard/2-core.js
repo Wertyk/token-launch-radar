@@ -5,13 +5,13 @@ var defaults = {
 	airdropShareOfLaunchCap: 0.25,
 	farmerHaircut: 0.5,
 	hourlyRateUsd: 25,
-	capitalApr: {yieldBearing: 0.02, nonYielding: 0.05},
+	// Yield-bearing deposits keep their base yield. Compare the same asset in a
+	// vault without an airdrop. Non-yielding deposits forgo the cash rate.
+	capitalApr: {yieldBearing: 0, nonYielding: 0.05},
 	horizonMonths: 12,
 	monthsPerYear: 12,
 	weeksPerYear: 52,
 	minutesPerHour: 60,
-	farmThreshold: 1.5,
-	thinThreshold: 0.75,
 	depositsUsd: [1e3, 1e4],
 	tradeVolumeUsd: 200,
 	tradingFeeRate: 6e-4,
@@ -27,7 +27,7 @@ function formatUsd(value) {
 }
 
 function farmEconomicsTerms(plan, valueUsd, tvlUsd, launchProbability, settings = defaults) {
-	const fixedCosts = plan.totalCostUsd + (plan.totalMinutes / settings.minutesPerHour) * settings.hourlyRateUsd
+	const hours = plan.totalMinutes / settings.minutesPerHour
 	const horizonYears2 = settings.horizonMonths / settings.monthsPerYear
 	const {yieldBearing, nonYielding} = settings.capitalApr ?? defaults.capitalApr
 	let capitalApr = plan.capitalApr
@@ -35,28 +35,32 @@ function farmEconomicsTerms(plan, valueUsd, tvlUsd, launchProbability, settings 
 	else if (capitalApr === defaults.capitalApr.nonYielding) capitalApr = nonYielding
 	const capitalCarry = capitalApr * horizonYears2
 	const k = (valueUsd * settings.airdropShareOfLaunchCap * launchProbability * settings.farmerHaircut) / tvlUsd
-	return {fixedCosts, horizonYears: horizonYears2, capitalCarry, k}
+	return {cashFees: plan.totalCostUsd, hours, horizonYears: horizonYears2, capitalCarry, k}
 }
 function estimateFarmEconomics(plan, valueUsd, tvlUsd, launchProbability, settings = defaults) {
-	const {fixedCosts, horizonYears: horizonYears2, capitalCarry, k} = farmEconomicsTerms(plan, valueUsd, tvlUsd, launchProbability, settings)
+	const terms = farmEconomicsTerms(plan, valueUsd, tvlUsd, launchProbability, settings)
+	const {cashFees, horizonYears: horizonYears2, capitalCarry, k} = terms
 	const atDeposit = depositUsd => {
-		const expectedValueUsd = k * depositUsd
-		const costUsd = fixedCosts + depositUsd * capitalCarry
-		const ratio = expectedValueUsd / costUsd
-		const verdict = ratio >= defaults.farmThreshold ? "FARM" : ratio >= defaults.thinThreshold ? "THIN" : "SKIP"
-		return {depositUsd, expectedValueUsd, costUsd, verdict}
+		const amounts = depositAmounts(terms, depositUsd)
+		const {netUsd, netPerHourUsd} = amounts
+		const verdict = netUsd <= 0 ? "SKIP" : netPerHourUsd >= settings.hourlyRateUsd ? "FARM" : "THIN"
+		return {depositUsd, ...amounts, verdict}
 	}
 	const [small, large] = defaults.depositsUsd
 	return {
 		launchProbability12: launchProbability,
 		airdropYieldApr: k / horizonYears2,
 		deposits: [atDeposit(small), atDeposit(large)],
-		breakEvenDepositUsd: k > capitalCarry ? fixedCosts / (k - capitalCarry) : "never"
+		breakEvenDepositUsd: k > capitalCarry ? cashFees / (k - capitalCarry) : "never"
 	}
 }
-function renderEconomics({deposits: [{depositUsd, expectedValueUsd, costUsd, verdict}], breakEvenDepositUsd}) {
-	const breakEven = breakEvenDepositUsd === "never" ? "never" : `≈ ${formatUsd(breakEvenDepositUsd)}`
-	return `Economics at ${formatUsd(depositUsd)} over ${defaults.horizonMonths} months · expected airdrop ≈ ${formatUsd(expectedValueUsd)} vs cost ≈ ${formatUsd(costUsd)} → ${verdict}. Break-even deposit ${breakEven}. Assumes ${defaults.airdropShareOfLaunchCap * 100}% of circulating launch cap because a mostly unlocked airdrop can account for much of a small launch float.`
+function depositAmounts({cashFees, capitalCarry, hours, k}, depositUsd) {
+	const expectedValueUsd = k * depositUsd
+	const carryUsd = capitalCarry * depositUsd
+	const costUsd = cashFees + carryUsd
+	const netUsd = expectedValueUsd - cashFees - carryUsd
+	const netPerHourUsd = netUsd === 0 ? 0 : netUsd / hours
+	return {expectedValueUsd, costUsd, netUsd, netPerHourUsd}
 }
 
 function compareText(first, second) {
@@ -157,155 +161,568 @@ function makeFarmPlan(protocol, {playbooks, gas, funding, uncollateralized}, dep
 		totalMinutes
 	}
 }
-function scheduleFarmMinutes({steps}) {
-	const weeks = Array(occurrences.weekly).fill(0)
-	for (const {cadence, minutes, exitCondition} of steps) {
-		const count = occurrences[cadence]
-		for (let occurrence = 1; occurrence <= count; occurrence++) {
-			const week = cadence === "once" && exitCondition === void 0 ? 0 : Math.ceil((occurrence * weeks.length) / count) - 1
-			weeks[week] = (weeks[week] ?? 0) + minutes
+
+function pava(bins) {
+	const pools = []
+	for (const bin of bins) {
+		pools.push({...bin, size: 1})
+		while (pools.length > 1) {
+			const left = pools.at(-2)
+			const right = pools.at(-1)
+			if (!left || !right || left.recorded * right.count <= right.recorded * left.count) break
+			left.count += right.count
+			left.recorded += right.recorded
+			left.size += right.size
+			pools.pop()
 		}
 	}
-	return weeks
-}
-function renderFarmStep({action, chain, costUsd, minutes, cadence, exitCondition}) {
-	const exit = exitCondition ? ` | Exit · ${shorten(exitCondition, 100)}` : ""
-	return `${shorten(action, 280)} | ${shorten(chain ?? "Chain unlisted", 110)} | Est. fee ${formatUsd(costUsd)} | ${minutes} minutes | ${cadence}${exit}`
+	return pools.flatMap(({count, recorded, size}) => Array(size).fill(recorded / count))
 }
 
-var deposits = [1e3, 2500, 5e3, 1e4]
-function planPortfolio(rows, {budgetUsd, hoursPerWeek, chains, assumptions}) {
-	if (assumptions.horizonMonths !== defaults.horizonMonths) {
-		throw new Error("The farm planner only supports a 12-month horizon.")
+var YEAR_DAYS = 365
+function fitAgeShares(rows) {
+	const bins = new Map()
+	for (const {ageDays: age, label} of rows) {
+		const year = Math.floor(age / YEAR_DAYS)
+		const bin = bins.get(year) ?? {count: 0, recorded: 0, ageSum: 0}
+		bin.count++
+		bin.recorded += label
+		bin.ageSum += age
+		bins.set(year, bin)
 	}
-	const permitted = chains && new Set(chains)
-	const usedMinutesByWeek = Array(defaults.weeksPerYear).fill(0)
-	const weeklyCapMinutes = hoursPerWeek * assumptions.minutesPerHour
-	const minutesPerAverageWeeklyHour = usedMinutesByWeek.length * assumptions.minutesPerHour
-	const candidates = rows.map(({protocol, rank, plan, economics, launch_value_usd}) => {
-		const supported = [...new Set(protocol.chains)].sort(compareText)
-		const choices = supported.length ? supported : [null]
-		const plans = choices.flatMap(chain => {
-			if (permitted && (chain === null || !permitted.has(chain))) return []
-			const option = chain === plan.chain || chain === null ? plan : makeFarmPlan({...protocol, chains: [chain]}, assumptions.tables)
-			return [{option, schedule: scheduleFarmMinutes(option)}]
-		})
-		return {
-			slug: protocol.slug,
-			rank,
-			plans,
-			valueUsd: launch_value_usd,
-			tvlUsd: protocol.tvl_usd,
-			probability: economics.launchProbability12
+	const ordered = [...bins].sort(([a], [b]) => a - b).map(([, bin]) => bin)
+	const shares = pava(ordered)
+	return ordered.map(({ageSum, count}, i) => ({
+		ageDays: ageSum / count,
+		share: shares[i] ?? 0,
+		count
+	}))
+}
+function tailHazard(points) {
+	for (let i = points.length - 1; i > 0; i--) {
+		const left = points[i - 1]
+		const right = points[i]
+		if (left && right && right.share > left.share) {
+			return Math.log((1 - left.share) / (1 - right.share)) / (right.ageDays - left.ageDays)
 		}
-	})
-	const funded = new Set()
-	const selected = new Set()
-	const positions = []
-	let feesCents = 0
-	const totals = {
-		depositUsd: 0,
-		feesUsd: 0,
-		cashUsd: 0,
-		hoursPerWeek: 0,
-		expectedValueUsd: 0,
-		costUsd: 0,
-		netUsd: 0
 	}
-	function offers({slug, plans, valueUsd, tvlUsd, probability}) {
-		return plans.flatMap(({option, schedule}) => {
-			const {chain, fundingStep} = option
-			const waived = chain !== null && funded.has(chain) ? fundingStep : null
-			const feeCents = Math.round((option.totalCostUsd - (waived?.costUsd ?? 0)) * 100)
-			const totalMinutes = option.totalMinutes - (waived?.minutes ?? 0)
-			const weeklyMinutes = waived ? schedule.map((minutes, week) => (week === 0 ? minutes - waived.minutes : minutes)) : schedule
-			const withinHours = weeklyMinutes.every((minutes, week) => (usedMinutesByWeek[week] ?? 0) + minutes <= weeklyCapMinutes)
-			const {fixedCosts, capitalCarry, k} = farmEconomicsTerms({totalCostUsd: feeCents / 100, totalMinutes, capitalApr: option.capitalApr}, valueUsd, tvlUsd, probability, assumptions)
-			return deposits.map(depositUsd => {
-				const expectedValueUsd = k * depositUsd
-				const costUsd = fixedCosts + capitalCarry * depositUsd
-				const netUsd = expectedValueUsd - costUsd
-				const position = {
+	return -Math.log1p(-(points[0]?.share ?? 0)) / YEAR_DAYS
+}
+function shareAt(points, age) {
+	let left = points[0]
+	if (!left) return 0
+	if (age <= left.ageDays) return left.share
+	for (const right of points) {
+		if (age <= right.ageDays) {
+			const fraction = (age - left.ageDays) / (right.ageDays - left.ageDays)
+			return left.share + fraction * (right.share - left.share)
+		}
+		left = right
+	}
+	return left.share + (1 - left.share) * -Math.expm1(-tailHazard(points) * (age - left.ageDays))
+}
+
+function clamp(value, min, max) {
+	return Math.min(max, Math.max(min, value))
+}
+function median(observations) {
+	const sorted = [...observations].sort((a, b) => a.value - b.value || compareText(a.slug, b.slug))
+	const mid = Math.floor(sorted.length / 2)
+	const upper = sorted[mid]
+	const lower = sorted[mid - 1]
+	if (!upper) return void 0
+	return sorted.length % 2 === 0 && lower ? (lower.value + upper.value) / 2 : upper.value
+}
+function featureStats(values) {
+	let sum = 0
+	let min = Number.POSITIVE_INFINITY
+	let max = Number.NEGATIVE_INFINITY
+	for (const value of values) {
+		sum += value
+		min = Math.min(min, value)
+		max = Math.max(max, value)
+	}
+	const mean = min === max ? min : sum / values.length
+	const scale = Math.sqrt(values.reduce((total, value) => total + (value - mean) ** 2, 0) / values.length)
+	return {mean, scale, range: {min, max}}
+}
+
+var DAY_MS = 864e5
+function daysBetween(fromIso, toIso) {
+	return (Date.parse(toIso) - Date.parse(fromIso)) / DAY_MS
+}
+
+var categories = {
+	dex: ["dex", "dexs", "liquidity manager"],
+	lending: ["lending", "uncollateralized lending", "cdp", "cdp manager", "collateral markets"],
+	staking: ["liquid staking", "staking pool", "restaking", "liquid restaking", "restaked btc"],
+	yield: ["yield", "yield aggregator", "leveraged farming", "farm"],
+	derivatives: ["derivatives", "interest rate derivatives", "basis trading", "options", "options vault"],
+	rwa: ["rwa"],
+	bridge: ["bridge", "canonical bridge", "cross chain bridge"],
+	other: []
+}
+function categoryGroup(category) {
+	const label = category?.trim().toLowerCase() ?? ""
+	for (const [group, labels] of Object.entries(categories)) {
+		if (labels.includes(label)) return group
+	}
+	return "other"
+}
+function categoryTotals() {
+	return Object.fromEntries(Object.keys(categories).map(group => [group, 0]))
+}
+
+function logAge(listedAt, asOf) {
+	return Math.log(Math.max(1, daysBetween(listedAt, asOf)))
+}
+function logMomentum(change) {
+	return change === null ? 0 : Math.log1p(clamp(change, -50, 100) / 100)
+}
+function comparablesFromFamilies(families, asOf) {
+	return families.flatMap(({key, representative, tvl_usd, mcap_usd}) => {
+		if (mcap_usd === null) return []
+		const {slug, listed_at, change_7d} = representative
+		return [
+			{
+				slug,
+				familyKey: key,
+				listedAt: listed_at,
+				lnTvl: Math.log(tvl_usd),
+				lnAge: listed_at === null ? null : logAge(listed_at, asOf),
+				growth: logMomentum(change_7d),
+				target: Math.log(mcap_usd)
+			}
+		]
+	})
+}
+
+function zeroMatrix(size) {
+	return Array.from({length: size}, () => Array(size).fill(0))
+}
+function addOuterProduct(matrix, row, weight, columns) {
+	for (const [i, column] of columns.entries()) {
+		const line = matrix[column]
+		if (!line) throw new Error("Incomplete normal matrix.")
+		const scaled = weight * (row[i] ?? 0)
+		for (let j = 0; j <= i; j++) {
+			const other = columns[j] ?? 0
+			line[other] = (line[other] ?? 0) + scaled * (row[j] ?? 0)
+		}
+	}
+}
+function at(values, index) {
+	const value = values[index]
+	if (value === void 0) throw new Error("Incomplete linear system.")
+	return value
+}
+function choleskySolve(matrix, rhs) {
+	const n = matrix.length
+	if (rhs.length !== n || matrix.some(row => row.length !== n)) {
+		throw new Error("The linear system requires a square matrix and a matching right-hand side.")
+	}
+	const lower = []
+	const solution = []
+	for (const [i, row] of matrix.entries()) {
+		const factor = []
+		let diagonal = at(row, i)
+		let target = at(rhs, i)
+		for (const [j, previous] of lower.entries()) {
+			let value = at(row, j)
+			for (const [k, entry2] of factor.entries()) value -= entry2 * at(previous, k)
+			const entry = value / at(previous, j)
+			factor.push(entry)
+			diagonal -= entry ** 2
+			target -= entry * at(solution, j)
+		}
+		if (!(diagonal > 0) || !Number.isFinite(diagonal)) {
+			throw new Error("Cholesky factorization requires a positive-definite matrix.")
+		}
+		const root = Math.sqrt(diagonal)
+		factor.push(root)
+		lower.push(factor)
+		solution.push(target / root)
+	}
+	for (let i = n - 1; i >= 0; i--) {
+		const row = lower[i] ?? []
+		const value = at(solution, i) / at(row, i)
+		solution[i] = value
+		for (let j = 0; j < i; j++) solution[j] = at(solution, j) - value * at(row, j)
+	}
+	return solution
+}
+
+var MAX_ITERATIONS = 80
+var TOLERANCE = 1e-10
+function sigmoid(logit) {
+	const exp = Math.exp(-Math.abs(logit))
+	return logit < 0 ? exp / (1 + exp) : 1 / (1 + exp)
+}
+function linearScore(features, coefficients) {
+	return dot([1, ...features], coefficients)
+}
+function dot(a, b) {
+	return a.reduce((sum, value, i) => sum + value * (b[i] ?? 0), 0)
+}
+function fitLogistic(features, labels, penalty) {
+	const n = features.length
+	const width = (features[0]?.length ?? 0) + 1
+	if (!n || labels.length !== n) throw new Error("The token-status model needs labeled observations.")
+	const rate = labels.reduce((sum, label) => sum + label, 0) / n
+	const coefficients = Array(width).fill(0)
+	coefficients[0] = Math.log(rate / (1 - rate))
+	if (rate === 0 || rate === 1) return coefficients
+	const stats = features[0]?.map((_, j) => featureStats(features.map(row => row[j] ?? 0))) ?? []
+	const design = features.map(row => [1, ...stats.map(({mean, scale}, j) => ((row[j] ?? 0) - mean) / (scale || 1))])
+	const columns = coefficients.map((_, i) => i)
+	for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+		const gradient = coefficients.map((slope, j) => (j ? -penalty * slope : 0))
+		const information = zeroMatrix(width)
+		for (const [i, line] of information.entries()) line[i] = i ? penalty : 0
+		for (const [i, row] of design.entries()) {
+			const logit = dot(row, coefficients)
+			const probability = sigmoid(logit)
+			const error = (labels[i] ?? 0) - probability
+			const weight = probability * sigmoid(-logit)
+			addOuterProduct(information, row, weight, columns)
+			for (const [j, value] of row.entries()) gradient[j] = (gradient[j] ?? 0) + value * error
+		}
+		const delta = choleskySolve(information, gradient)
+		const magnitude = Math.max(...delta.map(Math.abs))
+		const maxLogitStep = Math.max(...design.map(row => Math.abs(dot(row, delta))))
+		const step = Math.min(1, 2 / maxLogitStep)
+		delta.forEach((value, j) => {
+			coefficients[j] = (coefficients[j] ?? 0) + step * value
+		})
+		if (magnitude <= TOLERANCE) {
+			const slopes = stats.map(({scale}, j) => (coefficients[j + 1] ?? 0) / (scale || 1))
+			const intercept = stats.reduce((sum, {mean}, j) => sum - mean * (slopes[j] ?? 0), coefficients[0] ?? 0)
+			return [intercept, ...slopes]
+		}
+	}
+	throw new Error("Token-status logistic fit did not converge.")
+}
+
+var PENALTY = 1
+var PRIOR_STRENGTH = 20
+function protocolFeatures(protocol, ageDays) {
+	return {
+		ageDays,
+		lnTvl: Math.log(protocol.tvl_usd),
+		growth: logMomentum(protocol.change_7d),
+		lnChains: Math.log(Math.max(1, protocol.chains.length)),
+		category: categoryGroup(protocol.category)
+	}
+}
+function oddsPopulation(entries, asOf) {
+	return entries
+		.flatMap(({protocol, status}) => {
+			const {slug, listed_at: listedAt} = protocol
+			if (listedAt === null || status === "excluded") return []
+			return [
+				{
+					...protocolFeatures(protocol, Math.max(0, daysBetween(listedAt, asOf))),
 					slug,
-					chain,
-					depositUsd,
-					feesUsd: feeCents / 100,
-					hoursPerWeek: totalMinutes / minutesPerAverageWeeklyHour,
-					expectedValueUsd,
-					costUsd,
-					netUsd
+					familyKey: slug,
+					listedAt,
+					label: Number(status === "traded" || status === "token-unpriced")
 				}
-				return {
-					position,
-					feeCents,
-					weeklyMinutes,
-					fundsChain: fundingStep !== null,
-					score: netUsd / (depositUsd + position.feesUsd),
-					affordable: totals.depositUsd + depositUsd + (feesCents + feeCents) / 100 <= budgetUsd,
-					withinHours
-				}
-			})
+			]
+		})
+		.sort((a, b) => compareText(a.slug, b.slug))
+}
+function baseRate(rows) {
+	return rows.reduce((sum, {label}) => sum + label, 0) / rows.length
+}
+function categoryTokenShares(rows, prior = PRIOR_STRENGTH) {
+	const counts = categoryTotals()
+	const recorded = categoryTotals()
+	for (const {category, label} of rows) {
+		counts[category]++
+		recorded[category] += label
+	}
+	const rate = baseRate(rows)
+	for (const category of Object.keys(counts)) {
+		recorded[category] = (recorded[category] + prior * rate) / (counts[category] + prior)
+	}
+	return recorded
+}
+function oddsFeatures(row, terms, shares, clock) {
+	return [clockLogit(clock, row.ageDays), ...terms.map(term => (term === "categoryShare" ? shares[row.category] : row[term]))]
+}
+function clockLogit(clock, age) {
+	const share = clamp(shareAt(clock, age), 0.01, 0.99)
+	return Math.log(share / (1 - share))
+}
+function fitOddsModel(rows, terms) {
+	const shares = categoryTokenShares(rows)
+	const clock = fitAgeShares(rows)
+	const coefficients = fitLogistic(
+		rows.map(row => oddsFeatures(row, terms, shares, clock)),
+		rows.map(({label}) => label),
+		PENALTY
+	)
+	return {
+		terms,
+		coefficients,
+		shares,
+		clock,
+		n: rows.length,
+		medianAgeDays: median(rows.map(({slug, ageDays}) => ({slug, value: ageDays}))) ?? 0,
+		maxAgeDays: rows.reduce((max, {ageDays}) => Math.max(max, ageDays), 0)
+	}
+}
+function checkClockCoefficient(gamma = 0) {
+	if (!(gamma > 0)) throw new Error("Token-status clock coefficient γ must be positive.")
+}
+function launchProbability12(clock, age, otherLogit, gamma) {
+	checkClockCoefficient(gamma)
+	const future = clockLogit(clock, age + YEAR_DAYS)
+	const rise = future - clockLogit(clock, age)
+	if (rise === 0) return -Math.expm1(-tailHazard(clock) * YEAR_DAYS)
+	return clamp(sigmoid(otherLogit + gamma * future) * -Math.expm1(-gamma * rise), 0, 1)
+}
+function protocolOdds(model, protocol, asOf) {
+	const ageDays = protocol.listed_at === null ? model.medianAgeDays : Math.max(0, daysBetween(protocol.listed_at, asOf))
+	const {clock, coefficients, shares, terms} = model
+	const features = oddsFeatures(protocolFeatures(protocol, ageDays), terms, shares, clock)
+	features[0] = 0
+	const otherLogit = linearScore(features, coefficients)
+	const gamma = coefficients[1] ?? 0
+	const oddsAt = days => launchProbability12(clock, days, otherLogit, gamma)
+	return {oddsAge: ageDays, oddsAt, launchProbability12: oddsAt(ageDays)}
+}
+
+var HUBER_K = 1.345
+var MAD_NORMAL_SCALE = 1.4826
+var MIN_SCALE = 1e-8
+var MAX_ITERATIONS2 = 20
+var TOLERANCE2 = 1e-5
+function weightedRidge(rows, weights, lambda, groupPenalty) {
+	const width = groupPenalty.length + 3
+	const normal = zeroMatrix(width)
+	const rhs = Array(width).fill(0)
+	for (const [i, {values, columns, target}] of rows.entries()) {
+		const weight = weights[i] ?? 1
+		addOuterProduct(normal, values, weight, columns)
+		for (const [j, column] of columns.entries()) {
+			rhs[column] = (rhs[column] ?? 0) + weight * (values[j] ?? 0) * target
+		}
+	}
+	const tvlColumn = width - 2
+	const ageColumn = width - 1
+	const tvl = normal[tvlColumn] ?? []
+	const age = normal[ageColumn] ?? []
+	const tvlSquared = tvl[tvlColumn] ?? 0
+	const ageSquared = age[ageColumn] ?? 0
+	if (lambda === 0 && width === 3 && tvlSquared > 0 && ageSquared > 0 && (age[tvlColumn] ?? 0) ** 2 >= (1 - 8 * Number.EPSILON) * tvlSquared * ageSquared) {
+		return [
+			...choleskySolve(
+				normal.slice(0, 2).map(row => row.slice(0, 2)),
+				rhs.slice(0, 2)
+			),
+			0
+		]
+	}
+	for (const [i, penalties] of groupPenalty.entries()) {
+		const line = normal[i + 1] ?? []
+		penalties.forEach((penalty, j) => {
+			line[j + 1] = (line[j + 1] ?? 0) + penalty
 		})
 	}
-	for (;;) {
-		let best
-		for (const candidate of candidates) {
-			if (selected.has(candidate.slug)) continue
-			for (const offer of offers(candidate)) {
-				if (!(offer.position.netUsd > 0 && offer.affordable && offer.withinHours)) continue
-				if (!best || offer.score > best.score || (offer.score === best.score && compareText(candidate.slug, best.position.slug) < 0)) {
-					best = offer
-				}
+	tvl[tvlColumn] = (tvlSquared || 1) + lambda
+	age[ageColumn] = (ageSquared || 1) + lambda
+	return choleskySolve(normal, rhs)
+}
+function medianInPlace(values) {
+	values.sort()
+	const middle = Math.floor(values.length / 2)
+	const upper = values[middle] ?? 0
+	return values.length % 2 ? upper : ((values[middle - 1] ?? upper) + upper) / 2
+}
+function madScale(residuals, scratch) {
+	scratch.set(residuals)
+	const center = medianInPlace(scratch)
+	for (let i = 0; i < residuals.length; i++) scratch[i] = Math.abs((residuals[i] ?? 0) - center)
+	return Math.max(MIN_SCALE, MAD_NORMAL_SCALE * medianInPlace(scratch))
+}
+function fitHuber(size, solve, evaluateResiduals, robust = true) {
+	const weights = new Float64Array(size).fill(1)
+	const residuals = new Float64Array(size)
+	const scratch = new Float64Array(size)
+	let coefficients = solve(weights)
+	evaluateResiduals(coefficients, residuals)
+	let huberScale = madScale(residuals, scratch)
+	if (robust) {
+		for (let iteration = 0; iteration < MAX_ITERATIONS2; iteration++) {
+			const cutoff = HUBER_K * huberScale
+			for (let i = 0; i < residuals.length; i++) {
+				weights[i] = Math.min(1, cutoff / Math.abs(residuals[i] ?? 0))
+			}
+			const next = solve(weights)
+			const converged = next.every((value, i) => Math.abs(value - (coefficients[i] ?? 0)) < TOLERANCE2)
+			coefficients = next
+			evaluateResiduals(coefficients, residuals)
+			huberScale = madScale(residuals, scratch)
+			if (converged) break
+		}
+	}
+	return {coefficients, huberScale}
+}
+function fitRidge(rows, lambda, robust, groupPenalty = []) {
+	const tvlColumn = groupPenalty.length + 1
+	const ageColumn = tvlColumn + 1
+	const design = rows.map(({target, group = 0, tvl, age}) => ({
+		target,
+		values: group ? [1, 1, tvl, age] : [1, tvl, age],
+		columns: group ? [0, group, tvlColumn, ageColumn] : [0, tvlColumn, ageColumn]
+	}))
+	return fitHuber(
+		rows.length,
+		weights => weightedRidge(design, weights, lambda, groupPenalty),
+		(coefficients, residuals) => {
+			const intercept = coefficients[0] ?? 0
+			const tvlSlope = coefficients[tvlColumn] ?? 0
+			const ageSlope = coefficients[ageColumn] ?? 0
+			let i = 0
+			for (const {target, group = 0, tvl, age} of rows) {
+				const base = group ? intercept + (coefficients[group] ?? 0) : intercept
+				residuals[i++] = target - (base + tvlSlope * tvl + ageSlope * age)
+			}
+		},
+		robust
+	)
+}
+
+var FITTED_KEYS = ["lnTvl", "lnAge"]
+function valueFeatures(protocol, asOf, medianLnAge) {
+	const flags = []
+	if (protocol.change_7d === null) flags.push("growth-missing")
+	if (protocol.listed_at === null) flags.push("age-missing")
+	return {
+		features: {
+			lnTvl: Math.log(protocol.tvl_usd),
+			lnAge: protocol.listed_at === null ? medianLnAge : logAge(protocol.listed_at, asOf),
+			growth: logMomentum(protocol.change_7d)
+		},
+		flags
+	}
+}
+function prepareFit(rows, drop) {
+	const n = rows.length
+	if (n === 0) throw new Error("The value model needs at least one traded comparable.")
+	const medianLnAge = median(rows.flatMap(({slug, lnAge}) => (lnAge === null ? [] : [{slug, value: lnAge}]))) ?? 0
+	const tvl = featureStats(rows.map(({lnTvl}) => lnTvl))
+	const age = featureStats(rows.map(({lnAge}) => lnAge ?? medianLnAge))
+	const targetMean = rows.reduce((sum, row) => sum + row.target, 0) / n
+	const tvlScale = drop === "tvl" ? 0 : tvl.scale
+	const ageScale = drop === "age" ? 0 : age.scale
+	const design = rows.map(row => ({
+		target: row.target - targetMean,
+		tvl: tvlScale ? (row.lnTvl - tvl.mean) / tvlScale : 0,
+		age: ageScale ? ((row.lnAge ?? medianLnAge) - age.mean) / ageScale : 0
+	}))
+	return {
+		design,
+		targetMean,
+		tvlScale,
+		ageScale,
+		metadata: {
+			n,
+			medianLnAge,
+			featureMeans: {lnTvl: tvl.mean, lnAge: age.mean},
+			featureRanges: {lnTvl: tvl.range, lnAge: age.range}
+		}
+	}
+}
+function restoreCoefficients({targetMean, tvlScale, ageScale, metadata: {featureMeans}}, centeredIntercept, tvlSlope, ageSlope) {
+	const lnTvl = tvlScale ? tvlSlope / tvlScale : 0
+	const lnAge = ageScale ? ageSlope / ageScale : 0
+	const intercept = targetMean + centeredIntercept - lnTvl * featureMeans.lnTvl - lnAge * featureMeans.lnAge
+	return {intercept, lnTvl, lnAge}
+}
+function fitValueModel(rows, lambda, {drop, robust = true, momentum = true} = {}, category) {
+	const prepared = prepareFit(rows, drop)
+	const design = category
+		? prepared.design.map((row, i) => ({
+				...row,
+				group: category.groupBySlug[rows[i]?.slug ?? ""] ?? 0
+			}))
+		: prepared.design
+	const {coefficients, huberScale} = fitRidge(design, lambda, robust, category?.penalty)
+	const tvlColumn = category?.groups.length ?? 1
+	const center = category?.contrastShares.reduce((sum, share, i) => sum + share * (coefficients[i + 1] ?? 0), 0) ?? 0
+	const categoryEffects = category && categoryTotals()
+	if (category && categoryEffects) {
+		category.groups.forEach((key, i) => {
+			categoryEffects[key] = (i ? (coefficients[i] ?? 0) : 0) - center
+		})
+	}
+	return {
+		...prepared.metadata,
+		lambda,
+		momentum,
+		huberScale,
+		coefficients: restoreCoefficients(prepared, (coefficients[0] ?? 0) + center, coefficients[tvlColumn] ?? 0, coefficients[tvlColumn + 1] ?? 0),
+		...(categoryEffects && {categoryEffects})
+	}
+}
+function logValue({lnTvl, growth, lnAge, category}, {coefficients, momentum = true, categoryEffects}) {
+	return coefficients.intercept + coefficients.lnTvl * (lnTvl + (momentum ? growth : 0)) + coefficients.lnAge * lnAge + (categoryEffects?.[category ?? "other"] ?? 0)
+}
+function predictValue(protocol, asOf, model) {
+	const row = valueFeatures(protocol, asOf, model.medianLnAge)
+	const {featureMeans, featureRanges, coefficients} = model
+	const {features} = row
+	if (model.categoryEffects) features.category = categoryGroup(protocol.category)
+	if (
+		FITTED_KEYS.some(key => {
+			const {min, max} = featureRanges[key]
+			return features[key] < min || features[key] > max
+		})
+	) {
+		row.flags.push("outside-comps-range")
+	}
+	const {intercept, lnTvl, lnAge} = coefficients
+	const logBase = intercept + lnTvl * featureMeans.lnTvl + lnAge * featureMeans.lnAge
+	const valueUsd = Math.exp(logValue(features, model))
+	return {
+		...row,
+		valueUsd,
+		launch_value_usd: clamp(Math.round(valueUsd), 1, 1e14),
+		decomposition: {
+			base: Math.exp(logBase),
+			multipliers: {
+				lnTvl: Math.exp(lnTvl * (features.lnTvl - featureMeans.lnTvl)),
+				growth: Math.exp(lnTvl * (model.momentum === false ? 0 : features.growth)),
+				lnAge: Math.exp(lnAge * (features.lnAge - featureMeans.lnAge)),
+				...(model.categoryEffects && {
+					category: Math.exp(model.categoryEffects[features.category ?? "other"])
+				})
 			}
 		}
-		if (!best) break
-		const {position} = best
-		positions.push(position)
-		selected.add(position.slug)
-		if (position.chain !== null && best.fundsChain) funded.add(position.chain)
-		feesCents += best.feeCents
-		for (const [week, minutes] of best.weeklyMinutes.entries()) {
-			usedMinutesByWeek[week] = (usedMinutesByWeek[week] ?? 0) + minutes
-		}
-		totals.depositUsd += position.depositUsd
-		totals.expectedValueUsd += position.expectedValueUsd
-		totals.costUsd += position.costUsd
-		totals.netUsd += position.netUsd
 	}
-	totals.feesUsd = feesCents / 100
-	totals.cashUsd = totals.depositUsd + totals.feesUsd
-	totals.hoursPerWeek = usedMinutesByWeek.reduce((sum, minutes) => sum + minutes, 0) / minutesPerAverageWeeklyHour
-	const remaining = candidates.filter(({slug}) => !selected.has(slug))
-	const rejected = remaining
-		.sort((a, b) => a.rank - b.rank || compareText(a.slug, b.slug))
-		.slice(0, 15)
-		.map(candidate => {
-			const options = offers(candidate)
-			const positive = options.filter(({position}) => position.netUsd > 0)
-			const feasible = positive.length ? positive : options
-			const affordable = feasible.filter(offer => offer.affordable)
-			let reason = "non-positive"
-			if (!options.length) reason = "chain-excluded"
-			else if (!affordable.length) reason = "over-budget"
-			else if (!affordable.some(offer => offer.withinHours)) reason = "over-hours"
-			return {slug: candidate.slug, reason}
-		})
-	const closest = positions.length
-		? []
-		: remaining
-				.flatMap(candidate => {
-					let best
-					for (const {position, affordable, withinHours} of offers(candidate)) {
-						if (affordable && withinHours && (!best || position.netUsd > best.netUsd)) {
-							best = position
-						}
-					}
-					return best ? [{...best, shortfallUsd: Math.max(0, -best.netUsd)}] : []
-				})
-				.sort((a, b) => a.shortfallUsd - b.shortfallUsd || compareText(a.slug, b.slug))
-				.slice(0, 5)
-	return {positions, totals, rejected, closest}
 }
+function rankBoard(entries, asOf, model) {
+	return entries
+		.map(entry => {
+			const value = predictValue(entry.protocol, asOf, model)
+			return {
+				...entry,
+				...value,
+				implied_value_usd: Math.max(1, Math.round(value.launch_value_usd * entry.launchProbability12))
+			}
+		})
+		.sort((a, b) => b.implied_value_usd - a.implied_value_usd || compareText(a.protocol.slug, b.protocol.slug))
+		.map((entry, index) => ({...entry, rank: index + 1}))
+}
+
+function valueOptions(terms) {
+	return {...(!terms.includes("age") && {drop: "age"}), momentum: terms.includes("momentum")}
+}
+
+var TAIL_ALPHA = 0.1
+var MIN_BAND_FAMILIES = Math.ceil(1 / TAIL_ALPHA)
 
 function familyKey({slug, gecko_id}) {
 	return gecko_id === null ? `slug:${slug}` : `gecko:${gecko_id}`
@@ -417,406 +834,41 @@ function boardEntries(census, watchlist) {
 	return entries
 }
 
-function clamp(value, min, max) {
-	return Math.min(max, Math.max(min, value))
+function refitValue(rows, fit) {
+	return fitValueModel(rows, fit.lambda, valueOptions(fit.terms), fit.category)
 }
-function median(observations) {
-	const sorted = [...observations].sort((a, b) => a.value - b.value || compareText(a.slug, b.slug))
-	const mid = Math.floor(sorted.length / 2)
-	const upper = sorted[mid]
-	const lower = sorted[mid - 1]
-	if (!upper) return void 0
-	return sorted.length % 2 === 0 && lower ? (lower.value + upper.value) / 2 : upper.value
-}
-
-var DAY_MS = 864e5
-function daysBetween(fromIso, toIso) {
-	return (Date.parse(toIso) - Date.parse(fromIso)) / DAY_MS
-}
-
-var YEAR_DAYS = 365
-function tailHazard(points) {
-	for (let i = points.length - 1; i > 0; i--) {
-		const left = points[i - 1]
-		const right = points[i]
-		if (left && right && right.share > left.share) {
-			return Math.log((1 - left.share) / (1 - right.share)) / (right.ageDays - left.ageDays)
-		}
-	}
-	return -Math.log1p(-(points[0]?.share ?? 0)) / YEAR_DAYS
-}
-function shareAt(points, age) {
-	let left = points[0]
-	if (!left) return 0
-	if (age <= left.ageDays) return left.share
-	for (const right of points) {
-		if (age <= right.ageDays) {
-			const fraction = (age - left.ageDays) / (right.ageDays - left.ageDays)
-			return left.share + fraction * (right.share - left.share)
-		}
-		left = right
-	}
-	return left.share + (1 - left.share) * -Math.expm1(-tailHazard(points) * (age - left.ageDays))
-}
-function launchProbability12(points, age) {
-	if (age < (points.at(-1)?.ageDays ?? 0)) {
-		const now = shareAt(points, age)
-		if (now === 1) return 1
-		const rise = shareAt(points, age + YEAR_DAYS) - now
-		if (rise > 0) return clamp(rise / (1 - now), 0, 1)
-	}
-	return -Math.expm1(-tailHazard(points) * YEAR_DAYS)
-}
-
-function logAge(listedAt, asOf) {
-	return Math.log(Math.max(1, daysBetween(listedAt, asOf)))
-}
-function logMomentum(change) {
-	return change === null ? 0 : Math.log1p(clamp(change, -50, 100) / 100)
-}
-function comparablesFromFamilies(families, asOf) {
-	return families.flatMap(({key, representative, tvl_usd, mcap_usd}) => {
-		if (mcap_usd === null) return []
-		const {slug, listed_at, change_7d} = representative
-		return [
-			{
-				slug,
-				familyKey: key,
-				listedAt: listed_at,
-				lnTvl: Math.log(tvl_usd),
-				lnAge: listed_at === null ? null : logAge(listed_at, asOf),
-				growth: logMomentum(change_7d),
-				target: Math.log(mcap_usd)
-			}
-		]
-	})
-}
-
-function at(values, index) {
-	const value = values[index]
-	if (value === void 0) throw new Error("Incomplete linear system.")
-	return value
-}
-function choleskySolve(matrix, rhs) {
-	const n = matrix.length
-	if (rhs.length !== n || matrix.some(row => row.length !== n)) {
-		throw new Error("The linear system requires a square matrix and a matching right-hand side.")
-	}
-	const lower = []
-	for (const [i, row] of matrix.entries()) {
-		const factorRow = []
-		for (const [j, priorRow] of lower.entries()) {
-			let residual = at(row, j)
-			for (const [k, value] of factorRow.entries()) {
-				residual -= value * at(priorRow, k)
-			}
-			factorRow.push(residual / at(priorRow, j))
-		}
-		const diagonal = factorRow.reduce((sum, value) => sum - value * value, at(row, i))
-		if (!Number.isFinite(diagonal) || diagonal <= 0) {
-			throw new Error("Cholesky factorization requires a positive-definite matrix.")
-		}
-		factorRow.push(Math.sqrt(diagonal))
-		lower.push(factorRow)
-	}
-	const y = []
-	for (const [i, row] of lower.entries()) {
-		let residual = at(rhs, i)
-		for (const [j, value] of y.entries()) residual -= at(row, j) * value
-		y.push(residual / at(row, i))
-	}
-	const x = []
-	for (const [reverseIndex, row] of lower.toReversed().entries()) {
-		const i = n - 1 - reverseIndex
-		let residual = at(y, i)
-		for (let j = i + 1; j < n; j++) {
-			const factorRow = lower[j]
-			if (!factorRow) throw new Error("Incomplete Cholesky factor.")
-			residual -= at(factorRow, i) * at(x, j)
-		}
-		x[i] = residual / at(row, i)
-	}
-	return x
-}
-
-var HUBER_K = 1.345
-var MAD_NORMAL_SCALE = 1.4826
-var MIN_SCALE = 1e-8
-var MAX_ITERATIONS = 20
-var TOLERANCE = 1e-5
-function weightedRidge(rows, weights, lambda) {
-	let weightSum = 0
-	let tvlSum = 0
-	let ageSum = 0
-	let targetSum = 0
-	let tvlSquared = 0
-	let ageSquared = 0
-	let tvlAge = 0
-	let tvlTarget = 0
-	let ageTarget = 0
-	for (const [index, {tvl, age, target}] of rows.entries()) {
-		const weight = weights[index] ?? 1
-		const weightedTvl = weight * tvl
-		const weightedAge = weight * age
-		weightSum += weight
-		tvlSum += weightedTvl
-		ageSum += weightedAge
-		targetSum += weight * target
-		tvlSquared += weightedTvl * tvl
-		ageSquared += weightedAge * age
-		tvlAge += weightedTvl * age
-		tvlTarget += weightedTvl * target
-		ageTarget += weightedAge * target
-	}
-	if (lambda === 0 && tvlSquared > 0 && ageSquared > 0 && tvlAge ** 2 >= (1 - 8 * Number.EPSILON) * tvlSquared * ageSquared) {
-		return [
-			...choleskySolve(
-				[
-					[weightSum, tvlSum],
-					[tvlSum, tvlSquared]
-				],
-				[targetSum, tvlTarget]
-			),
-			0
-		]
-	}
-	return choleskySolve(
-		[
-			[weightSum, tvlSum, ageSum],
-			[tvlSum, (tvlSquared || 1) + lambda, tvlAge],
-			[ageSum, tvlAge, (ageSquared || 1) + lambda]
-		],
-		[targetSum, tvlTarget, ageTarget]
-	)
-}
-function medianInPlace(values) {
-	const middle = Math.floor(values.length / 2)
-	let low = 0
-	let high = values.length - 1
-	while (low < high) {
-		const pivot = values[(low + high) >>> 1] ?? 0
-		let left = low
-		let right = high
-		while (left <= right) {
-			while ((values[left] ?? pivot) < pivot) left++
-			while ((values[right] ?? pivot) > pivot) right--
-			if (left <= right) {
-				const value = values[left] ?? pivot
-				values[left++] = values[right] ?? pivot
-				values[right--] = value
-			}
-		}
-		if (middle <= right) high = right
-		else if (middle >= left) low = left
-		else break
-	}
-	const upper = values[middle] ?? 0
-	if (values.length % 2 !== 0) return upper
-	let lower = Number.NEGATIVE_INFINITY
-	for (let i = 0; i < middle; i++) lower = Math.max(lower, values[i] ?? upper)
-	return (lower + upper) / 2
-}
-function madScale(residuals, scratch) {
-	scratch.set(residuals)
-	const center = medianInPlace(scratch)
-	for (let i = 0; i < residuals.length; i++) scratch[i] = Math.abs((residuals[i] ?? 0) - center)
-	return Math.max(MIN_SCALE, MAD_NORMAL_SCALE * medianInPlace(scratch))
-}
-function fitHuber(size, solve, evaluateResiduals, robust = true) {
-	const weights = new Float64Array(size).fill(1)
-	const residuals = new Float64Array(size)
-	const scratch = new Float64Array(size)
-	let coefficients = solve(weights)
-	evaluateResiduals(coefficients, residuals)
-	let huberScale = madScale(residuals, scratch)
-	if (robust) {
-		for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-			const cutoff = HUBER_K * huberScale
-			for (let i = 0; i < residuals.length; i++) {
-				weights[i] = Math.min(1, cutoff / Math.abs(residuals[i] ?? 0))
-			}
-			const next = solve(weights)
-			const converged = next.every((value, i) => Math.abs(value - (coefficients[i] ?? 0)) < TOLERANCE)
-			coefficients = next
-			evaluateResiduals(coefficients, residuals)
-			huberScale = madScale(residuals, scratch)
-			if (converged) break
-		}
-	}
-	return {coefficients, huberScale}
-}
-function fitRidge(rows, lambda, robust) {
-	return fitHuber(
-		rows.length,
-		weights => weightedRidge(rows, weights, lambda),
-		([intercept = 0, tvlSlope = 0, ageSlope = 0], residuals) => {
-			let i = 0
-			for (const {target, tvl, age} of rows) {
-				residuals[i++] = target - (intercept + tvlSlope * tvl + ageSlope * age)
-			}
-		},
-		robust
-	)
-}
-
-var FITTED_KEYS = ["lnTvl", "lnAge"]
-function valueFeatures(protocol, asOf, medianLnAge) {
-	const flags = []
-	if (protocol.change_7d === null) flags.push("growth-missing")
-	if (protocol.listed_at === null) flags.push("age-missing")
-	return {
-		features: {
-			lnTvl: Math.log(protocol.tvl_usd),
-			lnAge: protocol.listed_at === null ? medianLnAge : logAge(protocol.listed_at, asOf),
-			growth: logMomentum(protocol.change_7d)
-		},
-		flags
-	}
-}
-function featureStats(values) {
-	let sum = 0
-	let min = Number.POSITIVE_INFINITY
-	let max = Number.NEGATIVE_INFINITY
-	for (const value of values) {
-		sum += value
-		min = Math.min(min, value)
-		max = Math.max(max, value)
-	}
-	const mean = min === max ? min : sum / values.length
-	const scale = Math.sqrt(values.reduce((total, value) => total + (value - mean) ** 2, 0) / values.length)
-	return {mean, scale, range: {min, max}}
-}
-function prepareFit(rows, drop) {
-	const n = rows.length
-	if (n === 0) throw new Error("The value model needs at least one traded comparable.")
-	const medianLnAge = median(rows.flatMap(({slug, lnAge}) => (lnAge === null ? [] : [{slug, value: lnAge}]))) ?? 0
-	const tvl = featureStats(rows.map(({lnTvl}) => lnTvl))
-	const age = featureStats(rows.map(({lnAge}) => lnAge ?? medianLnAge))
-	const targetMean = rows.reduce((sum, row) => sum + row.target, 0) / n
-	const tvlScale = drop === "tvl" ? 0 : tvl.scale
-	const ageScale = drop === "age" ? 0 : age.scale
-	const design = rows.map(row => ({
-		target: row.target - targetMean,
-		tvl: tvlScale ? (row.lnTvl - tvl.mean) / tvlScale : 0,
-		age: ageScale ? ((row.lnAge ?? medianLnAge) - age.mean) / ageScale : 0
-	}))
-	return {
-		design,
-		targetMean,
-		tvlScale,
-		ageScale,
-		metadata: {
-			n,
-			medianLnAge,
-			featureMeans: {lnTvl: tvl.mean, lnAge: age.mean},
-			featureRanges: {lnTvl: tvl.range, lnAge: age.range}
-		}
-	}
-}
-function restoreCoefficients({targetMean, tvlScale, ageScale, metadata: {featureMeans}}, centeredIntercept, tvlSlope, ageSlope) {
-	const lnTvl = tvlScale ? tvlSlope / tvlScale : 0
-	const lnAge = ageScale ? ageSlope / ageScale : 0
-	const intercept = targetMean + centeredIntercept - lnTvl * featureMeans.lnTvl - lnAge * featureMeans.lnAge
-	return {intercept, lnTvl, lnAge}
-}
-function fitValueModel(rows, lambda, {drop, robust = true} = {}) {
-	const prepared = prepareFit(rows, drop)
-	const {
-		coefficients: [base = 0, tvl = 0, age = 0],
-		huberScale
-	} = fitRidge(prepared.design, lambda, robust)
-	return {
-		...prepared.metadata,
-		lambda,
-		huberScale,
-		coefficients: restoreCoefficients(prepared, base, tvl, age)
-	}
-}
-function logValue({lnTvl, growth, lnAge}, {coefficients}) {
-	return coefficients.intercept + coefficients.lnTvl * (lnTvl + growth) + coefficients.lnAge * lnAge
-}
-function predictValue(protocol, asOf, model) {
-	const row = valueFeatures(protocol, asOf, model.medianLnAge)
-	const {featureMeans, featureRanges, coefficients} = model
-	const {features} = row
-	if (
-		FITTED_KEYS.some(key => {
-			const {min, max} = featureRanges[key]
-			return features[key] < min || features[key] > max
-		})
-	) {
-		row.flags.push("outside-comps-range")
-	}
-	const {intercept, lnTvl, lnAge} = coefficients
-	const logBase = intercept + lnTvl * featureMeans.lnTvl + lnAge * featureMeans.lnAge
-	const valueUsd = Math.exp(logValue(features, model))
-	return {
-		...row,
-		valueUsd,
-		launch_value_usd: clamp(Math.round(valueUsd), 1, 1e14),
-		decomposition: {
-			base: Math.exp(logBase),
-			multipliers: {
-				lnTvl: Math.exp(lnTvl * (features.lnTvl - featureMeans.lnTvl)),
-				growth: Math.exp(lnTvl * features.growth),
-				lnAge: Math.exp(lnAge * (features.lnAge - featureMeans.lnAge))
-			}
-		}
-	}
-}
-function rankBoard(entries, asOf, model) {
-	return entries
-		.map(entry => {
-			const value = predictValue(entry.protocol, asOf, model)
-			return {
-				...entry,
-				...value,
-				implied_value_usd: Math.round(value.launch_value_usd * entry.launchProbability12)
-			}
-		})
-		.sort((a, b) => b.implied_value_usd - a.implied_value_usd || compareText(a.protocol.slug, b.protocol.slug))
-		.map((entry, index) => ({...entry, rank: index + 1}))
-}
-
-var TAIL_ALPHA = 0.1
-var MIN_BAND_FAMILIES = Math.ceil(1 / TAIL_ALPHA)
 
 function radarInputs({protocols, as_of}) {
 	const families = groupFamilies(protocols)
-	return {families, comparables: comparablesFromFamilies(families, as_of)}
-}
-function rankRadar(snapshot, {families, comparables}, lambda, launchClock, tables) {
-	const {protocols, watchlist, as_of} = snapshot
 	const entries = buildCensus(protocols, families)
-	const model = fitValueModel(comparables, lambda)
-	const candidates = boardEntries(entries, watchlist).map(entry => {
-		const {protocol} = entry
-		const age = protocol.listed_at === null ? (launchClock.medianAgeDays ?? 0) : Math.max(0, daysBetween(protocol.listed_at, as_of))
-		return {...entry, launchProbability12: launchProbability12(launchClock.points, age)}
-	})
-	const board = rankBoard(candidates, as_of, model).map(row => {
-		if (row.implied_value_usd === 0) {
-			throw new Error(`${row.protocol.slug}: implied value rounds to $0`)
-		}
+	const comparables = comparablesFromFamilies(families, as_of)
+	return {families, entries, comparables, population: oddsPopulation(entries, as_of)}
+}
+function rankRadar({watchlist, as_of}, entries, model, odds, tables) {
+	checkClockCoefficient(odds.coefficients[1])
+	const candidates = boardEntries(entries, watchlist).map(entry => ({
+		...entry,
+		...protocolOdds(odds, entry.protocol, as_of)
+	}))
+	return rankBoard(candidates, as_of, model).map(row => {
 		const {protocol, launch_value_usd, launchProbability12: p12} = row
 		const plan = makeFarmPlan(protocol, tables)
-		const economics = estimateFarmEconomics(plan, launch_value_usd, protocol.tvl_usd, p12)
 		return {
 			...row,
 			plan,
-			economics,
-			farm_steps: [...plan.steps.map(renderFarmStep), renderEconomics(economics)]
+			economics: estimateFarmEconomics(plan, launch_value_usd, protocol.tvl_usd, p12)
 		}
 	})
-	return {entries, model, board}
 }
-function recomputeRadar(snapshot, lambda, launchClock, tables) {
-	const inputs = radarInputs(snapshot)
-	const {model, board} = rankRadar(snapshot, inputs, lambda, launchClock, tables)
+function recomputeRadar(snapshot, valueFit, oddsTerms, tables) {
+	const {families, entries, comparables, population} = radarInputs(snapshot)
+	const model = refitValue(comparables, valueFit)
+	const odds = fitOddsModel(population, oddsTerms)
 	return {
 		model,
-		board,
-		families: inputs.families,
+		odds,
+		board: rankRadar(snapshot, entries, model, odds, tables),
+		families,
 		houseRule: houseRuleMembership(snapshot)
 	}
 }
@@ -830,10 +882,13 @@ function readPublishedSnapshot({meta, protocols, watchlist}) {
 }
 var browserApi = {
 	MIN_BAND_FAMILIES,
+	depositAmounts,
+	farmEconomicsTerms,
+	makeFarmPlan,
+	occurrences,
+	shorten,
 	farmAssumptions: defaults,
 	estimateFarmEconomics,
-	planPortfolio,
-	launchProbability12,
 	formatUsd,
 	compareText,
 	daysBetween,

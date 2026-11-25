@@ -1,7 +1,9 @@
 import type { BoardEntry } from "../census/census.ts";
-import { clamp, median } from "../shared/math.ts";
+import { clamp, featureStats, median } from "../shared/math.ts";
 import { compareText } from "../shared/order.ts";
 import type { Protocol } from "../snapshot.ts";
+import type { CategoryGroup } from "./categories.ts";
+import { categoryGroup, categoryTotals } from "./categories.ts";
 import type { Comparable } from "./comparables.ts";
 import { logAge, logMomentum } from "./comparables.ts";
 import type { RidgeRow } from "./ridge.ts";
@@ -16,6 +18,7 @@ interface FittedFeatures {
 
 interface ValueFeatures extends FittedFeatures {
   growth: number;
+  category?: CategoryGroup;
 }
 
 type FeatureFlag = "growth-missing" | "age-missing" | "outside-comps-range";
@@ -27,6 +30,8 @@ interface FeatureRow {
 
 export interface ValueModel {
   n: number;
+  momentum: boolean;
+  categoryEffects?: Record<CategoryGroup, number>;
   lambda: number;
   huberScale: number;
   medianLnAge: number;
@@ -40,7 +45,7 @@ interface Valuation extends FeatureRow {
   launch_value_usd: number;
   decomposition: {
     base: number;
-    multipliers: FittedFeatures & { growth: number };
+    multipliers: FittedFeatures & { growth: number; category?: number };
   };
 }
 
@@ -55,9 +60,10 @@ export interface RankedRow extends LaunchCandidate, Valuation {
 
 type FittedTerm = "tvl" | "age";
 
-interface FitOptions {
+export interface FitOptions {
   drop?: FittedTerm;
   robust?: boolean;
+  momentum?: boolean;
 }
 
 export function valueFeatures(protocol: Protocol, asOf: string, medianLnAge: number): FeatureRow {
@@ -73,22 +79,6 @@ export function valueFeatures(protocol: Protocol, asOf: string, medianLnAge: num
     },
     flags,
   };
-}
-
-function featureStats(values: readonly number[]) {
-  let sum = 0;
-  let min = Number.POSITIVE_INFINITY;
-  let max = Number.NEGATIVE_INFINITY;
-  for (const value of values) {
-    sum += value;
-    min = Math.min(min, value);
-    max = Math.max(max, value);
-  }
-  const mean = min === max ? min : sum / values.length;
-  const scale = Math.sqrt(
-    values.reduce((total, value) => total + (value - mean) ** 2, 0) / values.length,
-  );
-  return { mean, scale, range: { min, max } };
 }
 
 export function prepareFit(rows: readonly Comparable[], drop?: FittedTerm) {
@@ -135,30 +125,67 @@ export function restoreCoefficients(
   return { intercept, lnTvl, lnAge };
 }
 
+export interface CategoryDesign {
+  groups: CategoryGroup[];
+  groupBySlug: Record<string, number>;
+  contrastShares: number[];
+  penalty: number[][];
+}
+
 export function fitValueModel(
   rows: readonly Comparable[],
   lambda: number,
-  { drop, robust = true }: FitOptions = {},
+  { drop, robust = true, momentum = true }: FitOptions = {},
+  category?: CategoryDesign,
 ): ValueModel {
   const prepared = prepareFit(rows, drop);
-  const {
-    coefficients: [base = 0, tvl = 0, age = 0],
-    huberScale,
-  } = fitRidge(prepared.design, lambda, robust);
+  const design = category
+    ? prepared.design.map((row, i) => ({
+        ...row,
+        group: category.groupBySlug[rows[i]?.slug ?? ""] ?? 0,
+      }))
+    : prepared.design;
+  const { coefficients, huberScale } = fitRidge(design, lambda, robust, category?.penalty);
+  const tvlColumn = category?.groups.length ?? 1;
+  const center =
+    category?.contrastShares.reduce(
+      (sum, share, i) => sum + share * (coefficients[i + 1] ?? 0),
+      0,
+    ) ?? 0;
+  const categoryEffects = category && categoryTotals();
+  if (category && categoryEffects) {
+    category.groups.forEach((key, i) => {
+      categoryEffects[key] = (i ? (coefficients[i] ?? 0) : 0) - center;
+    });
+  }
   return {
     ...prepared.metadata,
     lambda,
+    momentum,
     huberScale,
-    coefficients: restoreCoefficients(prepared, base, tvl, age),
+    coefficients: restoreCoefficients(
+      prepared,
+      (coefficients[0] ?? 0) + center,
+      coefficients[tvlColumn] ?? 0,
+      coefficients[tvlColumn + 1] ?? 0,
+    ),
+    ...(categoryEffects && { categoryEffects }),
   };
 }
 
 export function logValue(
-  { lnTvl, growth, lnAge }: ValueFeatures,
-  { coefficients }: Pick<ValueModel, "coefficients">,
+  { lnTvl, growth, lnAge, category }: ValueFeatures,
+  {
+    coefficients,
+    momentum = true,
+    categoryEffects,
+  }: Pick<ValueModel, "coefficients" | "categoryEffects"> & Partial<Pick<ValueModel, "momentum">>,
 ): number {
   return (
-    coefficients.intercept + coefficients.lnTvl * (lnTvl + growth) + coefficients.lnAge * lnAge
+    coefficients.intercept +
+    coefficients.lnTvl * (lnTvl + (momentum ? growth : 0)) +
+    coefficients.lnAge * lnAge +
+    (categoryEffects?.[category ?? "other"] ?? 0)
   );
 }
 
@@ -166,6 +193,7 @@ export function predictValue(protocol: Protocol, asOf: string, model: ValueModel
   const row = valueFeatures(protocol, asOf, model.medianLnAge);
   const { featureMeans, featureRanges, coefficients } = model;
   const { features } = row;
+  if (model.categoryEffects) features.category = categoryGroup(protocol.category);
   if (
     FITTED_KEYS.some((key) => {
       const { min, max } = featureRanges[key];
@@ -186,25 +214,31 @@ export function predictValue(protocol: Protocol, asOf: string, model: ValueModel
       base: Math.exp(logBase),
       multipliers: {
         lnTvl: Math.exp(lnTvl * (features.lnTvl - featureMeans.lnTvl)),
-        growth: Math.exp(lnTvl * features.growth),
+        growth: Math.exp(lnTvl * (model.momentum === false ? 0 : features.growth)),
         lnAge: Math.exp(lnAge * (features.lnAge - featureMeans.lnAge)),
+        ...(model.categoryEffects && {
+          category: Math.exp(model.categoryEffects[features.category ?? "other"]),
+        }),
       },
     },
   };
 }
 
-export function rankBoard(
-  entries: readonly LaunchCandidate[],
+export function rankBoard<Entry extends LaunchCandidate>(
+  entries: readonly Entry[],
   asOf: string,
   model: ValueModel,
-): RankedRow[] {
+): (Entry & RankedRow)[] {
   return entries
     .map((entry) => {
       const value = predictValue(entry.protocol, asOf, model);
       return {
         ...entry,
         ...value,
-        implied_value_usd: Math.round(value.launch_value_usd * entry.launchProbability12),
+        implied_value_usd: Math.max(
+          1,
+          Math.round(value.launch_value_usd * entry.launchProbability12),
+        ),
       };
     })
     .sort(

@@ -5,11 +5,9 @@ import type { BoardRow } from "./board.ts";
 
 type Economics = RadarRow["economics"];
 type Interval = Pick<ValueDiagnostics, "interval_p10_usd" | "interval_p90_usd">;
-type RankedFields = Pick<
-  RadarRow,
-  "rank" | "launch_value_usd" | "implied_value_usd" | "farm_steps"
->;
+type RankedFields = Pick<RadarRow, "rank" | "launch_value_usd" | "implied_value_usd">;
 export type RecomputedRow = RankedFields & {
+  farm_steps?: readonly string[];
   protocol: Pick<RadarRow["protocol"], "slug">;
   plan: Pick<
     RadarRow["plan"],
@@ -28,6 +26,7 @@ export type CheckRow = RankedFields &
     | "plan_total_minutes"
   > & {
     slug: string;
+    farm_steps: readonly string[];
     launch_p12: number;
     airdrop_yield_apr: number;
     farm_economics: Pick<Economics, "breakEvenDepositUsd" | "launchProbability12"> & {
@@ -35,14 +34,24 @@ export type CheckRow = RankedFields &
     };
   };
 
-function matchesFields(expected: unknown, actual: unknown): boolean {
-  if (!expected || typeof expected !== "object") return expected === actual;
-  if (!actual || typeof actual !== "object") return false;
-  if (Array.isArray(expected) && (!Array.isArray(actual) || expected.length !== actual.length)) {
-    return false;
+// Different engines round transcendental functions differently in the last ulp.
+const tolerance = 1e-9;
+
+function matchesFields(a: unknown, b: unknown, field = ""): boolean {
+  if (a === b) return true;
+  if (
+    typeof a === "number" &&
+    typeof b === "number" &&
+    !Number.isInteger(a) &&
+    !/cost/i.test(field)
+  ) {
+    const delta = Math.abs(a - b);
+    return Number.isFinite(delta) && delta <= tolerance * Math.max(1, Math.abs(a), Math.abs(b));
   }
-  return Object.entries(expected).every(([key, value]) =>
-    matchesFields(value, (actual as Record<string, unknown>)[key]),
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a) && (!Array.isArray(b) || a.length !== b.length)) return false;
+  return Object.entries(a).every(([key, value]) =>
+    matchesFields(value, (b as Record<string, unknown>)[key], key),
   );
 }
 
@@ -54,9 +63,10 @@ export function boardInterval(row: Interval | null | undefined) {
     : null;
 }
 
-export function boardMismatches(
-  computed: readonly RecomputedRow[],
+export function boardMismatches<Row extends RecomputedRow>(
+  computed: readonly Row[],
   published: readonly (CheckRow | null)[],
+  steps?: (row: Row) => string[],
 ): string[] {
   const slugs = published
     .slice(computed.length)
@@ -68,16 +78,17 @@ export function boardMismatches(
       launch_value_usd,
       implied_value_usd,
       plan,
-      economics,
-      farm_steps,
     } = row;
-    const { airdropYieldApr: airdrop_yield_apr, ...farm_economics } = economics;
-    const expected: Omit<CheckRow, keyof Interval> = {
+    const saved = published[index];
+    const farm_steps = steps?.(row) ?? row.farm_steps ?? saved?.farm_steps;
+    const { airdropYieldApr: airdrop_yield_apr, ...farm_economics } = row.economics;
+    const expected: Omit<CheckRow, keyof Interval | "farm_steps"> & {
+      farm_steps: typeof farm_steps;
+    } = {
       slug,
       rank,
       launch_value_usd,
       implied_value_usd,
-      farm_steps,
       airdrop_yield_apr,
       launch_p12: farm_economics.launchProbability12,
       plan_chain: plan.chain,
@@ -86,8 +97,9 @@ export function boardMismatches(
       plan_total_cost_usd: plan.totalCostUsd,
       plan_total_minutes: plan.totalMinutes,
       farm_economics,
+      farm_steps,
     };
-    if (!boardInterval(published[index]) || !matchesFields(expected, published[index]))
+    if (!boardInterval(saved) || !Array.isArray(farm_steps) || !matchesFields(expected, saved))
       slugs.push(slug);
   }
   return slugs;
@@ -98,13 +110,14 @@ export function prepareBoard(
   published: readonly ((CheckRow & ValueDiagnostics) | null)[],
   watchlist: readonly string[],
   age: (row: Protocol) => number | null,
+  steps?: (row: RadarRow) => string[],
 ) {
   const evidence = new Map(published.flatMap((row) => (row ? [[row.slug, row]] : [])));
   return {
     diagnostics: evidence,
     families: new Map(families.map((family) => [family.representative.slug, family])),
     protocols: new Map(board.map((row) => [row.protocol.slug, row])),
-    mismatches: boardMismatches(board, published),
+    mismatches: boardMismatches(board, published, steps),
     rows: boardViewRows(board, evidence, watchlist, age),
   };
 }

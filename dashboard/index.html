@@ -40,9 +40,9 @@
             Implied value = launch value × 12-month launch odds · <span id="formula"></span>
           </p>
           <p class="caption">
-            Launch value is the conditional market cap at launch. Launch odds come from a monotone
-            clock fitted to the token records of <span id="clock-count"></span> listed protocols.
-            Age is days since listing (min 1). g₇ is 7-day TVL growth clipped to −50%…+100%.
+            Launch value is the conditional market cap at launch. Launch odds come from a
+            token-status model fitted on <span id="clock-count"></span> listed protocols. A PAVA
+            clock maps listing age to token share.
           </p>
           <div id="checks"></div>
         </section>
@@ -52,6 +52,10 @@
       <h2 role="alert">Radar unavailable</h2>
       <p>Generate the dashboard with <code>pnpm radar</code> and reopen this page.</p>
     </main>
+    <template id="plan-unavailable">
+      <h2>Farm portfolio</h2>
+      <p>Open a protocol from the board to see its deposit net and verdicts.</p>
+    </template>
     <template id="board-filters">
       <form class="filters" aria-label="Board filters">
         <label class="field"

@@ -67,8 +67,8 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
     await definition.waitFor({ state: "visible", timeout: 4_000 });
     expect((await definition.textContent())?.replace(/\s+/g, " ").trim()).toBe(
       "Launch value is the conditional market cap at launch. " +
-        "Launch odds come from a monotone clock fitted to the token records of 645 listed protocols. " +
-        "Age is days since listing (min 1). g₇ is 7-day TVL growth clipped to −50%…+100%.",
+        "Launch odds come from a token-status model fitted on 518 listed protocols. " +
+        "A PAVA clock maps listing age to token share.",
     );
     expect(await ready.locator(".census-summary").textContent()).toBe(
       "All 758 protocols accounted for: 198 ranked · 128 traded · 288 token, unpriced · 144 excluded (wrapped, staked, bridged, exchange or versioned names)",
@@ -123,8 +123,8 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
     for (const name of [
       "Launch value model",
       "Out-of-sample validation",
-      "Leave-one-family-out ablation",
-      "Launch clock F(t)",
+      "Token-status model",
+      "Held-out token status",
       "Predicted launch value vs current market cap",
     ]) {
       const bounds = await methodCard(name).boundingBox();
@@ -132,14 +132,20 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
       expect(bounds.y, name).toBeGreaterThanOrEqual(0);
       expect(bounds.y + bounds.height, name).toBeLessThanOrEqual(900);
     }
-    expect(await methodCard("Launch clock F(t)").textContent()).toContain("645 protocols · P₁₂(t)");
+    expect(await methodCard("Token-status model").textContent()).toContain("P₁₂ = [F(a+365)");
+    for (const label of ["Value term selection", "Odds term selection"]) {
+      const summary = ready.locator("summary").filter({ hasText: label });
+      await summary.click();
+      await summary.locator("..").getByText("Not kept").first().waitFor();
+      await summary.click();
+    }
     const scatter = methodCard("Predicted launch value vs current market cap");
     const identity = await scatter.locator("svg .identity").boundingBox();
     expect(identity?.height).toBeGreaterThanOrEqual(169);
     expect(await scatter.locator("svg circle.inside").count()).toBe(104);
     expect(await scatter.locator("svg circle.outside").count()).toBe(24);
     expect(await scatter.textContent()).toContain(
-      "104/128 inside held-out P10–P90 · LOO median error ×3.46 vs ×5.07 flat",
+      "104/128 inside held-out P10–P90 · LOO median error ×3.56 vs ×5.07 flat",
     );
     await page.setViewportSize({ width: 390, height: 844 });
     const mobileOrder = await ready.locator(".method h2").evaluateAll((headings) =>
@@ -148,7 +154,7 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
         .sort((a, b) => a.top - b.top)
         .map(({ name }) => name),
     );
-    expect(mobileOrder.slice(0, 2)).toEqual(["Launch value model", "Launch clock F(t)"]);
+    expect(mobileOrder.slice(0, 2)).toEqual(["Launch value model", "Token-status model"]);
     await page.setViewportSize({ width: 1440, height: 900 });
     await nav.getByRole("link", { name: "Census", exact: true }).click();
     await heading("Protocol census");

@@ -6,7 +6,7 @@ import { assertExcludedRows, shotStates } from "../../tools/screenshots.ts";
 type ShotRow = Pick<BoardRows["rows"][number], "slug" | "rank" | "farm_economics">;
 
 function row(rank: number, verdict: "THIN" | "FARM" | "SKIP"): ShotRow {
-  const deposit = { expectedValueUsd: 1, costUsd: 1 };
+  const deposit = { expectedValueUsd: 1, costUsd: 1, netUsd: 0, netPerHourUsd: 0 };
   return {
     slug: `row-${rank}`,
     rank,

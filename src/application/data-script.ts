@@ -11,8 +11,8 @@ export function renderDataScript(
     model,
     rowDiagnostics,
     looScatter,
-    launchClock,
-  }: Pick<RadarResult, "census" | "model" | "rowDiagnostics" | "looScatter" | "launchClock">,
+    odds,
+  }: Pick<RadarResult, "census" | "model" | "rowDiagnostics" | "looScatter" | "odds">,
   tables: FarmTables,
 ): string {
   const { as_of, floor_usd, source, protocols, watchlist } = snapshot;
@@ -31,7 +31,7 @@ export function renderDataScript(
     census,
     model: publishedModel,
     looScatter,
-    launchClock,
+    odds,
     board: {
       rows: board.rows.map((row) => {
         const diagnostics = rowDiagnostics.get(row.slug);

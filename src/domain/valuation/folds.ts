@@ -5,16 +5,25 @@ import type { Comparable } from "./comparables.ts";
 const FOLD_COUNT = 5;
 const FOLD_SEED = 0x2a14;
 
-export interface Fold<Row extends Comparable = Comparable> {
+interface FoldRow {
+  slug: string;
+  familyKey: string;
+  listedAt: string | null;
+}
+
+export interface Fold<Row extends FoldRow = Comparable> {
   train: Row[];
   test: Row[];
 }
 
-function bySlug(a: Comparable, b: Comparable): number {
+function bySlug(a: FoldRow, b: FoldRow): number {
   return compareText(a.slug, b.slug);
 }
 
-export function seededFolds<Row extends Comparable>(rows: readonly Row[]): Row[][] {
+export function seededFolds<Row extends FoldRow>(
+  rows: readonly Row[],
+  count = FOLD_COUNT,
+): Row[][] {
   const ordered = [...rows].sort(bySlug);
   const keys = [...new Set(ordered.map(({ familyKey }) => familyKey))];
   const next = mulberry32(FOLD_SEED);
@@ -26,22 +35,22 @@ export function seededFolds<Row extends Comparable>(rows: readonly Row[]): Row[]
     const last = keys.pop();
     if (key === undefined || last === undefined) throw new Error("Missing fold family.");
     if (index < keys.length) keys[index] = last;
-    assignments.set(key, assignments.size % FOLD_COUNT);
+    assignments.set(key, assignments.size % count);
   }
-  const folds: Row[][] = Array.from({ length: FOLD_COUNT }, () => []);
+  const folds: Row[][] = Array.from({ length: count }, () => []);
   for (const row of ordered) folds[assignments.get(row.familyKey) ?? -1]?.push(row);
   return folds;
 }
 
 /** Test each held-out group with the remaining families in a stable order. */
-export function splitFolds<Row extends Comparable>(heldOut: readonly Row[][]): Fold<Row>[] {
+export function splitFolds<Row extends FoldRow>(heldOut: readonly Row[][]): Fold<Row>[] {
   return heldOut.map((test, i) => ({
     train: heldOut.flatMap((fold, j) => (i === j ? [] : fold)).sort(bySlug),
     test,
   }));
 }
 
-export function walkForwardSplit<Row extends Comparable>(rows: readonly Row[]): Fold<Row> {
+export function walkForwardSplit<Row extends FoldRow>(rows: readonly Row[]): Fold<Row> {
   const dated = rows.flatMap((row) => (row.listedAt === null ? [] : [{ row, date: row.listedAt }]));
   dated.sort((a, b) => compareText(a.date, b.date) || bySlug(a.row, b.row));
   const cutoff = Math.floor(dated.length * 0.6);

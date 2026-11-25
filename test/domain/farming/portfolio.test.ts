@@ -1,8 +1,8 @@
 import { expect, test } from "vitest";
 import { FARM_ASSUMPTIONS } from "../../../src/domain/farming/assumptions.ts";
-import { makeFarmPlan, scheduleFarmMinutes } from "../../../src/domain/farming/plans.ts";
+import { makeFarmPlan, occurrences } from "../../../src/domain/farming/plans.ts";
 import { farmTables } from "../../../src/domain/farming/playbook-data.ts";
-import { planPortfolio } from "../../../src/domain/farming/portfolio.ts";
+import { planPortfolio, scheduleFarmMinutes } from "../../../src/domain/farming/portfolio.ts";
 import { mulberry32 } from "../../../src/domain/shared/prng.ts";
 import { protocol } from "../protocol-fixture.ts";
 
@@ -113,21 +113,21 @@ test("rescores after paying for funding and charges its fee and time once per ch
     ["c", 1_000, 0.49],
   ]);
   const first = result.positions[0];
-  // $8.8M × 25% × 50% / $10M × $2,500 = $275 EV. Fees, $25/hr and 2% carry make up cost.
+  // $8.8M × 25% × 50% / $10M × $2,500 = $275 EV. Yield-bearing capital incurs no carry.
   expect(first?.expectedValueUsd).toBe(275);
-  expect(first?.costUsd).toBeCloseTo(0.4 + (109 / 60) * 25 + 50, 10);
-  expect(first?.netUsd).toBeCloseTo(275 - (0.4 + (109 / 60) * 25 + 50), 10);
+  expect(first?.costUsd).toBeCloseTo(0.4, 10);
+  expect(first?.netUsd).toBeCloseTo(275 - 0.4, 10);
   expect(result.positions[1]?.hoursPerWeek).toBeCloseTo(99 / (52 * 60), 12);
-  expect(result.positions[1]?.costUsd).toBeCloseTo(0.1 + (99 / 60) * 25 + 20, 10);
+  expect(result.positions[1]?.costUsd).toBeCloseTo(0.1, 10);
   expect(result.totals.cashUsd).toBe(4_500.99);
   expect(result.totals.hoursPerWeek).toBeCloseTo((109 + 99 + 109) / (52 * 60), 12);
 });
 
 test("requires $20,016 for two Ethereum protocols with their own $8 transfers", () => {
-  // At a 5.5% expected yield, $10,000 is the only deposit above break-even.
+  // At a 5.1% expected yield, $10,000 is the only deposit above break-even.
   const rows = [
-    row("a", 1, 4_400_000, ["Ethereum"], "Bridge"),
-    row("b", 2, 4_400_000, ["Ethereum"], "Canonical Bridge"),
+    row("a", 1, 4_080_000, ["Ethereum"], "Bridge"),
+    row("b", 2, 4_080_000, ["Ethereum"], "Canonical Bridge"),
   ];
   const options = { hoursPerWeek: 3, assumptions };
   for (const budgetUsd of [20_008, 20_015.99]) {
@@ -154,13 +154,13 @@ test("a protocol transfer does not pay for funding a separate position", () => {
 });
 
 test("reports up to five distinct feasible near misses and the top fifteen rejected rows", () => {
-  const rows = Array.from({ length: 17 }, (_, index) => row(String(index), 17 - index, 1_000_000));
+  const rows = Array.from({ length: 17 }, (_, index) => row(String(index), 17 - index, 100));
   const result = planPortfolio(rows, { budgetUsd: 25_000, hoursPerWeek: 10, assumptions });
   expect(result.positions).toEqual([]);
   expect(result.closest.map(({ slug }) => slug)).toEqual(["0", "1", "10", "11", "12"]);
   for (const position of result.closest) {
-    expect(position.depositUsd).toBe(1_000);
-    expect(position.shortfallUsd).toBeCloseTo(0.4 + (109 / 60) * 25 + 20 - 12.5, 10);
+    expect(position.depositUsd).toBe(10_000);
+    expect(position.shortfallUsd).toBeCloseTo(0.4 - 0.0125, 10);
   }
   expect(result.rejected).toEqual(
     Array.from({ length: 15 }, (_, index) => ({
@@ -218,7 +218,7 @@ test("selects multiple seeded offers while limiting the busiest week", () => {
   );
   const weeklyMinutes = Array<number>(assumptions.weeksPerYear).fill(0);
   for (const [i, { plan }] of selected.entries()) {
-    for (const [week, minutes] of scheduleFarmMinutes(plan).entries()) {
+    for (const [week, minutes] of scheduleFarmMinutes(plan, occurrences).entries()) {
       const waived = i > 0 && week === 0 ? (plan.fundingStep?.minutes ?? 0) : 0;
       weeklyMinutes[week] = (weeklyMinutes[week] ?? 0) + minutes - waived;
     }

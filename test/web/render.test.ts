@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { ageSparkline, clockSampleSize } from "../../src/presentation/web/clock-view.ts";
+import { ageSparkline } from "../../src/presentation/web/clock-view.ts";
 import { svg, table, tableBody } from "../../src/presentation/web/render.ts";
 
 test("renders plain and sortable headers, HTML cells and a totals row", () => {
@@ -32,20 +32,9 @@ test("renders a decorative SVG with a viewBox and no xmlns or URL", () => {
 });
 
 test("plots launch odds and marks the row's exact age and odds", () => {
-  const chart = ageSparkline(100, 60, 0.5, (age) => 0.2 + age / 200);
+  const chart = ageSparkline(100, 60, 0.5, (age) => 0.2 + age / 200, svg);
   expect(chart).toContain('points="0.00,32.00');
   expect(chart).toContain('100.00,12.00"');
   expect(chart).toContain('cx="60.00" cy="20.00"');
-  expect(ageSparkline(200, 200, 0.75, () => 0.75)).toContain('cx="100.00" cy="10.00"');
-});
-
-test("counts fitted protocols across all age bins, including pooled shares", () => {
-  expect(clockSampleSize([])).toBe(0);
-  expect(
-    clockSampleSize([
-      { ageDays: 100, share: 0.25, count: 3 },
-      { ageDays: 400, share: 0.25, count: 6 },
-      { ageDays: 700, share: 0.75, count: 1 },
-    ]),
-  ).toBe(10);
+  expect(ageSparkline(200, 200, 0.75, () => 0.75, svg)).toContain('cx="100.00" cy="10.00"');
 });

@@ -22,7 +22,7 @@ const categories = {
 
 export type CategoryGroup = keyof typeof categories;
 
-function categoryGroup(category: string | null): CategoryGroup {
+export function categoryGroup(category: string | null): CategoryGroup {
   const label = category?.trim().toLowerCase() ?? "";
   for (const [group, labels] of Object.entries(categories)) {
     if ((labels as readonly string[]).includes(label)) return group as CategoryGroup;
@@ -31,7 +31,10 @@ function categoryGroup(category: string | null): CategoryGroup {
 }
 
 export function categoryTotals(): Record<CategoryGroup, number> {
-  return { dex: 0, lending: 0, staking: 0, yield: 0, derivatives: 0, rwa: 0, bridge: 0, other: 0 };
+  return Object.fromEntries(Object.keys(categories).map((group) => [group, 0])) as Record<
+    CategoryGroup,
+    number
+  >;
 }
 
 export interface CategoryComparable extends Comparable {

@@ -3,7 +3,6 @@ import { groupFamilies } from "../../../src/domain/census/families.ts";
 import { makeFarmPlan } from "../../../src/domain/farming/plans.ts";
 import { farmTables } from "../../../src/domain/farming/playbook-data.ts";
 import type { Protocol } from "../../../src/domain/snapshot.ts";
-import { ablateLoo } from "../../../src/domain/valuation/ablation.ts";
 import { fitMultiples } from "../../../src/domain/valuation/baselines.ts";
 import { groupComparableCategories } from "../../../src/domain/valuation/categories.ts";
 import {
@@ -96,26 +95,6 @@ test("takes the median of absolute natural-log errors", () => {
     ]),
   ).toBe(3);
   expect(medianLogError([])).toBeUndefined();
-});
-
-test("ablation scores holdouts against the full reference and skips folds with no training rows", () => {
-  const [a, b] = rows;
-  if (!a || !b) throw new Error("Expected two comparables");
-  const train = [{ ...a, lnTvl: 0, lnAge: 0, growth: 0, target: 4 }];
-  const test = [{ ...b, lnTvl: 0, lnAge: 0, growth: 0, target: 4 + Math.LN2 }];
-  const full = { n: 1, medianMultiplier: 1.5, spearman: null };
-  const { full: reference, ...variants } = ablateLoo(
-    [
-      { train, test },
-      { train: [], test },
-    ],
-    full,
-  );
-  expect(reference).toEqual(full);
-  expect(Object.values(variants)).toHaveLength(5);
-  for (const score of Object.values(variants)) {
-    expect(score).toEqual({ n: 1, medianMultiplier: 2, spearman: null });
-  }
 });
 
 test("assigns families to five balanced, deterministic folds independent of input order", () => {
@@ -277,50 +256,32 @@ test("scores log errors and Spearman with averaged ranks for ties", () => {
 });
 
 test("nested validation reports only scoreable held-out observations", () => {
-  const { validation, ablation, looPredictions } = validateModel(rows);
+  const { validation, selection, looPredictions } = validateModel(rows);
   const heldOut = splitFolds(rows.map((row) => [row])).flatMap(
-    (fold) => fitOuterFold(fold).predictions.model,
+    (fold) => fitOuterFold(fold, selection.terms).predictions.model,
   );
   expect(looPredictions).toEqual(heldOut);
   expect(scorePredictions(looPredictions)).toEqual(validation.leaveOneFamilyOut.model);
   expect(validation.leaveOneFamilyOut.model.n).toBe(12);
   expect(validation.seededFiveFold.model.n).toBe(12);
   expect(validation.walkForward.model.n).toBe(4);
-  expect(Object.keys(ablation)).toEqual([
-    "full",
-    "withoutTvl",
-    "withoutAge",
-    "withoutMomentum",
-    "withCategory",
-    "ols",
+  expect(selection.scores).toEqual([
+    medianLogError(heldOut),
+    medianLogError(fitOuterFold(walkForwardSplit(rows), selection.terms).predictions.model),
   ]);
-  expect(ablation.full).toEqual(validation.leaveOneFamilyOut.model);
-  for (const score of Object.values(ablation)) {
-    expect(score).toMatchObject({
-      n: 12,
-      medianMultiplier: expect.any(Number),
-      spearman: expect.any(Number),
-    });
-  }
-  const onlyRow = rows.slice(0, 1);
-  const singleton = validateModel(onlyRow);
+  const singleton = validateModel(rows.slice(0, 1));
   expect(singleton.validation.leaveOneFamilyOut.model.n).toBe(0);
-  for (const score of Object.values(singleton.ablation)) {
-    expect(score).toEqual({ n: 0, medianMultiplier: null, spearman: null });
-  }
+  expect(singleton.selection.terms).toEqual([]);
+  expect(singleton.selection.scores).toEqual([null, null]);
 });
 
-test("the OLS trial fits a held-out power law without shrinkage", () => {
-  const powerLaw = rows.map((row, i) => ({
+test("keeps the category variant when it improves both tests and refits its effects", () => {
+  const grouped = categoryFixture(Math.LN2).map((row, i) => ({
     ...row,
-    lnTvl: i,
-    lnAge: null,
-    growth: 0,
-    target: 4 + i,
+    listedAt: i < 24 ? "2024-01-01" : "2024-02-01",
   }));
-  const { ablation } = validateModel(powerLaw);
-  expect(ablation.ols.n).toBe(12);
-  expect(ablation.ols.medianMultiplier).toBeCloseTo(1, 12);
-  expect(ablation.ols.spearman).toBe(1);
-  expect(ablation.full.medianMultiplier).toBeGreaterThan(1);
+  const { selection } = validateModel(grouped);
+  expect(selection.terms).toEqual(["category"]);
+  const { predictions } = fitOuterFold(walkForwardSplit(grouped), selection.terms);
+  expect(medianLogError(predictions.model)).toBeCloseTo(0, 2);
 });

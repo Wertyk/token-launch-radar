@@ -2,9 +2,9 @@ import { compareText } from "../shared/order.ts";
 import type { Protocol } from "../snapshot.ts";
 import { FARM_ASSUMPTIONS } from "./assumptions.ts";
 import type { EconomicsAssumptions } from "./economics.ts";
-import { farmEconomicsTerms } from "./economics.ts";
+import { depositAmounts, farmEconomicsTerms } from "./economics.ts";
 import type { FarmPlan } from "./plans.ts";
-import { makeFarmPlan, scheduleFarmMinutes } from "./plans.ts";
+import { makeFarmPlan, occurrences } from "./plans.ts";
 import type { FarmTables } from "./playbook-data.ts";
 
 const deposits = [1_000, 2_500, 5_000, 10_000];
@@ -37,15 +37,61 @@ interface Position {
   netUsd: number;
 }
 
-export function planPortfolio(
+export function scheduleFarmMinutes(
+  { steps }: FarmPlan,
+  cadenceCounts: typeof occurrences,
+): number[] {
+  const weeks = Array<number>(cadenceCounts.weekly).fill(0);
+  for (const { cadence, minutes, exitCondition } of steps) {
+    const count = cadenceCounts[cadence];
+    // Recurring steps fall at the end of equally spaced periods.
+    for (let occurrence = 1; occurrence <= count; occurrence++) {
+      const week =
+        cadence === "once" && exitCondition === undefined
+          ? 0
+          : Math.ceil((occurrence * weeks.length) / count) - 1;
+      weeks[week] = (weeks[week] ?? 0) + minutes;
+    }
+  }
+  return weeks;
+}
+
+export function planPortfolio(rows: readonly PortfolioRow[], options: PortfolioOptions) {
+  return optimizePortfolio(rows, options, {
+    compareText,
+    depositAmounts,
+    farmEconomicsTerms,
+    makeFarmPlan,
+    farmAssumptions: FARM_ASSUMPTIONS,
+    occurrences,
+  });
+}
+
+export function optimizePortfolio(
   rows: readonly PortfolioRow[],
   { budgetUsd, hoursPerWeek, chains, assumptions }: PortfolioOptions,
+  api: {
+    compareText: typeof compareText;
+    depositAmounts: typeof depositAmounts;
+    farmEconomicsTerms: typeof farmEconomicsTerms;
+    makeFarmPlan: typeof makeFarmPlan;
+    farmAssumptions: typeof FARM_ASSUMPTIONS;
+    occurrences: typeof occurrences;
+  },
 ) {
-  if (assumptions.horizonMonths !== FARM_ASSUMPTIONS.horizonMonths) {
+  const {
+    compareText,
+    depositAmounts,
+    farmEconomicsTerms,
+    makeFarmPlan,
+    farmAssumptions,
+    occurrences,
+  } = api;
+  if (assumptions.horizonMonths !== farmAssumptions.horizonMonths) {
     throw new Error("The farm planner only supports a 12-month horizon.");
   }
   const permitted = chains && new Set(chains);
-  const usedMinutesByWeek = Array<number>(FARM_ASSUMPTIONS.weeksPerYear).fill(0);
+  const usedMinutesByWeek = Array<number>(farmAssumptions.weeksPerYear).fill(0);
   const weeklyCapMinutes = hoursPerWeek * assumptions.minutesPerHour;
   const minutesPerAverageWeeklyHour = usedMinutesByWeek.length * assumptions.minutesPerHour;
   const candidates = rows.map(({ protocol, rank, plan, economics, launch_value_usd }) => {
@@ -57,7 +103,7 @@ export function planPortfolio(
         chain === plan.chain || chain === null
           ? plan
           : makeFarmPlan({ ...protocol, chains: [chain] }, assumptions.tables);
-      return [{ option, schedule: scheduleFarmMinutes(option) }];
+      return [{ option, schedule: scheduleFarmMinutes(option, occurrences) }];
     });
     return {
       slug: protocol.slug,
@@ -95,7 +141,7 @@ export function planPortfolio(
       const withinHours = weeklyMinutes.every(
         (minutes, week) => (usedMinutesByWeek[week] ?? 0) + minutes <= weeklyCapMinutes,
       );
-      const { fixedCosts, capitalCarry, k } = farmEconomicsTerms(
+      const terms = farmEconomicsTerms(
         { totalCostUsd: feeCents / 100, totalMinutes, capitalApr: option.capitalApr },
         valueUsd,
         tvlUsd,
@@ -103,9 +149,7 @@ export function planPortfolio(
         assumptions,
       );
       return deposits.map((depositUsd) => {
-        const expectedValueUsd = k * depositUsd;
-        const costUsd = fixedCosts + capitalCarry * depositUsd;
-        const netUsd = expectedValueUsd - costUsd;
+        const { expectedValueUsd, costUsd, netUsd } = depositAmounts(terms, depositUsd);
         const position: Position = {
           slug,
           chain,

@@ -9,8 +9,22 @@ import { boardMismatches } from "../../src/presentation/web/recompute.ts";
 import { protocol } from "../domain/protocol-fixture.ts";
 
 const deposits = [
-  { depositUsd: 1000, expectedValueUsd: 3, costUsd: 4, verdict: "SKIP" },
-  { depositUsd: 10000, expectedValueUsd: 30, costUsd: 40, verdict: "THIN" },
+  {
+    depositUsd: 1000,
+    expectedValueUsd: 3,
+    costUsd: 4,
+    netUsd: -1,
+    netPerHourUsd: -2,
+    verdict: "SKIP",
+  },
+  {
+    depositUsd: 10000,
+    expectedValueUsd: 30,
+    costUsd: 40,
+    netUsd: -10,
+    netPerHourUsd: -20,
+    verdict: "THIN",
+  },
 ] as const;
 const farm = { deposits, launchProbability12: 0.42, breakEvenDepositUsd: 1200 };
 const plan = {
@@ -166,14 +180,14 @@ test("rechecks the house rule when a below-floor protocol on the board joins the
       source: "House-rule test",
       floor_usd: 100,
       protocols: [
-        protocol({ slug: "a" }),
-        protocol({ slug: "b", tvl_usd: 10 }),
+        protocol({ slug: "a", listed_at: "2026-11-01" }),
+        protocol({ slug: "b", tvl_usd: 10, listed_at: "2026-11-01" }),
         protocol({ slug: "traded", gecko_id: "traded", mcap_usd: 1000 }),
       ],
       watchlist,
     },
-    1,
-    { points: [{ ageDays: 0, share: 1, count: 1 }], medianAgeDays: 0 },
+    { lambda: 1, terms: [] },
+    [],
     farmTables(),
   );
   const checks = integrityChecks([], [row, { ...row, slug: "b" }], watchlist, {

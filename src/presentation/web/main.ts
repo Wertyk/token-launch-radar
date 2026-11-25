@@ -1,24 +1,25 @@
 import type * as BrowserApi from "../../application/browser-api.ts";
+import type { boardFarmSteps } from "../../domain/farming/board-steps.ts";
+import type { planPortfolio } from "../../domain/farming/portfolio.ts";
 import type { Protocol, Snapshot } from "../../domain/snapshot.ts";
-import type { BoardRow } from "./board.ts";
-import { selectRows } from "./board.ts";
+import type { BoardRow, selectRows } from "./board.ts";
 import { boardRows, boardTable } from "./board-view.ts";
 import { censusSummary, censusView } from "./census-view.ts";
-import { clockSampleSize } from "./clock-view.ts";
-import { type bindControls, setSelect } from "./controls.ts";
+import type { bindControls, boardControls } from "./controls.ts";
 import { element } from "./dom.ts";
-import { escapeHtml as esc, formatInteger, signedTerm } from "./format.ts";
+import { escapeHtml as esc, formatInteger, formatOdds } from "./format.ts";
 import { integrityChecks, integrityStrip } from "./integrity.ts";
-import { type methodFarmAssumptions, methodView } from "./method-view.ts";
+import type { methodNotes, termTrials } from "./method-extras.ts";
+import { methodView } from "./method-view.ts";
 import type { MountPlanner } from "./planner.ts";
 import type { ProtocolExtras } from "./protocol-extras.ts";
-import { protocolView } from "./protocol-view.ts";
+import { protocolView, valueFormula } from "./protocol-view.ts";
 import { prepareBoard } from "./recompute.ts";
-import { options } from "./render.ts";
 import { scatterCoverage } from "./scatter-view.ts";
 import { boot, type RadarData } from "./startup.ts";
-import type { BoardState } from "./state.ts";
-import { boardHash, isCensusSortKey, isSortKey, parseRoute } from "./state.ts";
+import type { BoardState, boardHash, readBoardState } from "./state.ts";
+import { isCensusSortKey, pageRoute } from "./state.ts";
+import { type ViewTools, viewTools } from "./view-tools.ts";
 
 declare global {
   interface Window {
@@ -26,8 +27,16 @@ declare global {
       Partial<
         ProtocolExtras & {
           mountPlanner: MountPlanner;
+          selectRows: typeof selectRows;
+          planPortfolio: typeof planPortfolio;
           bindControls: typeof bindControls;
-          methodFarmAssumptions: typeof methodFarmAssumptions;
+          boardControls: typeof boardControls;
+          boardFarmSteps: (row: Parameters<typeof boardFarmSteps>[0]) => string[];
+          boardHash: typeof boardHash;
+          readBoardState: typeof readBoardState;
+          methodNotes: typeof methodNotes;
+          termTrials: typeof termTrials;
+          view: ViewTools & { element: typeof element };
         }
       >;
     RADAR_DATA?: RadarData;
@@ -38,41 +47,22 @@ function mountBoard(
   main: HTMLElement,
   rows: readonly BoardRow[],
   summary: string,
-  { formatUsd: usd, compareText }: Window["Radar"],
+  { formatUsd: usd, compareText, selectRows, boardControls, view, boardHash }: Window["Radar"],
 ) {
   main.innerHTML =
     summary + element<HTMLTemplateElement>("#board-filters").innerHTML + boardTable();
-  const search = element<HTMLInputElement>('[name="q"]', main);
-  const category = element<HTMLSelectElement>('[name="cat"]', main);
-  const chain = element<HTMLSelectElement>('[name="chain"]', main);
-  category.insertAdjacentHTML("beforeend", options(rows.flatMap(({ category }) => category ?? [])));
-  chain.insertAdjacentHTML("beforeend", options(rows.flatMap(({ chains }) => chains)));
-  const watchlist = element<HTMLInputElement>('[name="wl"]', main);
+  const sync = view && boardControls?.(main, view, rows);
   const results = element("#results", main);
   const body = element("tbody", main);
-  const buttons = main.querySelectorAll<HTMLButtonElement>("button[data-sort]");
   const maxLogValue = Math.log1p(
     Math.max(1, ...rows.flatMap(({ value, interval }) => [value, interval?.[1] ?? 0])),
   );
 
   return (state: BoardState) => {
-    if (search.value !== state.q) search.value = state.q;
-    setSelect(category, state.cat);
-    setSelect(chain, state.chain);
-    watchlist.checked = state.wl;
-    for (const button of buttons) {
-      const th = button.parentElement;
-      if (th)
-        th.ariaSort =
-          button.dataset.sort !== state.sort
-            ? null
-            : state.dir === "asc"
-              ? "ascending"
-              : "descending";
-    }
-    const selected = selectRows(rows, state, compareText);
+    sync?.(state);
+    const selected = selectRows?.(rows, state, compareText) ?? rows;
     results.textContent = `${formatInteger(selected.length)} of ${formatInteger(rows.length)} protocols`;
-    body.innerHTML = boardRows(selected, state, maxLogValue, usd);
+    body.innerHTML = boardRows(selected, boardHash?.(state) ?? "#/", maxLogValue, usd);
   };
 }
 
@@ -84,9 +74,10 @@ function start(
   fail: () => void,
 ): void {
   const { buildRadar, daysBetween, farmAssumptions, formatUsd } = api;
-  const { launchClock, meta } = data;
-  const radar = buildRadar(snapshot, data.model.lambda, launchClock, meta);
-  const { model, houseRule } = radar;
+  api.view = { ...viewTools, element };
+  const { meta } = data;
+  const radar = buildRadar(snapshot, data.model.fit, data.odds.terms, meta);
+  const { model, odds, houseRule } = radar;
   const { validation } = data.model;
   // These are board.json's rows. The CLI end-to-end test checks every published field.
   const published = data.board.rows;
@@ -97,6 +88,7 @@ function start(
     published,
     snapshot.watchlist,
     age,
+    api.boardFarmSteps,
   );
   const scatter = scatterCoverage(data.looScatter ?? [], families);
   const checks = integrityChecks(mismatches, published, snapshot.watchlist, {
@@ -107,24 +99,19 @@ function start(
     coverageUnavailable: data.looScatter === null && model.n < api.MIN_BAND_FAMILIES,
     loo: validation.leaveOneFamilyOut,
   });
+  if (!api.boardFarmSteps && checks[0]) checks[0].label += " · step text unchecked";
   element("#snapshot-date").textContent = `Snapshot · ${snapshot.as_of}`;
-  const counts = [
-    snapshot.protocols.length,
-    model.n,
-    rows.length,
-    clockSampleSize(launchClock.points),
-  ];
+  const counts = [snapshot.protocols.length, model.n, rows.length, odds.n];
   document.querySelectorAll("#summary dd, #clock-count").forEach((count, i) => {
     count.textContent = formatInteger(counts[i] ?? null);
   });
-  const { intercept, lnTvl, lnAge } = model.coefficients;
-  element("#formula").textContent =
-    `ln V = ${intercept.toFixed(3)} ${signedTerm(lnTvl)}·ln(TVL·(1+g₇)) ${signedTerm(lnAge)}·ln(age)`;
+  element("#formula").textContent = `ln V = ${valueFormula(model)}`;
   element("#checks").innerHTML = integrityStrip(checks);
 
   let updateBoard: ReturnType<typeof mountBoard> | undefined;
   let updatePlan: ReturnType<MountPlanner> | undefined;
   let lastPage: string | undefined;
+  const parseRoute = (hash: string) => pageRoute(hash, api.readBoardState);
 
   function render(): void {
     const route = parseRoute(location.hash);
@@ -141,36 +128,36 @@ function start(
     } else if (route.page === "plan") {
       updatePlan ??= api.mountPlanner?.(main, radar.board, meta, api);
       if (updatePlan) updatePlan(location.hash);
-      else main.innerHTML = "<h2>Farm planner unavailable</h2>";
+      else main.innerHTML = element<HTMLTemplateElement>("#plan-unavailable").innerHTML;
     } else if (route.page === "census") {
       main.innerHTML = censusView(data.census, route.state, formatUsd, api.compareText, protocols);
     } else if (route.page === "method") {
       main.innerHTML = methodView(
         {
-          model: { ...model, validation, ablation: data.model.ablation },
-          launchClock,
-          houseRule,
+          model: { ...data.model, ...model },
+          odds: { ...data.odds, ...odds },
           scatter,
         },
-        api.methodFarmAssumptions?.(farmAssumptions, formatUsd),
+        (panel) =>
+          api.methodNotes?.(houseRule, farmAssumptions, formatUsd, formatOdds, panel) ?? "",
+        api.termTrials,
       );
     } else {
-      const back = boardHash(route.state);
+      const back = api.boardHash?.(route.state) ?? "#/";
       const detail = route.page === "protocol" ? protocols.get(route.slug) : undefined;
       main.innerHTML = detail
         ? protocolView(
             detail,
             {
               age: age(detail.protocol),
-              coefficients: model.coefficients,
+              model,
               lnValue: api.logValue(detail.features, model),
               back,
               usd: formatUsd,
               farm: farmAssumptions,
               diagnostics: diagnostics.get(detail.protocol.slug),
               families,
-              launchClock,
-              launchProbability12: api.launchProbability12,
+              maxOddsAge: odds.maxAgeDays,
             },
             api,
           )
@@ -194,7 +181,7 @@ function start(
 
   draw();
   window.addEventListener("hashchange", draw);
-  api.bindControls?.(main, draw, { boardHash, isCensusSortKey, isSortKey, parseRoute });
+  api.bindControls?.(main, draw, { isCensusSortKey, parseRoute });
 }
 
 boot(start);

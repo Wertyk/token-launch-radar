@@ -49,13 +49,16 @@ function open(data: Record<string, unknown>, hash = "#/", loadExtras = true, loa
       return [];
     },
   };
+  const templates = new Map(
+    [...html.matchAll(/<template id="([\w-]+)">([\s\S]*?)<\/template>/g)].map(([, id, content]) => [
+      `#${id}`,
+      content,
+    ]),
+  );
   function node(selector: string) {
     if (selector === "main") return main;
     const element = markup.get(selector) ?? {
-      innerHTML:
-        selector === "#board-filters"
-          ? (html.match(/<template id="board-filters">([\s\S]*?)<\/template>/)?.[1] ?? "")
-          : "",
+      innerHTML: templates.get(selector) ?? "",
     };
     markup.set(selector, element);
     return element;
@@ -123,6 +126,8 @@ test("uses the refit when the only injected field is a changed intercept", () =>
   if (!row) throw new Error("Missing first board row");
   const { coefficients } = radar.model;
   payload.model.coefficients = { ...coefficients, intercept: coefficients.intercept + 1 };
+  payload.odds.coefficients = [0, -1];
+  payload.odds.clock = [];
 
   const page = open(payload, `#/p/${row.protocol.slug}`);
   const checks = page.markup.get("#checks")?.innerHTML;
@@ -142,7 +147,18 @@ test("uses the refit when the only injected field is a changed intercept", () =>
     .toContain(`<td>Intercept</td><td>${radar.model.coefficients.intercept.toFixed(6)}</td>`);
   expect.soft(page.main.innerHTML).toContain("104/128 inside held-out P10–P90");
   expect.soft(page.main.innerHTML.match(/class="inside"/g)).toHaveLength(104);
+  expect(page.main.innerHTML).toContain(
+    `<td>logit(S(a))</td><td>${radar.odds.coefficients[1]?.toFixed(6)}</td>`,
+  );
 }, 20_000);
+
+test("matches recomputed farm-step text with the browser serializers loaded", () => {
+  const payload = data();
+  const row = payload.board.rows[0];
+  row.farm_steps[0] += " Changed.";
+  const page = open(payload);
+  expect(page.markup.get("#checks")?.innerHTML).toContain(`1 mismatched · ${row.slug}`);
+});
 
 test.each([undefined, -2])("rejects P10=%s on the board and detail card", (low) => {
   const payload = data();
@@ -218,7 +234,7 @@ test.each([9, 10])("respects the publisher's held-out band decision at %i famili
     source: "small sample",
     watchlist: ["sample"],
     protocols: [
-      protocol(),
+      protocol({ listed_at: "2026-11-01" }),
       ...Array.from({ length: n }, (_, i) =>
         protocol({ slug: `priced-${i}`, mcap_usd: 100_000_000 + i }),
       ),
@@ -272,12 +288,12 @@ test("replaces a rendered board with the alert when Method data disappears befor
   const payload = data();
   const page = open(payload);
   expect(page.main.innerHTML).toContain("198 ranked");
-  const { ablation } = payload.model;
-  delete payload.model.ablation;
+  const { selection } = payload.model;
+  delete payload.model.selection;
   page.navigate("#/method");
   expect(page.main.innerHTML).toContain('role="alert"');
   expect(page.main.dataset).not.toHaveProperty("ready");
-  payload.model.ablation = ablation;
+  payload.model.selection = selection;
   page.navigate("#/");
   expect(page.main.innerHTML).toContain("198 ranked");
   expect(page.main.dataset).toHaveProperty("ready");
@@ -303,6 +319,12 @@ test.each([true, false])("renders all required routes with loadExtras=%s", (load
     const checks = page.markup.get("#checks")?.innerHTML;
     expect(checks?.match(/class="check"/g)).toHaveLength(5);
   }
+  if (!loadExtras) {
+    expect(page.markup.get("#checks")?.innerHTML).toContain("step text unchecked");
+    page.navigate("#/plan");
+    expect(page.main.innerHTML).toContain("Farm portfolio");
+    expect(page.main.dataset).toHaveProperty("ready");
+  }
   page.navigate("#/method");
   expect(page.main.innerHTML.includes("Verdict test deposits")).toBe(loadExtras);
 });
@@ -315,17 +337,17 @@ test("shows the startup alert for incomplete data even without extras", () => {
 
 test.each([
   "board",
-  "launchClock",
+  "odds",
   "model.validation",
   "model.validation.seededFiveFold",
-  "model.ablation",
+  "model.selection",
   "census",
 ])("shows a startup failure in main when %s is missing", (field) => {
   const payload = data();
   if (field === "model.validation") delete payload.model.validation;
   else if (field === "model.validation.seededFiveFold")
     delete payload.model.validation.seededFiveFold;
-  else if (field === "model.ablation") delete payload.model.ablation;
+  else if (field === "model.selection") delete payload.model.selection;
   else delete payload[field];
   expect(open(payload, "#/census").main.innerHTML).toContain('role="alert"');
 });

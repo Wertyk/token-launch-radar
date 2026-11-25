@@ -1,15 +1,12 @@
 import { expect, test } from "vitest";
-import {
-  farmAssumptions,
-  formatUsd,
-  launchProbability12,
-  logValue,
-} from "../../src/application/browser-api.ts";
+import { farmAssumptions, formatUsd, logValue } from "../../src/application/browser-api.ts";
 import { buildRadar, recomputeRadar } from "../../src/application/build-radar.ts";
 import { farmTables } from "../../src/domain/farming/playbook-data.ts";
 import type { BoardRow } from "../../src/presentation/web/board.ts";
 import { boardRows, boardTable } from "../../src/presentation/web/board-view.ts";
-import { methodFarmAssumptions, methodView } from "../../src/presentation/web/method-view.ts";
+import { formatOdds } from "../../src/presentation/web/format.ts";
+import { methodNotes, termTrials } from "../../src/presentation/web/method-extras.ts";
+import { methodView } from "../../src/presentation/web/method-view.ts";
 import {
   nearestComparables,
   protocolClock,
@@ -17,7 +14,6 @@ import {
 } from "../../src/presentation/web/protocol-extras.ts";
 import { protocolView } from "../../src/presentation/web/protocol-view.ts";
 import { scatterCoverage } from "../../src/presentation/web/scatter-view.ts";
-import { defaultState } from "../../src/presentation/web/state.ts";
 import { protocol } from "../domain/protocol-fixture.ts";
 
 test("labels the board fee horizon and places both launch inputs next to implied value", () => {
@@ -35,21 +31,29 @@ test("renders the labor rate and farmer haircut beside the protocol verdicts", (
   });
   const { board, model } = recomputeRadar(
     {
-      protocols: [tracked, protocol({ name: "Sample & Co", category: "Yield", chains: ["Base"] })],
+      protocols: [
+        tracked,
+        protocol({
+          name: "Sample & Co",
+          category: "Yield",
+          chains: ["Base"],
+          listed_at: "2026-11-01",
+        }),
+      ],
       as_of: "2026-11-14",
       floor_usd: 0,
       source: "Test snapshot",
       watchlist: [],
     },
-    1,
-    { points: [{ ageDays: 0, share: 0.1, count: 1 }], medianAgeDays: 0 },
+    { lambda: 1, terms: [] },
+    [],
     farmTables(),
   );
   const [row] = board;
   if (!row) throw new Error("Expected a ranked protocol.");
   const card = {
     age: null,
-    coefficients: model.coefficients,
+    model,
     lnValue: logValue(row.features, model),
     back: "#/",
     usd: formatUsd,
@@ -61,16 +65,24 @@ test("renders the labor rate and farmer haircut beside the protocol verdicts", (
       twins: ["tracked"],
     },
     families: new Map([["tracked", { representative: tracked, mcap_usd: 8_000_000 }]]),
-    launchClock: { points: [{ ageDays: 100, share: 0.4, count: 2 }], medianAgeDays: 80 },
-    launchProbability12,
+    maxOddsAge: 100,
   };
   const extras = { nearestComparables, protocolClock, protocolFacts };
   const html = protocolView(
-    { ...row, launchProbability12: 0.625 },
+    {
+      ...row,
+      launchProbability12: 0.625,
+      oddsAge: 80,
+    },
     { ...card, diagnostics: { ...card.diagnostics, ...{ launch_p12: 0.25 } } },
     extras,
   );
-  expect(html).toMatch(/\$10,000 SKIP<\/span><\/div>\s*<p[^>]*>\$25\/h[^<]*50%[^<]*haircut/);
+  for (const { depositUsd, verdict, netUsd, netPerHourUsd } of row.economics.deposits) {
+    expect(html).toContain(
+      `${formatUsd(depositUsd)} ${verdict} · ${formatUsd(netUsd)} net · ${formatUsd(netPerHourUsd)}/h`,
+    );
+  }
+  expect(html).toContain("$25/h for labor · 50% farmer haircut");
   expect(html).toContain("P10–P90");
   expect(html).toContain("$100–$1,000");
   expect(html).toContain("Without Traded &amp; Co, rank moves by 2");
@@ -115,20 +127,20 @@ test("draws a separate P10–P90 band below the board value", () => {
     chains: [],
     interval: [2, 100],
   };
-  const html = boardRows([row], defaultState, Math.log1p(100), formatUsd);
+  const html = boardRows([row], "#/", Math.log1p(100), formatUsd);
   expect(html).toContain('title="P10–P90: $2–$100"');
   expect(html).toContain('<rect class="band" x="23.80" y="5" width="76.20" height="3"></rect>');
   expect(html).not.toContain("xmlns");
 });
 
-test("shows the published validation, ablation, scatter and dated assumptions in Method", () => {
+test("shows the published validation, selection, scatter and dated assumptions in Method", () => {
   const snapshot = {
     as_of: "2026-11-14",
     floor_usd: 10,
     source: "Method test",
     watchlist: ["sample"],
     protocols: [
-      protocol({ slug: "sample" }),
+      protocol({ slug: "sample", listed_at: "2026-11-01" }),
       protocol({ slug: "tracked", mcap_usd: 8_000_000, gecko_id: "tracked" }),
     ],
   };
@@ -150,21 +162,15 @@ test("shows the published validation, ablation, scatter and dated assumptions in
       seededFiveFold: validation(score(3.11, 0.611), score(3.22, 0.422), score(3.33, 0.233)),
       walkForward: validation(score(4.11, 0.511), score(4.22, 0.222), score(4.33, 0.433)),
     },
-    ablation: {
-      full: score(2.11, 0.711),
-      withoutTvl: score(5.12, -0.312),
-      withoutAge: score(2.43, 0.603),
-      withoutMomentum: score(4.14, 0.514),
-      withCategory: score(3.15, 0.815),
-      ols: score(2.16, 0.696),
+    selection: {
+      ...data.model.selection,
+      steps: [
+        {
+          baseline: [1.1, 2.2],
+          trials: [{ term: "age" as const, scores: [1, 2.3], kept: false }],
+        },
+      ],
     },
-  };
-  const launchClock = {
-    medianAgeDays: 100,
-    points: [
-      { ageDays: 100, share: 0.25, count: 3 },
-      { ageDays: 600, share: 0.75, count: 7 },
-    ],
   };
   const looScatter = [
     { slug: "a", actual: Math.log(100), predicted: Math.log(1_000), p10: 0, p90: Math.log(500) },
@@ -178,8 +184,9 @@ test("shows the published validation, ablation, scatter and dated assumptions in
     ]),
   );
   const html = methodView(
-    { ...data, model, launchClock, scatter },
-    methodFarmAssumptions(farmAssumptions, formatUsd),
+    { ...data, model, scatter },
+    (panel) => methodNotes(data.houseRule, farmAssumptions, formatUsd, formatOdds, panel),
+    termTrials,
   );
   for (const text of [
     "λ",
@@ -187,25 +194,27 @@ test("shows the published validation, ablation, scatter and dated assumptions in
     "Seeded five-fold",
     "Walk-forward",
     "Spearman",
-    "−TVL",
-    "−Age",
-    "−Momentum",
-    "+Category",
-    "OLS",
+    "Value term selection",
+    "Odds term selection",
+    "10-fold Brier",
+    "Base rate",
+    "Raw PAVA clock",
+    "Clock-only model (step 0)",
+    "Not kept",
     "Predicted launch value vs current market cap",
     "1/2 inside held-out P10–P90 · LOO median error ×2.11 vs ×2.22 flat",
     "Actual market cap (log USD)",
     "Predicted (log USD)",
     "Current traded-family market caps proxy for launch value.",
-    "F(t)",
-    "last rising segment’s constant conditional hazard",
-    "The snapshot cannot validate future launch odds.",
+    "F(a)",
+    "Brier scores current token status.",
+    "assumes the cross-section behaves like a cohort.",
     "parentProtocol",
     farmAssumptions.asOf,
   ]) {
     expect(html).toContain(text);
   }
-  expect(html.match(/<table/g)).toHaveLength(6);
+  expect(html.match(/<table/g)).toHaveLength(8);
   expect(html.match(/<circle/g)).toHaveLength(2);
   expect(html).toContain('<circle class="inside" cx="59.00" cy="93.00"');
   expect(html).toContain(
@@ -217,14 +226,7 @@ test("shows the published validation, ablation, scatter and dated assumptions in
   expect(html).not.toMatch(/xmlns|https?:\/\//);
   const tableRows = (rows: string[][]) =>
     `<tbody>${rows.map((cells) => `<tr><td>${cells.join("</td><td>")}</td></tr>`).join("")}</tbody>`;
-  expect(html).toContain(
-    tableRows([
-      ["100", "25.0%", "3"],
-      ["600", "75.0%", "7"],
-    ]),
-  );
-  expect(html).toContain("10 protocols · P₁₂(t) = [F(t+365) − F(t)] / [1 − F(t)]");
-  expect(html.indexOf("Launch clock F(t)")).toBeLessThan(html.indexOf("House watchlist rule"));
+  expect(html.indexOf("Token-status model")).toBeLessThan(html.indexOf("House watchlist rule"));
   expect(html).toContain(
     tableRows([
       ["Leave one family out", "×2.11 · 0.711", "×2.22 · 0.322", "×2.33 · 0.533"],
@@ -234,12 +236,8 @@ test("shows the published validation, ablation, scatter and dated assumptions in
   );
   expect(html).toContain(
     tableRows([
-      ["Full", "×2.11", "0.711"],
-      ["−TVL", "×5.12", "-0.312"],
-      ["−Age", "×2.43", "0.603"],
-      ["−Momentum", "×4.14", "0.514"],
-      ["+Category", "×3.15", "0.815"],
-      ["OLS", "×2.16", "0.696"],
+      ["1", "Current terms", "1.1000", "2.2000", "—"],
+      ["1", "age", "1.0000", "2.3000", "Not kept"],
     ]),
   );
 });

@@ -3,6 +3,7 @@ import { toBoardRows } from "../../src/application/board-rows.ts";
 import * as api from "../../src/application/browser-api.ts";
 import { buildRadar } from "../../src/application/build-radar.ts";
 import { farmTables } from "../../src/domain/farming/playbook-data.ts";
+import { planPortfolio } from "../../src/domain/farming/portfolio.ts";
 import { parseSnapshot } from "../../src/domain/snapshot.ts";
 import { parsePlanState, planHash } from "../../src/presentation/web/plan-state.ts";
 import { plannerSettings } from "../../src/presentation/web/plan-view.ts";
@@ -13,7 +14,7 @@ test("recomputes verdicts and the portfolio through the core, then resets to pub
   const tables = farmTables();
   const published = buildRadar(snapshot, tables);
   const board = toBoardRows(published);
-  const radar = api.buildRadar(snapshot, published.model.lambda, published.launchClock, tables);
+  const radar = api.buildRadar(snapshot, published.model.fit, published.odds.terms, tables);
 
   function calculate(hash: string) {
     const state = parsePlanState(hash);
@@ -21,7 +22,7 @@ test("recomputes verdicts and the portfolio through the core, then resets to pub
     const assumptions = { ...plannerSettings(api.farmAssumptions, sliders), tables };
     return {
       state,
-      plan: api.planPortfolio(radar.board, { budgetUsd, hoursPerWeek, assumptions }),
+      plan: planPortfolio(radar.board, { budgetUsd, hoursPerWeek, assumptions }),
       economics: radar.board.map(({ plan, launch_value_usd, protocol, economics }) =>
         api.estimateFarmEconomics(
           plan,

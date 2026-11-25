@@ -1,7 +1,6 @@
-import type { launchProbability12, RadarRow } from "../../application/browser-api.ts";
+import type { RadarRow } from "../../application/browser-api.ts";
 import type { ProtocolFamily } from "../../domain/census/families.ts";
 import type { EconomicsAssumptions } from "../../domain/farming/economics.ts";
-import type { LaunchClock } from "../../domain/launch-clock/clock.ts";
 import type { ValueDiagnostics } from "../../domain/valuation/diagnostics.ts";
 import type { ValueModel } from "../../domain/valuation/model.ts";
 import { chip } from "./board-view.ts";
@@ -15,18 +14,20 @@ import {
 import type { ProtocolExtras } from "./protocol-extras.ts";
 import { boardInterval } from "./recompute.ts";
 import { svg, table } from "./render.ts";
+import { viewTools } from "./view-tools.ts";
 
 type FormatUsd = (value: number) => string;
 
 function decomposition(row: RadarRow, usd: FormatUsd): string {
   const { base, multipliers } = row.decomposition;
-  const { lnTvl, growth, lnAge } = multipliers;
+  const { lnTvl, growth, lnAge, category = 1 } = multipliers;
   const afterTvl = base * lnTvl;
   const stages = [
     ["Base", base],
     ["TVL", afterTvl, lnTvl],
-    ["7d growth", afterTvl * growth, growth],
-    ["Age", row.valueUsd, lnAge],
+    ...(growth === 1 ? [] : [["7d growth", afterTvl * growth, growth] as const]),
+    ...(lnAge === 1 ? [] : [["Age", afterTvl * growth * lnAge, lnAge] as const]),
+    ...(category === 1 ? [] : [["Category", row.valueUsd, category] as const]),
     ["Launch value", row.launch_value_usd],
     ["× launch odds 12m", null, row.launchProbability12],
     ["Implied value", row.implied_value_usd],
@@ -49,46 +50,38 @@ function decomposition(row: RadarRow, usd: FormatUsd): string {
 
 interface CardOptions {
   age: number | null;
-  coefficients: ValueModel["coefficients"];
+  model: ValueModel;
   lnValue: number;
   back: string;
   usd: FormatUsd;
   farm: Pick<EconomicsAssumptions, "hourlyRateUsd" | "farmerHaircut">;
   diagnostics: ValueDiagnostics | undefined;
   families: ReadonlyMap<string, Pick<ProtocolFamily, "representative" | "mcap_usd">>;
-  launchClock: LaunchClock;
-  launchProbability12: typeof launchProbability12;
+  maxOddsAge: number;
 }
 
-function valueEquation(
-  row: RadarRow,
-  { intercept, lnTvl, lnAge }: ValueModel["coefficients"],
-  lnValue: number,
-  clockAge: number,
-  usd: FormatUsd,
-): string {
-  const growth = Math.exp(row.features.growth).toFixed(3);
-  const days = Math.exp(row.features.lnAge).toFixed(0);
-  return `<p class="value-equation">ln V ≈ ${intercept.toFixed(4)} ${signedTerm(lnTvl, 4)} × ln(${formatCompactUsd(row.protocol.tvl_usd)} × ${growth}) ${signedTerm(lnAge, 4)} × ln(${days} d) ≈ ${lnValue.toFixed(3)} → ${usd(row.launch_value_usd)} × P₁₂(${clockAge.toFixed(0)} d) ${formatOdds(row.launchProbability12)} → ${usd(row.implied_value_usd)}</p>`;
+export function valueFormula(model: ValueModel, row?: RadarRow): string {
+  const { intercept, lnTvl, lnAge } = model.coefficients;
+  const decimals = row ? 4 : 3;
+  const tvl = row ? formatCompactUsd(row.protocol.tvl_usd) : "TVL";
+  const growth = row ? Math.exp(row.features.growth).toFixed(3) : "(1+g₇)";
+  const age = row ? `${Math.exp(row.features.lnAge).toFixed(0)} d` : "age";
+  const ageTerm = lnAge ? ` ${signedTerm(lnAge, decimals)} × ln(${age})` : "";
+  const effect = model.categoryEffects?.[row?.features.category ?? "other"] ?? 0;
+  const category = model.categoryEffects
+    ? row
+      ? ` ${signedTerm(effect, decimals)}`
+      : " + category effect"
+    : "";
+  return `${intercept.toFixed(decimals)} ${signedTerm(lnTvl, decimals)} × ln(${tvl}${model.momentum ? ` × ${growth}` : ""})${ageTerm}${category}`;
 }
 
 export function protocolView(
   row: RadarRow,
-  {
-    age,
-    coefficients,
-    lnValue,
-    back,
-    usd,
-    farm,
-    diagnostics,
-    families,
-    launchClock,
-    launchProbability12,
-  }: CardOptions,
+  { age, model, lnValue, back, usd, farm, diagnostics, families, maxOddsAge }: CardOptions,
   { nearestComparables, protocolClock, protocolFacts }: Partial<ProtocolExtras>,
 ): string {
-  const { protocol, plan, economics } = row;
+  const { protocol, plan, economics, oddsAge, oddsAt } = row;
   const { hourlyRateUsd, farmerHaircut } = farm;
   const { airdropYieldApr, breakEvenDepositUsd } = economics;
   const interval = boardInterval(diagnostics)?.map(usd).join("–") ?? "—";
@@ -100,7 +93,6 @@ export function protocolView(
       : influence && comparable
         ? `Without ${esc(comparable)}, rank moves by ${Math.abs(influence.rank_delta)}`
         : "";
-  const clockAge = Math.max(0, age ?? launchClock.medianAgeDays ?? 0);
   const steps = table(
     ["Action", "Est. fee", "Min", "When"],
     plan.steps.map((step) => [
@@ -121,29 +113,23 @@ export function protocolView(
           <p class="figure">${usd(row.implied_value_usd)}</p>
           <p>P10–P90 · ${interval}</p>
           ${decomposition(row, usd)}
-          ${valueEquation(row, coefficients, lnValue, clockAge, usd)}
+          <p class="value-equation">ln V ≈ ${valueFormula(model, row)} ≈ ${lnValue.toFixed(3)} → ${usd(row.launch_value_usd)} × P₁₂(${oddsAge.toFixed(0)} d) ${formatOdds(row.launchProbability12)} → ${usd(row.implied_value_usd)}</p>
           ${influenceLine ? `<p class="caption">${influenceLine}</p>` : ""}
         </section>
-        ${
-          protocolFacts
-            ? `<section class="panel"><h3>Protocol record</h3>
-          ${protocolFacts(row, age, usd)}
-        </section>`
-            : ""
-        }
-        ${protocolClock?.(launchClock.points, clockAge, row.launchProbability12, age === null, launchProbability12) ?? ""}
+        ${protocolFacts?.(row, age, usd, viewTools) ?? ""}
+        ${protocolClock?.(maxOddsAge, oddsAge, row.launchProbability12, age === null, oddsAt, viewTools) ?? ""}
       </div>
       <div class="detail-facts">
         <section class="panel farm"><h3>Farm plan</h3>
           <p class="plan-meta"><strong>${esc(plan.chain ?? "Chain unlisted")}</strong> · ${usd(plan.depositUsd)} plan · ${plan.horizonMonths} months</p>
-          <div class="chips">${economics.deposits.map(({ depositUsd, verdict }) => chip(`${usd(depositUsd)} ${verdict}`, "badge")).join("")}</div>
+          <div class="chips">${economics.deposits.map(({ depositUsd, verdict, netUsd, netPerHourUsd }) => chip(`${usd(depositUsd)} ${verdict} · ${usd(netUsd)} net · ${usd(netPerHourUsd)}/h`, "badge")).join("")}</div>
           <p class="caption">${usd(hourlyRateUsd)}/h for labor · ${farmerHaircut * 100}% farmer haircut</p>
           <p>Expected airdrop yield ${(airdropYieldApr * 100).toFixed(2)}% APR · Capital cost ${(plan.capitalApr * 100).toFixed(2)}% APR</p>
           <p>Break-even deposit · ${breakEvenDepositUsd === "never" ? "never" : usd(breakEvenDepositUsd)}</p>
           ${steps}
           <p class="caption">Per-occurrence minutes and fees. Assumptions ${plan.assumptionsAsOf}${plan.flags.length ? " · fallback fees" : ""}.</p>
         </section>
-        ${nearestComparables?.(diagnostics?.twins ?? [], families, usd) ?? ""}
+        ${nearestComparables?.(diagnostics?.twins ?? [], families, usd, viewTools) ?? ""}
       </div>
     </div>`;
 }

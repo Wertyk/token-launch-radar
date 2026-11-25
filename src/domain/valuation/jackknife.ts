@@ -1,8 +1,8 @@
 import { compareText } from "../shared/order.ts";
 import type { Comparable } from "./comparables.ts";
 import type { ValueModel } from "./model.ts";
-import { fitValueModel, logValue } from "./model.ts";
-import { modelFeatures, selectLambda } from "./selection.ts";
+import { fitValueModel } from "./model.ts";
+import { predictComparable, selectLambda } from "./selection.ts";
 
 const TAIL_ALPHA = 0.1;
 // With one held-out family the finite lower rank first exists at floor(n × alpha) ≥ 1.
@@ -20,19 +20,18 @@ export interface FamilyRefit {
   residual: number;
 }
 
-function predictComparable(row: Comparable, model: ValueModel): number {
-  return logValue(modelFeatures(row, model.medianLnAge), model);
-}
+type Refit<Row> = (rows: readonly Row[]) => ValueModel;
 
-export function leaveOneFamilyOut(rows: readonly Comparable[], lambda: number): FamilyRefit[] {
+export function leaveOneFamilyOut<Row extends Comparable>(
+  rows: readonly Row[],
+  refit: number | Refit<Row>,
+): FamilyRefit[] {
   if (rows.length < 2) return [];
   // The comparable set has one observation per family.
   const ordered = [...rows].sort((a, b) => compareText(a.slug, b.slug));
   return ordered.map((comparable) => {
-    const model = fitValueModel(
-      ordered.filter((row) => row !== comparable),
-      lambda,
-    );
+    const train = ordered.filter((row) => row !== comparable);
+    const model = typeof refit === "number" ? fitValueModel(train, refit) : refit(train);
     return {
       comparable,
       model,
@@ -54,14 +53,17 @@ export function jackknifePlusBand(samples: readonly JackknifeSample[]) {
   };
 }
 
-export function jackknifePlusBands(rows: readonly Comparable[]) {
+export function jackknifePlusBands<Row extends Comparable>(
+  rows: readonly Row[],
+  selectFit: (train: readonly Row[]) => number | Refit<Row> = selectLambda,
+) {
   const bands = new Map<string, ReturnType<typeof jackknifePlusBand>>();
   if (rows.length < 3) return bands;
 
   for (const heldOut of rows) {
     const train = rows.filter((row) => row !== heldOut);
     // Select the penalty without the scored family and reuse it in every band refit.
-    const refits = leaveOneFamilyOut(train, selectLambda(train));
+    const refits = leaveOneFamilyOut(train, selectFit(train));
     const samples = refits.map(({ comparable, model, residual }) => ({
       slug: comparable.slug,
       prediction: predictComparable(heldOut, model),

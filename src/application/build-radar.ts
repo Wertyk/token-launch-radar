@@ -1,23 +1,11 @@
 import type { CensusRecord, HouseRuleCheck } from "../domain/census/census.ts";
-import {
-  boardEntries,
-  buildCensus,
-  checkHouseRule,
-  houseRuleMembership,
-} from "../domain/census/census.ts";
-import { groupFamilies } from "../domain/census/families.ts";
-import type { FarmEconomics } from "../domain/farming/economics.ts";
-import { estimateFarmEconomics, renderEconomics } from "../domain/farming/economics.ts";
-import type { FarmPlan } from "../domain/farming/plans.ts";
-import { makeFarmPlan, renderFarmStep } from "../domain/farming/plans.ts";
-import type { FarmTables } from "../domain/farming/playbook-data.ts";
+import { checkHouseRule } from "../domain/census/census.ts";
 import { farmTables } from "../domain/farming/playbook-data.ts";
-import type { LaunchClock } from "../domain/launch-clock/clock.ts";
-import { fitLaunchClock, launchProbability12 } from "../domain/launch-clock/clock.ts";
+import type { OddsModel } from "../domain/launch-odds/model.ts";
+import { fitOddsModel, PENALTY, PRIOR_STRENGTH } from "../domain/launch-odds/model.ts";
+import { validateOdds } from "../domain/launch-odds/validation.ts";
 import type { Snapshot } from "../domain/snapshot.ts";
-import { daysBetween } from "../domain/snapshot.ts";
 import { groupComparableCategories } from "../domain/valuation/categories.ts";
-import { comparablesFromFamilies } from "../domain/valuation/comparables.ts";
 import type { ValueDiagnostics } from "../domain/valuation/diagnostics.ts";
 import { describeBoardValues } from "../domain/valuation/diagnostics.ts";
 import {
@@ -26,84 +14,50 @@ import {
   MIN_BAND_FAMILIES,
 } from "../domain/valuation/jackknife.ts";
 import type { Prediction } from "../domain/valuation/metrics.ts";
-import type { RankedRow, ValueModel } from "../domain/valuation/model.ts";
-import { fitValueModel, rankBoard } from "../domain/valuation/model.ts";
-import { selectLambda } from "../domain/valuation/selection.ts";
+import type { ValueModel } from "../domain/valuation/model.ts";
 import type { ModelValidation } from "../domain/valuation/validation.ts";
 import { validateModel } from "../domain/valuation/validation.ts";
+import type { ValueFit } from "../domain/valuation/value-fit.ts";
+import { refitValue, refitValueSubset, tuneValueFit } from "../domain/valuation/value-fit.ts";
+import type { RadarRow } from "./recompute-radar.ts";
+import { radarInputs, rankRadar } from "./recompute-radar.ts";
 
-export interface RadarRow extends RankedRow {
-  plan: FarmPlan;
-  economics: FarmEconomics;
-  farm_steps: string[];
-}
+export type { RadarRow } from "./recompute-radar.ts";
+export { recomputeRadar } from "./recompute-radar.ts";
 
 export interface RadarResult {
   census: CensusRecord[];
   houseRule: HouseRuleCheck;
   board: RadarRow[];
-  model: ValueModel & ModelValidation;
+  model: ValueModel & ModelValidation & { fit: ValueFit };
   rowDiagnostics: ReadonlyMap<string, ValueDiagnostics>;
   looScatter: (Prediction & { p10: number | null; p90: number | null })[] | null;
-  launchClock: LaunchClock;
-}
-
-function radarInputs({ protocols, as_of }: Snapshot) {
-  const families = groupFamilies(protocols);
-  return { families, comparables: comparablesFromFamilies(families, as_of) };
-}
-
-function rankRadar(
-  snapshot: Snapshot,
-  { families, comparables }: ReturnType<typeof radarInputs>,
-  lambda: number,
-  launchClock: LaunchClock,
-  tables: FarmTables,
-) {
-  const { protocols, watchlist, as_of } = snapshot;
-  const entries = buildCensus(protocols, families);
-  const model = fitValueModel(comparables, lambda);
-  const candidates = boardEntries(entries, watchlist).map((entry) => {
-    const { protocol } = entry;
-    const age =
-      protocol.listed_at === null
-        ? (launchClock.medianAgeDays ?? 0)
-        : Math.max(0, daysBetween(protocol.listed_at, as_of));
-    return { ...entry, launchProbability12: launchProbability12(launchClock.points, age) };
-  });
-  const board = rankBoard(candidates, as_of, model).map((row) => {
-    if (row.implied_value_usd === 0) {
-      throw new Error(`${row.protocol.slug}: implied value rounds to $0`);
-    }
-    const { protocol, launch_value_usd, launchProbability12: p12 } = row;
-    const plan = makeFarmPlan(protocol, tables);
-    const economics = estimateFarmEconomics(plan, launch_value_usd, protocol.tvl_usd, p12);
-    return {
-      ...row,
-      plan,
-      economics,
-      farm_steps: [...plan.steps.map(renderFarmStep), renderEconomics(economics)],
-    };
-  });
-  return { entries, model, board };
+  odds: OddsModel & {
+    names: string[];
+    penalty: number;
+    priorStrength: number;
+    validation: ReturnType<typeof validateOdds>;
+  };
 }
 
 export function buildRadar(snapshot: Snapshot, tables = farmTables()): RadarResult {
-  const inputs = radarInputs(snapshot);
-  const { as_of, protocols } = snapshot;
-  const launchClock = fitLaunchClock(protocols, as_of);
-  const { entries, model, board } = rankRadar(
-    snapshot,
-    inputs,
-    selectLambda(inputs.comparables),
-    launchClock,
-    tables,
-  );
-  const validationRows = groupComparableCategories(inputs.comparables, inputs.families);
-  const refits = leaveOneFamilyOut(inputs.comparables, model.lambda);
-  const boardValues = describeBoardValues(board, inputs.comparables, refits, as_of);
-  const bands = model.n < MIN_BAND_FAMILIES ? null : jackknifePlusBands(inputs.comparables);
-  const { looPredictions, ...validation } = validateModel(validationRows);
+  const { entries, families, comparables: rows, population } = radarInputs(snapshot);
+  const comparables = groupComparableCategories(rows, families);
+  const oddsValidation = validateOdds(population);
+  const odds = fitOddsModel(population, oddsValidation.terms);
+  const { looPredictions, ...validation } = validateModel(comparables);
+  const fit = tuneValueFit(comparables, validation.selection.terms);
+  const model = refitValue(comparables, fit);
+  const board = rankRadar(snapshot, entries, model, odds, tables);
+  const refits = leaveOneFamilyOut(comparables, (train) => refitValueSubset(train, fit));
+  const boardValues = describeBoardValues(board, comparables, refits, snapshot.as_of);
+  const bands =
+    model.n < MIN_BAND_FAMILIES
+      ? null
+      : jackknifePlusBands(comparables, (rows) => {
+          const fit = tuneValueFit(rows, validation.selection.terms);
+          return (train) => refitValueSubset(train, fit);
+        });
   const rowDiagnostics = new Map(
     boardValues.map(({ protocol: { slug }, diagnostics }) => [slug, diagnostics]),
   );
@@ -117,7 +71,7 @@ export function buildRadar(snapshot: Snapshot, tables = farmTables()): RadarResu
     })),
     houseRule: checkHouseRule(snapshot),
     board,
-    model: { ...model, ...validation },
+    model: { ...model, ...validation, fit },
     rowDiagnostics,
     looScatter:
       bands &&
@@ -132,22 +86,12 @@ export function buildRadar(snapshot: Snapshot, tables = farmTables()): RadarResu
           },
         ];
       }),
-    launchClock,
-  };
-}
-
-export function recomputeRadar(
-  snapshot: Snapshot,
-  lambda: number,
-  launchClock: LaunchClock,
-  tables: FarmTables,
-) {
-  const inputs = radarInputs(snapshot);
-  const { model, board } = rankRadar(snapshot, inputs, lambda, launchClock, tables);
-  return {
-    model,
-    board,
-    families: inputs.families,
-    houseRule: houseRuleMembership(snapshot),
+    odds: {
+      ...odds,
+      names: ["intercept", "logit(S(a))", ...odds.terms],
+      penalty: PENALTY,
+      priorStrength: PRIOR_STRENGTH,
+      validation: oddsValidation,
+    },
   };
 }

@@ -17,7 +17,16 @@ const bundles = [
     outfile: "dashboard/3-ui.js",
   },
   {
-    entryPoints: ["src/presentation/web/extras.ts"],
+    stdin: {
+      contents: [
+        'import { boardFarmSteps } from "./src/domain/farming/board-steps.ts";',
+        'import { optimizePortfolio } from "./src/domain/farming/portfolio.ts";',
+        'import "./src/presentation/web/extras.ts";',
+        "window.Radar.boardFarmSteps = (row) => boardFarmSteps(row, window.Radar);",
+        "window.Radar.planPortfolio = (rows, options) => optimizePortfolio(rows, options, window.Radar);",
+      ].join("\n"),
+      resolveDir: process.cwd(),
+    },
     outfile: "dashboard/5-extras.js",
   },
 ];

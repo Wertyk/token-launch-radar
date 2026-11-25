@@ -1,94 +1,98 @@
 import { expect, test } from "vitest";
+import { FARM_ASSUMPTIONS } from "../../../src/domain/farming/assumptions.ts";
 import {
   estimateFarmEconomics,
   farmEconomicsTerms,
   renderEconomics,
 } from "../../../src/domain/farming/economics.ts";
 
-const plan = { totalCostUsd: 10, totalMinutes: 120, capitalApr: 0.02 };
+const plan = { totalCostUsd: 10, totalMinutes: 120, capitalApr: 0 };
 
-test("derives fixed costs, capital carry and EV per deposit dollar", () => {
+test("uses cash fees, zero yield-bearing carry, and the playbook's custom capital rate", () => {
+  expect(FARM_ASSUMPTIONS.capitalApr).toEqual({ yieldBearing: 0, nonYielding: 0.05 });
   const settings = {
+    ...FARM_ASSUMPTIONS,
     horizonMonths: 6,
-    monthsPerYear: 12,
-    minutesPerHour: 60,
-    hourlyRateUsd: 30,
-    airdropShareOfLaunchCap: 0.25,
-    farmerHaircut: 0.5,
     capitalApr: { yieldBearing: 0.125, nonYielding: 0.25 },
   };
-  // $10 + 2 × $30; half a year of 12.5% carry; $4M × ¼ × ½ × ¼ / $2M.
   expect(farmEconomicsTerms(plan, 4_000_000, 2_000_000, 0.25, settings)).toEqual({
-    fixedCosts: 70,
+    cashFees: 10,
+    hours: 2,
     horizonYears: 0.5,
     capitalCarry: 0.0625,
     k: 0.0625,
   });
   expect(
-    farmEconomicsTerms({ ...plan, capitalApr: 0.5 }, 4_000_000, 2_000_000, 0, settings),
-  ).toEqual({ fixedCosts: 70, horizonYears: 0.5, capitalCarry: 0.25, k: 0 });
+    farmEconomicsTerms({ ...plan, capitalApr: 0.5 }, 4_000_000, 2_000_000, 0, settings)
+      .capitalCarry,
+  ).toBe(0.25);
 });
 
-test("uses a quarter of circulating launch cap and the playbook's net capital rate", () => {
-  // k = $1.2M × 25% × 50% × 50% / $2M = 0.0375. Fixed costs are $10 + 2 × $25.
+test("prices the airdrop once and breaks even at the deposit where net reaches zero", () => {
+  // k = $1.2M × 25% × 50% × 50% / $2M = 0.0375, with $10 in fees and no carry.
   const result = estimateFarmEconomics(plan, 1_200_000, 2_000_000, 0.5);
   expect(result.airdropYieldApr).toBeCloseTo(0.0375, 12);
   expect(result.deposits).toEqual([
-    { depositUsd: 1_000, expectedValueUsd: 37.5, costUsd: 80, verdict: "SKIP" },
-    { depositUsd: 10_000, expectedValueUsd: 375, costUsd: 260, verdict: "THIN" },
+    {
+      depositUsd: 1_000,
+      expectedValueUsd: 37.5,
+      costUsd: 10,
+      netUsd: 27.5,
+      netPerHourUsd: 13.75,
+      verdict: "THIN",
+    },
+    {
+      depositUsd: 10_000,
+      expectedValueUsd: 375,
+      costUsd: 10,
+      netUsd: 365,
+      netPerHourUsd: 182.5,
+      verdict: "FARM",
+    },
   ]);
-  expect(result.breakEvenDepositUsd).toBeCloseTo(60 / 0.0175, 8);
-  const text = renderEconomics(result);
-  expect(text).toContain(
-    "Economics at $1,000 over 12 months · expected airdrop ≈ $37.50 vs cost ≈ $80 → SKIP. Break-even deposit ≈ $3,428.57.",
-  );
-  expect(text).toContain("25% of circulating launch cap");
-  expect(text).toContain("small launch float");
-  expect(text).toContain("mostly unlocked");
+  expect(result.breakEvenDepositUsd).toBeCloseTo(10 / 0.0375, 10);
+  const step = renderEconomics(result);
+  for (const text of [
+    "$27.50 net",
+    "$13.75/h",
+    "THIN",
+    "$266.67",
+    "net reaches $0",
+    "25% of circulating launch cap",
+  ]) {
+    expect(step).toContain(text);
+  }
 });
 
-test("charges 5% for idle capital without changing the airdrop yield", () => {
+test("charges 5% for non-yielding deposits, with no break-even when carry exceeds drop yield", () => {
   const result = estimateFarmEconomics({ ...plan, capitalApr: 0.05 }, 1_200_000, 2_000_000, 0.5);
-  expect(result.airdropYieldApr).toBeCloseTo(0.0375, 12);
-  expect(result.deposits).toEqual([
-    { depositUsd: 1_000, expectedValueUsd: 37.5, costUsd: 110, verdict: "SKIP" },
-    { depositUsd: 10_000, expectedValueUsd: 375, costUsd: 560, verdict: "SKIP" },
-  ]);
+  expect(result.deposits[0]).toMatchObject({
+    expectedValueUsd: 37.5,
+    costUsd: 60,
+    netUsd: -22.5,
+    verdict: "SKIP",
+  });
   expect(result.breakEvenDepositUsd).toBe("never");
 });
 
 test.each([
-  [1_200_000, "FARM"],
-  [1_199_999, "THIN"],
-  [600_000, "THIN"],
-  [599_999, "SKIP"],
-] as const)("uses inclusive verdict thresholds on V = $%i", (value, verdict) => {
-  const result = estimateFarmEconomics(
-    { ...plan, totalCostUsd: 0, totalMinutes: 0 },
-    value,
-    5_000_000,
-    1,
-  );
-  expect(result.deposits.map((row) => row.verdict)).toEqual([verdict, verdict]);
-});
+  [480, 50, "FARM"],
+  [479, 49.875, "THIN"],
+  [81, 0.125, "THIN"],
+  [80, 0, "SKIP"],
+  [79, -0.125, "SKIP"],
+] as const)(
+  "uses the inclusive labor boundary and strict positive net at V = $%i",
+  (value, netUsd, verdict) => {
+    const result = estimateFarmEconomics(plan, value, 1_000, 1);
+    expect(result.deposits[0]).toMatchObject({ netUsd, netPerHourUsd: netUsd / 2, verdict });
+  },
+);
 
-test.each([
-  ["equal to capital carry", 800_000, 5_000_000, 1, "THIN"],
-  ["below capital carry", 720_000, 5_000_000, 1, "SKIP"],
-  ["zero with P12 = 0", 8_000_000, 750_000, 0, "SKIP"],
-  ["tiny with huge TVL", 8_000_000, Number.MAX_VALUE, 1, "SKIP"],
-] as const)("break-even is never when k is %s", (_, value, tvl, probability, largeVerdict) => {
-  const result = estimateFarmEconomics(plan, value, tvl, probability);
+test("break-even is never with zero drop odds and positive fees", () => {
+  const result = estimateFarmEconomics(plan, 8_000_000, 750_000, 0);
+  expect(result.airdropYieldApr).toBe(0);
+  expect(result.deposits[0]).toMatchObject({ expectedValueUsd: 0, netUsd: -10, verdict: "SKIP" });
   expect(result.breakEvenDepositUsd).toBe("never");
-  expect(result.deposits.map((row) => row.costUsd)).toEqual([80, 260]);
-  expect(result.deposits.map((row) => row.verdict)).toEqual(["SKIP", largeVerdict]);
   expect(renderEconomics(result)).toContain("Break-even deposit never");
-  if (probability === 0) {
-    expect(result.airdropYieldApr).toBe(0);
-    expect(result.deposits[0].expectedValueUsd).toBe(0);
-  }
-  if (tvl === Number.MAX_VALUE) {
-    expect(result.deposits[0].expectedValueUsd).toBeGreaterThan(0);
-    expect(result.deposits[0].expectedValueUsd).toBeLessThan(1e-296);
-  }
 });

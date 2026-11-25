@@ -1,22 +1,4 @@
 (() => {
-function compareRows(a, b, sort, direction, compareText) {
-	if (sort === "name") return direction * compareText(a.name.toLowerCase(), b.name.toLowerCase())
-	const first = a[sort]
-	const second = b[sort]
-	if (first === second) return 0
-	if (first === null) return 1
-	if (second === null) return -1
-	return direction * (Number(first) - Number(second))
-}
-function selectRows(rows, state, compareText) {
-	const {sort, dir, cat, chain, wl} = state
-	const query = state.q.trim().toLowerCase()
-	const direction = dir === "asc" ? 1 : -1
-	return rows
-		.filter(row => (!cat || row.category === cat) && (!chain || row.chains.includes(chain)) && (!wl || row.watchlist) && (!query || row.name.toLowerCase().includes(query)))
-		.sort((a, b) => compareRows(a, b, sort, direction, compareText) || compareText(a.slug, b.slug))
-}
-
 function formatInteger(value) {
 	return value === null ? "—" : value.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")
 }
@@ -28,7 +10,7 @@ function signedTerm(value, decimals = 3) {
 	return `${value < 0 ? "−" : "+"} ${Math.abs(value).toFixed(decimals)}`
 }
 function formatOdds(value) {
-	return `${(value * 100).toFixed(1)}%`
+	return `${(value * 100).toFixed(value < 0.05 ? 2 : 1)}%`
 }
 function formatPercent(value) {
 	if (value === null) return "—"
@@ -40,34 +22,25 @@ function escapeHtml(value) {
 	return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;")
 }
 
-function tableBody(rows, columns2, options2 = {}) {
-	if (!rows.length && options2.empty) {
-		return `<tr><td colspan="${columns2}" class="empty">${escapeHtml(options2.empty)}</td></tr>`
+function tableBody(rows, columns2, options = {}) {
+	if (!rows.length && options.empty) {
+		return `<tr><td colspan="${columns2}" class="empty">${escapeHtml(options.empty)}</td></tr>`
 	}
-	return rows.map(row => `<tr${options2.linked ? " data-protocol" : ""}><td>${row.join("</td><td>")}</td></tr>`).join("")
+	return rows.map(row => `<tr${options.linked ? " data-protocol" : ""}><td>${row.join("</td><td>")}</td></tr>`).join("")
 }
-function table(headers, rows, options2 = {}) {
+function table(headers, rows, options = {}) {
 	const head = headers.map(header => {
 		if (typeof header === "string") return `<th scope="col">${escapeHtml(header)}</th>`
 		const [key, label2] = header
-		const direction = options2.dir === "desc" ? "descending" : "ascending"
-		return `<th scope="col"${options2.sort === key ? ` aria-sort="${direction}"` : ""}><button type="button" data-sort="${escapeHtml(key)}">${escapeHtml(label2)}</button></th>`
+		const direction = options.dir === "desc" ? "descending" : "ascending"
+		return `<th scope="col"${options.sort === key ? ` aria-sort="${direction}"` : ""}><button type="button" data-sort="${escapeHtml(key)}">${escapeHtml(label2)}</button></th>`
 	})
-	const [label, ...totals] = options2.total ?? []
+	const [label, ...totals] = options.total ?? []
 	const foot = label === void 0 ? "" : `<tfoot><tr><th scope="row">${label}</th><td>${totals.join("</td><td>")}</td></tr></tfoot>`
-	return `<table${options2.className ? ` class="${options2.className}"` : ""}><thead><tr>${head.join("")}</tr></thead><tbody>${tableBody(rows, headers.length, options2)}</tbody>${foot}</table>`
+	return `<table${options.className ? ` class="${options.className}"` : ""}><thead><tr>${head.join("")}</tr></thead><tbody>${tableBody(rows, headers.length, options)}</tbody>${foot}</table>`
 }
 function svg(width, height, content) {
 	return `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">${content}</svg>`
-}
-function options(values) {
-	return [...new Set(values)]
-		.sort()
-		.map(value => {
-			const label = escapeHtml(value)
-			return `<option value="${label}">${label}</option>`
-		})
-		.join("")
 }
 
 var columns = {
@@ -97,39 +70,28 @@ var defaultState = {
 	wl: false,
 	q: ""
 }
-function isSortKey(value) {
-	return value !== void 0 && Object.hasOwn(columns, value)
-}
 function isCensusSortKey(value) {
 	return value === "tvl" || value === "name" || value === "status" || value === "reason"
 }
-function parseRoute(hash) {
+function pageRoute(hash, readBoard) {
 	const [path, query] = hash.slice(1).split(/\?(.*)/s, 2)
 	if (path === "/method") return {page: "method"}
 	if (path === "/plan") return {page: "plan"}
 	const params = new URLSearchParams(query)
 	if (path === "/census") {
 		const status = params.get("status")
-		const sort2 = params.get("sort")
+		const sort = params.get("sort")
 		return {
 			page: "census",
 			state: {
 				status: status && Object.hasOwn(statusLabels, status) ? status : "",
-				sort: isCensusSortKey(sort2) ? sort2 : "tvl",
+				sort: isCensusSortKey(sort) ? sort : "tvl",
 				dir: params.get("dir") === "asc" ? "asc" : "desc",
 				unranked: params.get("unranked") === "1"
 			}
 		}
 	}
-	const sort = params.get("sort") ?? void 0
-	const state = {
-		sort: isSortKey(sort) ? sort : defaultState.sort,
-		dir: params.get("dir") === "desc" ? "desc" : "asc",
-		cat: params.get("cat") ?? "",
-		chain: params.get("chain") ?? "",
-		wl: params.get("wl") === "1",
-		q: params.get("q") ?? ""
-	}
+	const state = readBoard?.(params) ?? defaultState
 	if (!path || path === "/") return {page: "board", state}
 	const segment = /^\/p\/([^/]+)$/.exec(path)?.[1]
 	if (segment) {
@@ -141,25 +103,12 @@ function parseRoute(hash) {
 	}
 	return {page: "unknown", state}
 }
-function boardHash(state) {
-	const params = new URLSearchParams()
-	if (state.sort !== defaultState.sort || state.dir !== defaultState.dir) {
-		params.set("sort", state.sort)
-		params.set("dir", state.dir)
-	}
-	if (state.cat) params.set("cat", state.cat)
-	if (state.chain) params.set("chain", state.chain)
-	if (state.wl) params.set("wl", "1")
-	if (state.q) params.set("q", state.q)
-	const query = params.toString()
-	return query ? `#/?${query}` : "#/"
-}
-function protocolHash(slug, state) {
-	return `#/p/${encodeURIComponent(slug)}${boardHash(state).slice(2)}`
+function protocolHref(slug, back) {
+	return `#/p/${encodeURIComponent(slug)}${back.slice(2)}`
 }
 
 function boardTable() {
-	return `<section class="table-window" aria-label="Protocol rankings" tabindex="0">${table(Object.entries(columns), [], {className: "ranking"})}</section>`
+	return `<section class="table-window" aria-label="Protocol rankings" tabindex="0">${table(Object.entries(columns), [], {className: "ranking", sort: "rank", dir: "asc"})}</section>`
 }
 function chip(label, className = "chip") {
 	return `<span class="${className}">${escapeHtml(label)}</span>`
@@ -169,11 +118,11 @@ function growthText(growth) {
 	const trend = text.startsWith("+") ? "gain" : text.startsWith("−") ? "loss" : ""
 	return `<span class="${trend}">${text}</span>`
 }
-function boardRows(rows, state, maxLogValue, usd) {
+function boardRows(rows, back, maxLogValue, usd) {
 	const scale = value => (Math.log1p(value) / maxLogValue) * 100
 	return tableBody(
 		rows.map(row => {
-			const href = escapeHtml(protocolHash(row.slug, state))
+			const href = escapeHtml(protocolHref(row.slug, back))
 			const remaining = row.chains.length - 2
 			const [low, high] = row.interval ?? [0, 0]
 			const band = row.interval ? `<rect class="band" x="${scale(low).toFixed(2)}" y="5" width="${(scale(high) - scale(low)).toFixed(2)}" height="3"></rect>` : ""
@@ -243,20 +192,6 @@ function censusView(rows, state, usd, compareText, ranked) {
 			selected.map(({name, status, reason, tvl_usd}) => [escapeHtml(name), statusLabels[status], escapeHtml(reason), usd(tvl_usd)]),
 			{...state, className: "ranking census", empty: "No matching protocols."}
 		)}`
-}
-
-function clockSampleSize(points) {
-	return points.reduce((total, {count}) => total + count, 0)
-}
-
-function setSelect(select, value) {
-	select.querySelector("[data-temporary]")?.remove()
-	select.value = value
-	if (select.selectedIndex < 0) {
-		const option = new Option(value, value, false, true)
-		option.dataset.temporary = ""
-		select.add(option)
-	}
 }
 
 function element(selector, root = document) {
@@ -354,85 +289,90 @@ function launchValueScatter({points, counts}, {model, flatMultiple}) {
 	return `${heading}${plot}<p class="caption">● Inside band · ○ Outside band · Dashed y = x<br>${counts.covered}/${points.length} inside held-out P10–P90 · LOO median error ${multiplier(model.medianMultiplier)} vs ${multiplier(flatMultiple.medianMultiplier)} flat</p></section>`
 }
 
-function methodView({model, houseRule, scatter, launchClock}, farm) {
+function methodPanel(title, headers, rows, note) {
+	return `<section class="panel"><h2>${title}</h2>${table(headers, rows)}${note ? `<p class="caption">${note}</p>` : ""}</section>`
+}
+function methodView({model, odds, scatter}, notes, renderTrials) {
 	const {
 		coefficients: {intercept, lnTvl, lnAge},
 		validation,
-		ablation
+		selection
 	} = model
-	const score = ({medianMultiplier, spearman}) => [multiplier(medianMultiplier), spearman?.toFixed(3) ?? "—"]
-	const section = (title, headers, rows, note) => `<section class="panel"><h2>${title}</h2>${table(headers, rows)}${note ? `<p class="caption">${note}</p>` : ""}</section>`
-	const {points} = launchClock
+	const {baselines, scores} = odds.validation
+	const brier = x => x?.toFixed(4) ?? "—"
+	const oddsHeaders = ["10-fold Brier", "Walk-forward Brier"]
 	const cards = [
 		'<div class="method-value">',
-		section(
+		methodPanel(
 			"Launch value model",
 			["Term in ln V", "Coefficient"],
 			[
 				["Intercept", intercept.toFixed(6)],
-				["ln(TVL·(1+g₇))", lnTvl.toFixed(6)],
-				["ln(age)", lnAge.toFixed(6)],
+				[model.momentum ? "ln(TVL·(1+g₇))" : "ln(TVL)", lnTvl.toFixed(6)],
+				...(selection.terms.includes("age") ? [["ln(age)", lnAge.toFixed(6)]] : []),
+				...Object.entries(model.categoryEffects ?? {}).map(([group, effect]) => [group, effect.toFixed(6)]),
 				["Ridge penalty λ", String(model.lambda)]
 			],
 			`Huber ridge on ${model.n} traded families.`
 		),
-		section(
+		methodPanel(
 			"Out-of-sample validation",
 			["Scheme", "Model", "Flat", "Category"],
 			[
 				["Leave one family out", validation.leaveOneFamilyOut],
 				["Seeded five-fold", validation.seededFiveFold],
 				["Walk-forward", validation.walkForward]
-			].map(([label, {model: fitted, flatMultiple, categoryMultiple}]) => [label, ...[fitted, flatMultiple, categoryMultiple].map(s => score(s).join(" · "))]),
+			].map(([label, {model: fitted, flatMultiple, categoryMultiple}]) => [
+				label,
+				...[fitted, flatMultiple, categoryMultiple].map(({medianMultiplier, spearman}) => `${multiplier(medianMultiplier)} · ${spearman?.toFixed(3) ?? "—"}`)
+			]),
 			"Current traded-family market caps proxy for launch value. Median error ×k and Spearman ρ."
 		),
+		renderTrials?.(selection, "Value", table) ?? "",
 		"</div><div>",
-		section(
-			"Launch clock F(t)",
-			["Mean listing age (days)", "Fitted token share (PAVA)", "Count"],
-			points.map(({ageDays, share, count}) => [ageDays.toFixed(0), formatOdds(share), String(count)]),
-			`${formatInteger(clockSampleSize(points))} protocols · P₁₂(t) = [F(t+365) − F(t)] / [1 − F(t)]<br>Flat windows and the tail use the last rising segment’s constant conditional hazard, or the pooled annual rate for a flat fit. The snapshot cannot validate future launch odds.`
+		methodPanel(
+			"Token-status model",
+			["Term in logit F(a)", "Coefficient"],
+			odds.names.map((name, i) => [name, odds.coefficients[i]?.toFixed(6) ?? "—"]),
+			`S(a) is the PAVA share clamped to 0.01–0.99. P₁₂ = [F(a+365) − F(a)] / [1 − F(a)]. Flat years use the annual tail hazard. Undated age ${odds.medianAgeDays} days.`
 		),
-		section(
-			"House watchlist rule",
-			["TP", "FP", "FN"],
-			[["truePositives", "falsePositives", "falseNegatives"].map(key => String(houseRule[key].length))],
-			"DefiLlama marks extra matches with parentProtocol, absent from the snapshot."
-		),
-		"</div><div>",
-		section(
-			"Leave-one-family-out ablation",
-			["Variant", "Median error", "Spearman ρ"],
+		methodPanel(
+			"Held-out token status",
+			["Model", ...oddsHeaders],
 			[
-				["Full", ablation.full],
-				["−TVL", ablation.withoutTvl],
-				["−Age", ablation.withoutAge],
-				["−Momentum", ablation.withoutMomentum],
-				["+Category", ablation.withCategory],
-				["OLS", ablation.ols]
-			].map(([label, metrics]) => [label, ...score(metrics)])
+				["Base rate", ...baselines.baseRate.map(brier)],
+				["Raw PAVA clock", ...baselines.pava.map(brier)],
+				["Clock-only model (step 0)", ...baselines.clockOnly.map(brier)],
+				["Final model", ...scores.map(brier)]
+			],
+			"Each fold refits its clock. Brier scores current token status. P₁₂ assumes the cross-section behaves like a cohort."
 		),
+		renderTrials?.(odds.validation, "Odds", table) ?? "",
+		"</div><div>",
 		launchValueScatter(scatter, validation.leaveOneFamilyOut),
-		farm ? section(farm.title, ["Input", "Default"], farm.rows) : "",
+		notes?.(methodPanel) ?? "",
 		"</div>"
 	]
 	return `<div class="method compact">${cards.join("")}</div>`
 }
 
-function matchesFields(expected, actual) {
-	if (!expected || typeof expected !== "object") return expected === actual
-	if (!actual || typeof actual !== "object") return false
-	if (Array.isArray(expected) && (!Array.isArray(actual) || expected.length !== actual.length)) {
-		return false
+var tolerance = 1e-9
+function matchesFields(a, b, field = "") {
+	if (a === b) return true
+	if (typeof a === "number" && typeof b === "number" && !Number.isInteger(a) && !/cost/i.test(field)) {
+		const delta = Math.abs(a - b)
+		return Number.isFinite(delta) && delta <= tolerance * Math.max(1, Math.abs(a), Math.abs(b))
 	}
-	return Object.entries(expected).every(([key, value]) => matchesFields(value, actual[key]))
+	if (!a || !b || typeof a !== "object" || typeof b !== "object") return false
+	if (Array.isArray(a) && (!Array.isArray(b) || a.length !== b.length)) return false
+	return Object.entries(a).every(([key, value]) => matchesFields(value, b[key], key))
 }
 function boardInterval(row) {
 	if (!row) return null
 	const {interval_p10_usd: low, interval_p90_usd: high} = row
 	return Number.isInteger(low) && Number.isInteger(high) && low > 0 && low <= high ? [low, high] : null
 }
-function boardMismatches(computed, published) {
+function boardMismatches(computed, published, steps) {
 	const slugs = published.slice(computed.length).map(row => (typeof row?.slug === "string" ? row.slug : "(missing slug)"))
 	for (const [index, row] of computed.entries()) {
 		const {
@@ -440,17 +380,16 @@ function boardMismatches(computed, published) {
 			rank,
 			launch_value_usd,
 			implied_value_usd,
-			plan,
-			economics,
-			farm_steps
+			plan
 		} = row
-		const {airdropYieldApr: airdrop_yield_apr, ...farm_economics} = economics
+		const saved = published[index]
+		const farm_steps = steps?.(row) ?? row.farm_steps ?? saved?.farm_steps
+		const {airdropYieldApr: airdrop_yield_apr, ...farm_economics} = row.economics
 		const expected = {
 			slug,
 			rank,
 			launch_value_usd,
 			implied_value_usd,
-			farm_steps,
 			airdrop_yield_apr,
 			launch_p12: farm_economics.launchProbability12,
 			plan_chain: plan.chain,
@@ -458,19 +397,20 @@ function boardMismatches(computed, published) {
 			plan_recurring_cost_usd: plan.recurringCostUsd,
 			plan_total_cost_usd: plan.totalCostUsd,
 			plan_total_minutes: plan.totalMinutes,
-			farm_economics
+			farm_economics,
+			farm_steps
 		}
-		if (!boardInterval(published[index]) || !matchesFields(expected, published[index])) slugs.push(slug)
+		if (!boardInterval(saved) || !Array.isArray(farm_steps) || !matchesFields(expected, saved)) slugs.push(slug)
 	}
 	return slugs
 }
-function prepareBoard({board, families}, published, watchlist, age) {
+function prepareBoard({board, families}, published, watchlist, age, steps) {
 	const evidence = new Map(published.flatMap(row => (row ? [[row.slug, row]] : [])))
 	return {
 		diagnostics: evidence,
 		families: new Map(families.map(family => [family.representative.slug, family])),
 		protocols: new Map(board.map(row => [row.protocol.slug, row])),
-		mismatches: boardMismatches(board, published),
+		mismatches: boardMismatches(board, published, steps),
 		rows: boardViewRows(board, evidence, watchlist, age)
 	}
 }
@@ -498,15 +438,26 @@ function boardViewRows(board, evidence, watchlist, age) {
 	})
 }
 
+var viewTools = {
+	escapeHtml,
+	formatInteger,
+	formatOdds,
+	growthText,
+	statusLabels,
+	svg,
+	table
+}
+
 function decomposition(row, usd) {
 	const {base, multipliers} = row.decomposition
-	const {lnTvl, growth, lnAge} = multipliers
+	const {lnTvl, growth, lnAge, category = 1} = multipliers
 	const afterTvl = base * lnTvl
 	const stages = [
 		["Base", base],
 		["TVL", afterTvl, lnTvl],
-		["7d growth", afterTvl * growth, growth],
-		["Age", row.valueUsd, lnAge],
+		...(growth === 1 ? [] : [["7d growth", afterTvl * growth, growth]]),
+		...(lnAge === 1 ? [] : [["Age", afterTvl * growth * lnAge, lnAge]]),
+		...(category === 1 ? [] : [["Category", row.valueUsd, category]]),
 		["Launch value", row.launch_value_usd],
 		["× launch odds 12m", null, row.launchProbability12],
 		["Implied value", row.implied_value_usd]
@@ -522,13 +473,19 @@ function decomposition(row, usd) {
 		})
 		.join("")}</ol>`
 }
-function valueEquation(row, {intercept, lnTvl, lnAge}, lnValue, clockAge, usd) {
-	const growth = Math.exp(row.features.growth).toFixed(3)
-	const days = Math.exp(row.features.lnAge).toFixed(0)
-	return `<p class="value-equation">ln V ≈ ${intercept.toFixed(4)} ${signedTerm(lnTvl, 4)} × ln(${formatCompactUsd(row.protocol.tvl_usd)} × ${growth}) ${signedTerm(lnAge, 4)} × ln(${days} d) ≈ ${lnValue.toFixed(3)} → ${usd(row.launch_value_usd)} × P₁₂(${clockAge.toFixed(0)} d) ${formatOdds(row.launchProbability12)} → ${usd(row.implied_value_usd)}</p>`
+function valueFormula(model, row) {
+	const {intercept, lnTvl, lnAge} = model.coefficients
+	const decimals = row ? 4 : 3
+	const tvl = row ? formatCompactUsd(row.protocol.tvl_usd) : "TVL"
+	const growth = row ? Math.exp(row.features.growth).toFixed(3) : "(1+g₇)"
+	const age = row ? `${Math.exp(row.features.lnAge).toFixed(0)} d` : "age"
+	const ageTerm = lnAge ? ` ${signedTerm(lnAge, decimals)} × ln(${age})` : ""
+	const effect = model.categoryEffects?.[row?.features.category ?? "other"] ?? 0
+	const category = model.categoryEffects ? (row ? ` ${signedTerm(effect, decimals)}` : " + category effect") : ""
+	return `${intercept.toFixed(decimals)} ${signedTerm(lnTvl, decimals)} × ln(${tvl}${model.momentum ? ` × ${growth}` : ""})${ageTerm}${category}`
 }
-function protocolView(row, {age, coefficients, lnValue, back, usd, farm, diagnostics, families, launchClock, launchProbability12}, {nearestComparables, protocolClock, protocolFacts}) {
-	const {protocol, plan, economics} = row
+function protocolView(row, {age, model, lnValue, back, usd, farm, diagnostics, families, maxOddsAge}, {nearestComparables, protocolClock, protocolFacts}) {
+	const {protocol, plan, economics, oddsAge, oddsAt} = row
 	const {hourlyRateUsd, farmerHaircut} = farm
 	const {airdropYieldApr, breakEvenDepositUsd} = economics
 	const interval = boardInterval(diagnostics)?.map(usd).join("–") ?? "—"
@@ -536,7 +493,6 @@ function protocolView(row, {age, coefficients, lnValue, back, usd, farm, diagnos
 	const comparable = influence && families.get(influence.slug)?.representative.name
 	const influenceLine =
 		influence?.rank_delta === 0 ? "No single comparable moves this rank" : influence && comparable ? `Without ${escapeHtml(comparable)}, rank moves by ${Math.abs(influence.rank_delta)}` : ""
-	const clockAge = Math.max(0, age ?? launchClock.medianAgeDays ?? 0)
 	const steps = table(
 		["Action", "Est. fee", "Min", "When"],
 		plan.steps.map(step => [escapeHtml(step.action) + (step.exitCondition ? `<small>${escapeHtml(step.exitCondition)}</small>` : ""), usd(step.costUsd), formatInteger(step.minutes), step.cadence]),
@@ -552,29 +508,23 @@ function protocolView(row, {age, coefficients, lnValue, back, usd, farm, diagnos
           <p class="figure">${usd(row.implied_value_usd)}</p>
           <p>P10–P90 · ${interval}</p>
           ${decomposition(row, usd)}
-          ${valueEquation(row, coefficients, lnValue, clockAge, usd)}
+          <p class="value-equation">ln V ≈ ${valueFormula(model, row)} ≈ ${lnValue.toFixed(3)} → ${usd(row.launch_value_usd)} × P₁₂(${oddsAge.toFixed(0)} d) ${formatOdds(row.launchProbability12)} → ${usd(row.implied_value_usd)}</p>
           ${influenceLine ? `<p class="caption">${influenceLine}</p>` : ""}
         </section>
-        ${
-					protocolFacts
-						? `<section class="panel"><h3>Protocol record</h3>
-          ${protocolFacts(row, age, usd)}
-        </section>`
-						: ""
-				}
-        ${protocolClock?.(launchClock.points, clockAge, row.launchProbability12, age === null, launchProbability12) ?? ""}
+        ${protocolFacts?.(row, age, usd, viewTools) ?? ""}
+        ${protocolClock?.(maxOddsAge, oddsAge, row.launchProbability12, age === null, oddsAt, viewTools) ?? ""}
       </div>
       <div class="detail-facts">
         <section class="panel farm"><h3>Farm plan</h3>
           <p class="plan-meta"><strong>${escapeHtml(plan.chain ?? "Chain unlisted")}</strong> · ${usd(plan.depositUsd)} plan · ${plan.horizonMonths} months</p>
-          <div class="chips">${economics.deposits.map(({depositUsd, verdict}) => chip(`${usd(depositUsd)} ${verdict}`, "badge")).join("")}</div>
+          <div class="chips">${economics.deposits.map(({depositUsd, verdict, netUsd, netPerHourUsd}) => chip(`${usd(depositUsd)} ${verdict} · ${usd(netUsd)} net · ${usd(netPerHourUsd)}/h`, "badge")).join("")}</div>
           <p class="caption">${usd(hourlyRateUsd)}/h for labor · ${farmerHaircut * 100}% farmer haircut</p>
           <p>Expected airdrop yield ${(airdropYieldApr * 100).toFixed(2)}% APR · Capital cost ${(plan.capitalApr * 100).toFixed(2)}% APR</p>
           <p>Break-even deposit · ${breakEvenDepositUsd === "never" ? "never" : usd(breakEvenDepositUsd)}</p>
           ${steps}
           <p class="caption">Per-occurrence minutes and fees. Assumptions ${plan.assumptionsAsOf}${plan.flags.length ? " · fallback fees" : ""}.</p>
         </section>
-        ${nearestComparables?.(diagnostics?.twins ?? [], families, usd) ?? ""}
+        ${nearestComparables?.(diagnostics?.twins ?? [], families, usd, viewTools) ?? ""}
       </div>
     </div>`
 }
@@ -595,8 +545,10 @@ function boot(start2) {
 			!publishedData ||
 			!input ||
 			!Array.isArray(publishedData.board?.rows) ||
-			!Array.isArray(publishedData.launchClock?.points) ||
-			!publishedData.model?.ablation?.full ||
+			!Array.isArray(publishedData.odds?.terms) ||
+			!Array.isArray(publishedData.odds?.validation?.steps) ||
+			!Array.isArray(publishedData.model?.fit?.terms) ||
+			!Array.isArray(publishedData.model?.selection?.steps) ||
 			[validation?.leaveOneFamilyOut, validation?.seededFiveFold, validation?.walkForward].some(scheme => !scheme?.model || !scheme.flatMultiple || !scheme.categoryMultiple) ||
 			!Array.isArray(publishedData.census) ||
 			publishedData.census.length !== input.protocols.length
@@ -608,41 +560,29 @@ function boot(start2) {
 	}
 }
 
-function mountBoard(main, rows, summary, {formatUsd: usd, compareText}) {
+function mountBoard(main, rows, summary, {formatUsd: usd, compareText, selectRows, boardControls, view, boardHash}) {
 	main.innerHTML = summary + element("#board-filters").innerHTML + boardTable()
-	const search = element('[name="q"]', main)
-	const category = element('[name="cat"]', main)
-	const chain = element('[name="chain"]', main)
-	category.insertAdjacentHTML("beforeend", options(rows.flatMap(({category: category2}) => category2 ?? [])))
-	chain.insertAdjacentHTML("beforeend", options(rows.flatMap(({chains}) => chains)))
-	const watchlist = element('[name="wl"]', main)
+	const sync = view && boardControls?.(main, view, rows)
 	const results = element("#results", main)
 	const body = element("tbody", main)
-	const buttons = main.querySelectorAll("button[data-sort]")
 	const maxLogValue = Math.log1p(Math.max(1, ...rows.flatMap(({value, interval}) => [value, interval?.[1] ?? 0])))
 	return state => {
-		if (search.value !== state.q) search.value = state.q
-		setSelect(category, state.cat)
-		setSelect(chain, state.chain)
-		watchlist.checked = state.wl
-		for (const button of buttons) {
-			const th = button.parentElement
-			if (th) th.ariaSort = button.dataset.sort !== state.sort ? null : state.dir === "asc" ? "ascending" : "descending"
-		}
-		const selected = selectRows(rows, state, compareText)
+		sync?.(state)
+		const selected = selectRows?.(rows, state, compareText) ?? rows
 		results.textContent = `${formatInteger(selected.length)} of ${formatInteger(rows.length)} protocols`
-		body.innerHTML = boardRows(selected, state, maxLogValue, usd)
+		body.innerHTML = boardRows(selected, boardHash?.(state) ?? "#/", maxLogValue, usd)
 	}
 }
 function start(main, snapshot, data, api, fail) {
 	const {buildRadar, daysBetween, farmAssumptions, formatUsd} = api
-	const {launchClock, meta} = data
-	const radar = buildRadar(snapshot, data.model.lambda, launchClock, meta)
-	const {model, houseRule} = radar
+	api.view = {...viewTools, element}
+	const {meta} = data
+	const radar = buildRadar(snapshot, data.model.fit, data.odds.terms, meta)
+	const {model, odds, houseRule} = radar
 	const {validation} = data.model
 	const published = data.board.rows
 	const age = ({listed_at}) => (listed_at === null ? null : daysBetween(listed_at, snapshot.as_of))
-	const {families, diagnostics, protocols, mismatches, rows} = prepareBoard(radar, published, snapshot.watchlist, age)
+	const {families, diagnostics, protocols, mismatches, rows} = prepareBoard(radar, published, snapshot.watchlist, age, api.boardFarmSteps)
 	const scatter = scatterCoverage(data.looScatter ?? [], families)
 	const checks = integrityChecks(mismatches, published, snapshot.watchlist, {
 		fitted: model.n,
@@ -652,17 +592,18 @@ function start(main, snapshot, data, api, fail) {
 		coverageUnavailable: data.looScatter === null && model.n < api.MIN_BAND_FAMILIES,
 		loo: validation.leaveOneFamilyOut
 	})
+	if (!api.boardFarmSteps && checks[0]) checks[0].label += " · step text unchecked"
 	element("#snapshot-date").textContent = `Snapshot · ${snapshot.as_of}`
-	const counts = [snapshot.protocols.length, model.n, rows.length, clockSampleSize(launchClock.points)]
+	const counts = [snapshot.protocols.length, model.n, rows.length, odds.n]
 	document.querySelectorAll("#summary dd, #clock-count").forEach((count, i) => {
 		count.textContent = formatInteger(counts[i] ?? null)
 	})
-	const {intercept, lnTvl, lnAge} = model.coefficients
-	element("#formula").textContent = `ln V = ${intercept.toFixed(3)} ${signedTerm(lnTvl)}·ln(TVL·(1+g₇)) ${signedTerm(lnAge)}·ln(age)`
+	element("#formula").textContent = `ln V = ${valueFormula(model)}`
 	element("#checks").innerHTML = integrityStrip(checks)
 	let updateBoard
 	let updatePlan
 	let lastPage
+	const parseRoute = hash => pageRoute(hash, api.readBoardState)
 	function render() {
 		const route = parseRoute(location.hash)
 		const page = route.page === "protocol" ? `protocol/${route.slug}` : route.page
@@ -678,36 +619,35 @@ function start(main, snapshot, data, api, fail) {
 		} else if (route.page === "plan") {
 			updatePlan ??= api.mountPlanner?.(main, radar.board, meta, api)
 			if (updatePlan) updatePlan(location.hash)
-			else main.innerHTML = "<h2>Farm planner unavailable</h2>"
+			else main.innerHTML = element("#plan-unavailable").innerHTML
 		} else if (route.page === "census") {
 			main.innerHTML = censusView(data.census, route.state, formatUsd, api.compareText, protocols)
 		} else if (route.page === "method") {
 			main.innerHTML = methodView(
 				{
-					model: {...model, validation, ablation: data.model.ablation},
-					launchClock,
-					houseRule,
+					model: {...data.model, ...model},
+					odds: {...data.odds, ...odds},
 					scatter
 				},
-				api.methodFarmAssumptions?.(farmAssumptions, formatUsd)
+				panel => api.methodNotes?.(houseRule, farmAssumptions, formatUsd, formatOdds, panel) ?? "",
+				api.termTrials
 			)
 		} else {
-			const back = boardHash(route.state)
+			const back = api.boardHash?.(route.state) ?? "#/"
 			const detail = route.page === "protocol" ? protocols.get(route.slug) : void 0
 			main.innerHTML = detail
 				? protocolView(
 						detail,
 						{
 							age: age(detail.protocol),
-							coefficients: model.coefficients,
+							model,
 							lnValue: api.logValue(detail.features, model),
 							back,
 							usd: formatUsd,
 							farm: farmAssumptions,
 							diagnostics: diagnostics.get(detail.protocol.slug),
 							families,
-							launchClock,
-							launchProbability12: api.launchProbability12
+							maxOddsAge: odds.maxAgeDays
 						},
 						api
 					)
@@ -729,7 +669,7 @@ function start(main, snapshot, data, api, fail) {
 	}
 	draw()
 	window.addEventListener("hashchange", draw)
-	api.bindControls?.(main, draw, {boardHash, isCensusSortKey, isSortKey, parseRoute})
+	api.bindControls?.(main, draw, {isCensusSortKey, parseRoute})
 }
 boot(start)
 })();

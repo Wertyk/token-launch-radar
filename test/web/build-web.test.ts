@@ -25,20 +25,25 @@ test("checks the generated bundles byte for byte without writing them", () => {
     expect(core).not.toContain("@__PURE__");
     expect(core).not.toContain("DEFAULT_DEPOSIT_USD");
     expect(core).not.toMatch(
-      /fitCategoryModel|categoryGroup|categoryPenalty|fitLaunchClock|pava|jackknifePlusBands|heldOutBands|selectLambda|leaveOneFamilyOut|seededFolds|medianLogError/,
+      /jackknifePlusBands|heldOutBands|selectLambda|leaveOneFamilyOut|seededFolds|medianLogError|validateOdds/,
     );
     expect(core).not.toMatch(/parseSnapshot|duplicate slug|Log the supply rate|Ethereum:\[3,8\]/);
-    expect(core).toContain("function planPortfolio");
+    expect(core).toContain("function fitOddsModel");
+    expect(core).toContain("function pava");
+    expect(core).toContain("function launchProbability12");
+    expect(core).not.toMatch(/function (boardFarmSteps|formatFarmStep|formatEconomics)/);
+    expect(core).not.toMatch(/function (planPortfolio|optimizePortfolio|scheduleFarmMinutes)/);
     const extras = readFileSync(join(cwd, "dashboard/5-extras.js"), "utf8");
     expect(extras).toContain("function mountPlanner");
+    expect(extras).toContain("function optimizePortfolio");
     expect(extras).toContain("function parsePlanState");
     expect(extras).toContain("function censusHash(");
     expect(extras).toContain("function ageSparkline");
+    expect(extras).toContain("function boardFarmSteps");
+    expect(extras).toContain("function boardHash");
     expect(extras).toContain("function protocolFacts");
     expect(extras).toContain("Nearest comparables");
-    expect(extras).not.toMatch(
-      /launchValueScatter|Predicted launch value vs current market cap|Protocol record/,
-    );
+    expect(extras).not.toMatch(/launchValueScatter|Predicted launch value vs current market cap/);
     const window: Record<string, unknown> = {};
     runInNewContext(`${core}\n${extras}`, { window });
     expect(Object.keys(window)).toEqual(["Radar"]);
@@ -59,7 +64,7 @@ test("checks the generated bundles byte for byte without writing them", () => {
     expect(original).not.toMatch(
       /function (mountPlanner|parsePlanState|ageSparkline|protocolFacts)|Farm assumptions<\/legend>|Nearest comparables/,
     );
-    expect(original).toContain("Protocol record");
+    expect(extras).toContain("Protocol record");
     appendFileSync(bundle, "\n// Changed bundle\n");
     const check = run("--check");
     expect(check.status).toBe(1);
@@ -107,6 +112,16 @@ test("ships one copy of every screenshot-visible board check and row helper in t
   }
 });
 
+test("emits each shared function in one bundle", () => {
+  const sources = ["2-core.js", "3-ui.js", "5-extras.js"].map((file) =>
+    readFileSync(new URL(`dashboard/${file}`, root), "utf8"),
+  );
+  const names = sources.flatMap((source) =>
+    Array.from(source.matchAll(/^function (\w+)\(/gm), ([, name]) => name),
+  );
+  expect(names).toHaveLength(new Set(names).size);
+});
+
 test("keeps the guide, design tokens and browser bundles within the judge's source budget", () => {
   const bytes = ["0-guide.md", "1-tokens.css", "2-core.js", "3-ui.js"].reduce(
     (total, file) => total + readFileSync(new URL(`dashboard/${file}`, root)).length,
@@ -118,7 +133,7 @@ test("keeps the guide, design tokens and browser bundles within the judge's sour
 test("keeps five screenshot-backed rubric bullets with their code references in the judge's guide", () => {
   const guide = readFileSync(new URL("dashboard/0-guide.md", root), "utf8");
   expect(Buffer.byteLength(guide)).toBeGreaterThanOrEqual(1_350);
-  expect(Buffer.byteLength(guide)).toBeLessThanOrEqual(1_500);
+  expect(Buffer.byteLength(guide)).toBeLessThanOrEqual(1_448);
   expect(guide).not.toMatch(/https?:\/\//i);
   expect(guide).toContain("Current traded-family caps proxy for V");
   const bullets = guide.trim().split(/\n(?=- )/);
@@ -172,7 +187,7 @@ test("drops the unused census filter spacing rule", () => {
   expect(readFileSync(new URL("4-app.css", dashboard), "utf8")).not.toContain("h2 + div.filters");
 });
 
-test("shows each validation result and the fitted clock in separate Criterion 2 sub-bullets", () => {
+test("shows each validation result and the token-status fit in separate Criterion 2 sub-bullets", () => {
   const guide = readFileSync(new URL("dashboard/0-guide.md", root), "utf8");
   const evidence = [...guide.matchAll(/^ {2}- \*\*([^*]+)\.\*\* (.+)$/gm)];
   expect(evidence.map((bullet) => bullet[1])).toEqual([
@@ -182,22 +197,20 @@ test("shows each validation result and the fitted clock in separate Criterion 2 
   ]);
   const [value, odds, separation] = evidence.map((bullet) => bullet[2]);
   for (const result of [
-    "×3.46/×5.07 family LOO",
-    "×3.95/×4.98 seeded 5-fold",
-    "×3.30/×4.86 walk-forward",
-    "−TVL ×3.83",
-    "−momentum ×3.58",
-    "−age ×3.35",
+    "×3.56/×5.07 family LOO",
+    "×3.84/×4.98 seeded 5-fold",
+    "×3.15/×4.86 walk-forward",
+    "both tests improve",
     "104/128 held-out traded caps",
   ]) {
     expect(value).toContain(result);
   }
   for (const result of [
-    "Build-time PAVA fits token shares by listing age (proxy)",
-    "645 listed protocols",
-    "32.5% at 171 days",
-    "79.7% at 1,841 days",
-    "Board odds 2.1%–50.5% via `launchProbability12`",
+    "518 listed candidates",
+    "Brier (10-fold/WF) 0.1700/0.2123",
+    "base 0.2340/0.3726",
+    "PAVA 0.1869/0.2525",
+    "assumes the cross-section behaves like a cohort",
   ]) {
     expect(odds).toContain(result);
   }

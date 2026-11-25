@@ -2,6 +2,7 @@ import { formatUsd } from "../shared/money.ts";
 import { compareText } from "../shared/order.ts";
 import type { Protocol } from "../snapshot.ts";
 import { FARM_ASSUMPTIONS as assumptions } from "./assumptions.ts";
+import { formatFarmStep } from "./board-steps.ts";
 import type { FarmTables } from "./playbook-data.ts";
 
 type Cadence = "once" | "weekly" | "monthly";
@@ -31,7 +32,7 @@ export interface FarmPlan {
 }
 
 const horizonYears = assumptions.horizonMonths / assumptions.monthsPerYear;
-const occurrences = {
+export const occurrences = {
   once: 1,
   weekly: Math.floor(assumptions.weeksPerYear * horizonYears),
   monthly: assumptions.horizonMonths,
@@ -69,7 +70,7 @@ function chooseChain(
   return cheapest ?? estimate(null, gasTransactions, bridgeTransfers, gas);
 }
 
-function shorten(text: string, max: number): string {
+export function shorten(text: string, max: number): string {
   const normalized = text.trim().replace(/\s+/g, " ");
   if (normalized.length <= max) return normalized;
   return `${normalized.slice(0, max - 1).trimEnd()}…`;
@@ -179,30 +180,6 @@ export function makeFarmPlan(
   };
 }
 
-export function scheduleFarmMinutes({ steps }: FarmPlan): number[] {
-  const weeks = Array<number>(occurrences.weekly).fill(0);
-  for (const { cadence, minutes, exitCondition } of steps) {
-    const count = occurrences[cadence];
-    // Recurring steps fall at the end of equally spaced periods.
-    for (let occurrence = 1; occurrence <= count; occurrence++) {
-      const week =
-        cadence === "once" && exitCondition === undefined
-          ? 0
-          : Math.ceil((occurrence * weeks.length) / count) - 1;
-      weeks[week] = (weeks[week] ?? 0) + minutes;
-    }
-  }
-  return weeks;
-}
-
-export function renderFarmStep({
-  action,
-  chain,
-  costUsd,
-  minutes,
-  cadence,
-  exitCondition,
-}: FarmStep): string {
-  const exit = exitCondition ? ` | Exit · ${shorten(exitCondition, 100)}` : "";
-  return `${shorten(action, 280)} | ${shorten(chain ?? "Chain unlisted", 110)} | Est. fee ${formatUsd(costUsd)} | ${minutes} minutes | ${cadence}${exit}`;
+export function renderFarmStep(step: FarmStep): string {
+  return formatFarmStep(step, formatUsd, shorten);
 }

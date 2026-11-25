@@ -1,3 +1,25 @@
+export function zeroMatrix(size: number): number[][] {
+  return Array.from({ length: size }, () => Array<number>(size).fill(0));
+}
+
+/** Adds the weighted outer product to the lower triangle, using only nonzero columns. */
+export function addOuterProduct(
+  matrix: number[][],
+  row: readonly number[],
+  weight: number,
+  columns: readonly number[],
+): void {
+  for (const [i, column] of columns.entries()) {
+    const line = matrix[column];
+    if (!line) throw new Error("Incomplete normal matrix.");
+    const scaled = weight * (row[i] ?? 0);
+    for (let j = 0; j <= i; j++) {
+      const other = columns[j] ?? 0;
+      line[other] = (line[other] ?? 0) + scaled * (row[j] ?? 0);
+    }
+  }
+}
+
 function at(values: readonly number[], index: number): number {
   const value = values[index];
   if (value === undefined) throw new Error("Incomplete linear system.");
@@ -15,43 +37,33 @@ export function choleskySolve(
   }
 
   const lower: number[][] = [];
+  const solution: number[] = [];
   for (const [i, row] of matrix.entries()) {
-    const factorRow: number[] = [];
-    for (const [j, priorRow] of lower.entries()) {
-      let residual = at(row, j);
-      for (const [k, value] of factorRow.entries()) {
-        residual -= value * at(priorRow, k);
-      }
-      factorRow.push(residual / at(priorRow, j));
+    const factor: number[] = [];
+    let diagonal = at(row, i);
+    let target = at(rhs, i);
+    for (const [j, previous] of lower.entries()) {
+      let value = at(row, j);
+      for (const [k, entry] of factor.entries()) value -= entry * at(previous, k);
+      const entry = value / at(previous, j);
+      factor.push(entry);
+      diagonal -= entry ** 2;
+      target -= entry * at(solution, j);
     }
-
-    const diagonal = factorRow.reduce((sum, value) => sum - value * value, at(row, i));
-    if (!Number.isFinite(diagonal) || diagonal <= 0) {
+    if (!(diagonal > 0) || !Number.isFinite(diagonal)) {
       throw new Error("Cholesky factorization requires a positive-definite matrix.");
     }
-    factorRow.push(Math.sqrt(diagonal));
-    lower.push(factorRow);
+    const root = Math.sqrt(diagonal);
+    factor.push(root);
+    lower.push(factor);
+    solution.push(target / root);
   }
 
-  // Forward substitution solves Ly = b.
-  const y: number[] = [];
-  for (const [i, row] of lower.entries()) {
-    let residual = at(rhs, i);
-    for (const [j, value] of y.entries()) residual -= at(row, j) * value;
-    y.push(residual / at(row, i));
+  for (let i = n - 1; i >= 0; i--) {
+    const row = lower[i] ?? [];
+    const value = at(solution, i) / at(row, i);
+    solution[i] = value;
+    for (let j = 0; j < i; j++) solution[j] = at(solution, j) - value * at(row, j);
   }
-
-  // Backward substitution solves Lᵀx = y.
-  const x: number[] = [];
-  for (const [reverseIndex, row] of lower.toReversed().entries()) {
-    const i = n - 1 - reverseIndex;
-    let residual = at(y, i);
-    for (let j = i + 1; j < n; j++) {
-      const factorRow = lower[j];
-      if (!factorRow) throw new Error("Incomplete Cholesky factor.");
-      residual -= at(factorRow, i) * at(x, j);
-    }
-    x[i] = residual / at(row, i);
-  }
-  return x;
+  return solution;
 }

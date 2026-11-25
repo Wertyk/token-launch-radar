@@ -1,5 +1,6 @@
 import { formatUsd } from "../shared/money.ts";
 import { FARM_ASSUMPTIONS as assumptions } from "./assumptions.ts";
+import { formatEconomics } from "./board-steps.ts";
 import type { FarmPlan } from "./plans.ts";
 
 type Verdict = "FARM" | "THIN" | "SKIP";
@@ -8,6 +9,8 @@ interface DepositEconomics {
   depositUsd: number;
   expectedValueUsd: number;
   costUsd: number;
+  netUsd: number;
+  netPerHourUsd: number;
   verdict: Verdict;
 }
 
@@ -35,8 +38,7 @@ export function farmEconomicsTerms(
   launchProbability: number,
   settings: EconomicsAssumptions = assumptions,
 ) {
-  const fixedCosts =
-    plan.totalCostUsd + (plan.totalMinutes / settings.minutesPerHour) * settings.hourlyRateUsd;
+  const hours = plan.totalMinutes / settings.minutesPerHour;
   const horizonYears = settings.horizonMonths / settings.monthsPerYear;
   const { yieldBearing, nonYielding } = settings.capitalApr ?? assumptions.capitalApr;
   // Playbooks carry the baseline rate. Preserve custom playbook rates.
@@ -47,7 +49,7 @@ export function farmEconomicsTerms(
   const k =
     (valueUsd * settings.airdropShareOfLaunchCap * launchProbability * settings.farmerHaircut) /
     tvlUsd;
-  return { fixedCosts, horizonYears, capitalCarry, k };
+  return { cashFees: plan.totalCostUsd, hours, horizonYears, capitalCarry, k };
 }
 
 export function estimateFarmEconomics(
@@ -57,39 +59,36 @@ export function estimateFarmEconomics(
   launchProbability: number,
   settings: EconomicsAssumptions = assumptions,
 ): FarmEconomics {
-  const { fixedCosts, horizonYears, capitalCarry, k } = farmEconomicsTerms(
-    plan,
-    valueUsd,
-    tvlUsd,
-    launchProbability,
-    settings,
-  );
+  const terms = farmEconomicsTerms(plan, valueUsd, tvlUsd, launchProbability, settings);
+  const { cashFees, horizonYears, capitalCarry, k } = terms;
   const atDeposit = (depositUsd: number): DepositEconomics => {
-    const expectedValueUsd = k * depositUsd;
-    const costUsd = fixedCosts + depositUsd * capitalCarry;
-    const ratio = expectedValueUsd / costUsd;
+    const amounts = depositAmounts(terms, depositUsd);
+    const { netUsd, netPerHourUsd } = amounts;
     const verdict =
-      ratio >= assumptions.farmThreshold
-        ? "FARM"
-        : ratio >= assumptions.thinThreshold
-          ? "THIN"
-          : "SKIP";
-    return { depositUsd, expectedValueUsd, costUsd, verdict };
+      netUsd <= 0 ? "SKIP" : netPerHourUsd >= settings.hourlyRateUsd ? "FARM" : "THIN";
+    return { depositUsd, ...amounts, verdict };
   };
   const [small, large] = assumptions.depositsUsd;
   return {
     launchProbability12: launchProbability,
     airdropYieldApr: k / horizonYears,
     deposits: [atDeposit(small), atDeposit(large)],
-    breakEvenDepositUsd: k > capitalCarry ? fixedCosts / (k - capitalCarry) : "never",
+    breakEvenDepositUsd: k > capitalCarry ? cashFees / (k - capitalCarry) : "never",
   };
 }
 
-export function renderEconomics({
-  deposits: [{ depositUsd, expectedValueUsd, costUsd, verdict }],
-  breakEvenDepositUsd,
-}: FarmEconomics): string {
-  const breakEven =
-    breakEvenDepositUsd === "never" ? "never" : `≈ ${formatUsd(breakEvenDepositUsd)}`;
-  return `Economics at ${formatUsd(depositUsd)} over ${assumptions.horizonMonths} months · expected airdrop ≈ ${formatUsd(expectedValueUsd)} vs cost ≈ ${formatUsd(costUsd)} → ${verdict}. Break-even deposit ${breakEven}. Assumes ${assumptions.airdropShareOfLaunchCap * 100}% of circulating launch cap because a mostly unlocked airdrop can account for much of a small launch float.`;
+export function depositAmounts(
+  { cashFees, capitalCarry, hours, k }: ReturnType<typeof farmEconomicsTerms>,
+  depositUsd: number,
+) {
+  const expectedValueUsd = k * depositUsd;
+  const carryUsd = capitalCarry * depositUsd;
+  const costUsd = cashFees + carryUsd;
+  const netUsd = expectedValueUsd - cashFees - carryUsd;
+  const netPerHourUsd = netUsd === 0 ? 0 : netUsd / hours;
+  return { expectedValueUsd, costUsd, netUsd, netPerHourUsd };
+}
+
+export function renderEconomics(economics: FarmEconomics): string {
+  return formatEconomics(economics, formatUsd, assumptions);
 }

@@ -14,3 +14,19 @@ export function median(
   if (!upper) return undefined;
   return sorted.length % 2 === 0 && lower ? (lower.value + upper.value) / 2 : upper.value;
 }
+
+export function featureStats(values: readonly number[]) {
+  let sum = 0;
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  for (const value of values) {
+    sum += value;
+    min = Math.min(min, value);
+    max = Math.max(max, value);
+  }
+  const mean = min === max ? min : sum / values.length;
+  const scale = Math.sqrt(
+    values.reduce((total, value) => total + (value - mean) ** 2, 0) / values.length,
+  );
+  return { mean, scale, range: { min, max } };
+}

@@ -1,15 +1,18 @@
+import type { CategoryGroup } from "./categories.ts";
 import type { Comparable } from "./comparables.ts";
 import type { Fold } from "./folds.ts";
 import { seededFolds, splitFolds } from "./folds.ts";
 import type { Prediction } from "./metrics.ts";
 import { medianLogError } from "./metrics.ts";
-import type { ValueModel } from "./model.ts";
+import type { FitOptions, ValueModel } from "./model.ts";
 import { fitValueModel, logValue } from "./model.ts";
 
 // Visit stronger penalties first to resolve equal validation errors.
 export const LAMBDAS = [64, 16, 4, 1, 0.1, 0.01] as const;
 
-type ModelTerm = "tvl" | "age" | "momentum";
+export const VALUE_CANDIDATES = ["momentum", "age", "category"] as const;
+export type ValueTerm = (typeof VALUE_CANDIDATES)[number];
+export const DEFAULT_VALUE_TERMS: readonly ValueTerm[] = ["momentum", "age"];
 
 export function predictionsFor<Row extends Comparable>(
   rows: readonly Row[],
@@ -18,17 +21,23 @@ export function predictionsFor<Row extends Comparable>(
   return rows.map((row) => ({ slug: row.slug, actual: row.target, predicted: predict(row) }));
 }
 
-export function modelFeatures(row: Comparable, medianLnAge: number, drop?: ModelTerm) {
+export function modelFeatures(row: Comparable, medianLnAge: number) {
   return {
     lnTvl: row.lnTvl,
-    growth: drop === "momentum" ? 0 : row.growth,
+    growth: row.growth,
     lnAge: row.lnAge ?? medianLnAge,
   };
 }
 
-export function modelPredictions(rows: readonly Comparable[], model: ValueModel, drop?: ModelTerm) {
-  return predictionsFor(rows, (row) =>
-    logValue(modelFeatures(row, model.medianLnAge, drop), model),
+export function modelPredictions(rows: readonly Comparable[], model: ValueModel) {
+  return predictionsFor(rows, (row) => predictComparable(row, model));
+}
+
+export function predictComparable(row: Comparable, model: ValueModel) {
+  const features = modelFeatures(row, model.medianLnAge);
+  return logValue(
+    { ...features, ...("category" in row && { category: row.category as CategoryGroup }) },
+    model,
   );
 }
 
@@ -54,16 +63,12 @@ export function selectByMedianError<Row extends Comparable, Candidate>(
   return best;
 }
 
-function fitVariant(train: readonly Comparable[], lambda: number, drop?: ModelTerm): ValueModel {
-  return fitValueModel(train, lambda, drop === "tvl" || drop === "age" ? { drop } : {});
+export function valueOptions(terms: readonly ValueTerm[]): FitOptions {
+  return { ...(!terms.includes("age") && { drop: "age" }), momentum: terms.includes("momentum") };
 }
 
-export function selectLambda(rows: readonly Comparable[], drop?: ModelTerm): number {
+export function selectLambda(rows: readonly Comparable[], terms = DEFAULT_VALUE_TERMS): number {
   return selectByMedianError(innerFolds(rows), LAMBDAS, LAMBDAS[0], ({ train, test }, lambda) =>
-    modelPredictions(test, fitVariant(train, lambda, drop), drop),
+    modelPredictions(test, fitValueModel(train, lambda, valueOptions(terms))),
   );
-}
-
-export function nestedVariantPredictions({ train, test }: Fold, drop: ModelTerm): Prediction[] {
-  return modelPredictions(test, fitVariant(train, selectLambda(train, drop), drop), drop);
 }

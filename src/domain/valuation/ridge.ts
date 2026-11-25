@@ -1,4 +1,4 @@
-import { choleskySolve } from "./linalg.ts";
+import { addOuterProduct, choleskySolve, zeroMatrix } from "./linalg.ts";
 
 const HUBER_K = 1.345;
 const MAD_NORMAL_SCALE = 1.4826;
@@ -10,88 +10,69 @@ export interface RidgeRow {
   tvl: number;
   age: number;
   target: number;
+  group?: number;
 }
 
-function weightedRidge(rows: readonly RidgeRow[], weights: Float64Array, lambda: number): number[] {
-  let weightSum = 0;
-  let tvlSum = 0;
-  let ageSum = 0;
-  let targetSum = 0;
-  let tvlSquared = 0;
-  let ageSquared = 0;
-  let tvlAge = 0;
-  let tvlTarget = 0;
-  let ageTarget = 0;
-  for (const [index, { tvl, age, target }] of rows.entries()) {
-    const weight = weights[index] ?? 1;
-    const weightedTvl = weight * tvl;
-    const weightedAge = weight * age;
-    weightSum += weight;
-    tvlSum += weightedTvl;
-    ageSum += weightedAge;
-    targetSum += weight * target;
-    tvlSquared += weightedTvl * tvl;
-    ageSquared += weightedAge * age;
-    tvlAge += weightedTvl * age;
-    tvlTarget += weightedTvl * target;
-    ageTarget += weightedAge * target;
+function weightedRidge(
+  rows: readonly DesignRow[],
+  weights: Float64Array,
+  lambda: number,
+  groupPenalty: readonly number[][],
+): number[] {
+  const width = groupPenalty.length + 3;
+  const normal = zeroMatrix(width);
+  const rhs = Array<number>(width).fill(0);
+  for (const [i, { values, columns, target }] of rows.entries()) {
+    const weight = weights[i] ?? 1;
+    addOuterProduct(normal, values, weight, columns);
+    for (const [j, column] of columns.entries()) {
+      rhs[column] = (rhs[column] ?? 0) + weight * (values[j] ?? 0) * target;
+    }
   }
-  // When both columns are collinear, TVL alone spans the same unpenalized fit.
+  const tvlColumn = width - 2;
+  const ageColumn = width - 1;
+  const tvl = normal[tvlColumn] ?? [];
+  const age = normal[ageColumn] ?? [];
+  const tvlSquared = tvl[tvlColumn] ?? 0;
+  const ageSquared = age[ageColumn] ?? 0;
+  // When both columns are collinear, TVL spans the unpenalized fit.
   if (
     lambda === 0 &&
+    width === 3 &&
     tvlSquared > 0 &&
     ageSquared > 0 &&
-    tvlAge ** 2 >= (1 - 8 * Number.EPSILON) * tvlSquared * ageSquared
+    (age[tvlColumn] ?? 0) ** 2 >= (1 - 8 * Number.EPSILON) * tvlSquared * ageSquared
   ) {
     return [
       ...choleskySolve(
-        [
-          [weightSum, tvlSum],
-          [tvlSum, tvlSquared],
-        ],
-        [targetSum, tvlTarget],
+        normal.slice(0, 2).map((row) => row.slice(0, 2)),
+        rhs.slice(0, 2),
       ),
       0,
     ];
   }
-  return choleskySolve(
-    [
-      [weightSum, tvlSum, ageSum],
-      [tvlSum, (tvlSquared || 1) + lambda, tvlAge],
-      [ageSum, tvlAge, (ageSquared || 1) + lambda],
-    ],
-    [targetSum, tvlTarget, ageTarget],
-  );
+  for (const [i, penalties] of groupPenalty.entries()) {
+    const line = normal[i + 1] ?? [];
+    penalties.forEach((penalty, j) => {
+      line[j + 1] = (line[j + 1] ?? 0) + penalty;
+    });
+  }
+  tvl[tvlColumn] = (tvlSquared || 1) + lambda;
+  age[ageColumn] = (ageSquared || 1) + lambda;
+  return choleskySolve(normal, rhs);
 }
 
-// Partition around the middle order statistic. The left partition also gives
-// the lower middle for an even sample, so IRLS needs no full residual sort.
+interface DesignRow {
+  target: number;
+  values: number[];
+  columns: number[];
+}
+
 function medianInPlace(values: Float64Array): number {
+  values.sort();
   const middle = Math.floor(values.length / 2);
-  let low = 0;
-  let high = values.length - 1;
-  while (low < high) {
-    const pivot = values[(low + high) >>> 1] ?? 0;
-    let left = low;
-    let right = high;
-    while (left <= right) {
-      while ((values[left] ?? pivot) < pivot) left++;
-      while ((values[right] ?? pivot) > pivot) right--;
-      if (left <= right) {
-        const value = values[left] ?? pivot;
-        values[left++] = values[right] ?? pivot;
-        values[right--] = value;
-      }
-    }
-    if (middle <= right) high = right;
-    else if (middle >= left) low = left;
-    else break;
-  }
   const upper = values[middle] ?? 0;
-  if (values.length % 2 !== 0) return upper;
-  let lower = Number.NEGATIVE_INFINITY;
-  for (let i = 0; i < middle; i++) lower = Math.max(lower, values[i] ?? upper);
-  return (lower + upper) / 2;
+  return values.length % 2 ? upper : ((values[middle - 1] ?? upper) + upper) / 2;
 }
 
 function madScale(residuals: Float64Array, scratch: Float64Array): number {
@@ -132,14 +113,30 @@ export function fitHuber(
   return { coefficients, huberScale };
 }
 
-export function fitRidge(rows: readonly RidgeRow[], lambda: number, robust: boolean) {
+export function fitRidge(
+  rows: readonly RidgeRow[],
+  lambda: number,
+  robust: boolean,
+  groupPenalty: readonly number[][] = [],
+) {
+  const tvlColumn = groupPenalty.length + 1;
+  const ageColumn = tvlColumn + 1;
+  const design = rows.map(({ target, group = 0, tvl, age }) => ({
+    target,
+    values: group ? [1, 1, tvl, age] : [1, tvl, age],
+    columns: group ? [0, group, tvlColumn, ageColumn] : [0, tvlColumn, ageColumn],
+  }));
   return fitHuber(
     rows.length,
-    (weights) => weightedRidge(rows, weights, lambda),
-    ([intercept = 0, tvlSlope = 0, ageSlope = 0], residuals) => {
+    (weights) => weightedRidge(design, weights, lambda, groupPenalty),
+    (coefficients, residuals) => {
+      const intercept = coefficients[0] ?? 0;
+      const tvlSlope = coefficients[tvlColumn] ?? 0;
+      const ageSlope = coefficients[ageColumn] ?? 0;
       let i = 0;
-      for (const { target, tvl, age } of rows) {
-        residuals[i++] = target - (intercept + tvlSlope * tvl + ageSlope * age);
+      for (const { target, group = 0, tvl, age } of rows) {
+        const base = group ? intercept + (coefficients[group] ?? 0) : intercept;
+        residuals[i++] = target - (base + tvlSlope * tvl + ageSlope * age);
       }
     },
     robust,

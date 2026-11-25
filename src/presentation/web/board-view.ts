@@ -1,11 +1,10 @@
 import type { BoardRow } from "./board.ts";
 import { escapeHtml as esc, formatInteger, formatOdds, formatPercent } from "./format.ts";
 import { svg, table, tableBody } from "./render.ts";
-import type { BoardState } from "./state.ts";
-import { columns, protocolHash } from "./state.ts";
+import { columns, protocolHref } from "./state.ts";
 
 export function boardTable(): string {
-  return `<section class="table-window" aria-label="Protocol rankings" tabindex="0">${table(Object.entries(columns), [], { className: "ranking" })}</section>`;
+  return `<section class="table-window" aria-label="Protocol rankings" tabindex="0">${table(Object.entries(columns), [], { className: "ranking", sort: "rank", dir: "asc" })}</section>`;
 }
 
 export function chip(label: string, className = "chip"): string {
@@ -20,14 +19,14 @@ export function growthText(growth: number | null): string {
 
 export function boardRows(
   rows: readonly BoardRow[],
-  state: BoardState,
+  back: string,
   maxLogValue: number,
   usd: (value: number) => string,
 ): string {
   const scale = (value: number) => (Math.log1p(value) / maxLogValue) * 100;
   return tableBody(
     rows.map((row) => {
-      const href = esc(protocolHash(row.slug, state));
+      const href = esc(protocolHref(row.slug, back));
       const remaining = row.chains.length - 2;
       const [low, high] = row.interval ?? [0, 0];
       const band = row.interval

@@ -9,7 +9,7 @@ type PublishedRow = BrowserApi.BoardRows["rows"][number] &
 
 export interface RadarData
   extends BrowserApi.PublishedSnapshot,
-    Pick<RadarResult, "launchClock" | "census" | "looScatter"> {
+    Pick<RadarResult, "odds" | "census" | "looScatter"> {
   model: Omit<RadarResult["model"], "coefficients">;
   meta: BrowserApi.PublishedSnapshot["meta"] & FarmTables;
   board: { rows: (PublishedRow | null)[] };
@@ -39,8 +39,10 @@ export function boot(
       !publishedData ||
       !input ||
       !Array.isArray(publishedData.board?.rows) ||
-      !Array.isArray(publishedData.launchClock?.points) ||
-      !publishedData.model?.ablation?.full ||
+      !Array.isArray(publishedData.odds?.terms) ||
+      !Array.isArray(publishedData.odds?.validation?.steps) ||
+      !Array.isArray(publishedData.model?.fit?.terms) ||
+      !Array.isArray(publishedData.model?.selection?.steps) ||
       [validation?.leaveOneFamilyOut, validation?.seededFiveFold, validation?.walkForward].some(
         (scheme) => !scheme?.model || !scheme.flatMultiple || !scheme.categoryMultiple,
       ) ||
