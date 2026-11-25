@@ -27,7 +27,7 @@ let n=l=>Math.log1p(l)/a*100;return tableBody(e.map(l=>{let{slug:i,chains:o}=l,d
 gory",...o.slice(0,2)];o.length>2&&c.push(`+${o.length-2}`);let[r,u]=l.interval??[0,0],f=l.interval?`<rect class="band" x="${n(r).toFixed(2)}\
 " y="5" width="${(n(u)-n(r)).toFixed(2)}" height="3"></rect>`:"";return[`${l.rank}<small class="rank-range" title="Bootstrap P10\u2013P90 rank">${l.
 rankRange?.join("\u2013")??"\u2014"}</small>`,`<a class="protocol-name" href="${d}">${escapeHtml(l.name)}</a>
-       <div class="chips" title="${escapeHtml(o.join(", "))}">${c.map(v=>chip(v)).join("")}</div>`,`<div class="value" ${l.interval?`title="\
+       <div class="chips" title="${escapeHtml(o.join(", "))}">${c.map(b=>chip(b)).join("")}</div>`,`<div class="value" ${l.interval?`title="\
 P10\u2013P90: ${s(r)}\u2013${s(u)}"`:""}><strong>${s(l.value)}</strong>
         ${svg(100,8,`<rect width="${n(l.value).toFixed(2)}" height="3"></rect>${f}`)}</div>`,s(l.launchValue),formatOdds(l.odds),s(l.tvl),growthText(
 l.growth),formatInteger(l.age),`${s(l.cost)} \xB7 ${l.time} min`,l.verdict,s(l.netPerHour),l.watchlist?chip("Watchlist","badge"):"\u2014"]}),
@@ -47,12 +47,12 @@ option value="${i}"${t.status===i?" selected":""}>${o}</option>`).join("")}</sel
     ${table([["name","Protocol"],["status","Status"],["reason","Reason"],["tvl","TVL"]],l.map(({name:i,status:o,reason:d,tvl_usd:c})=>[escapeHtml(
 i),statusLabels[o],escapeHtml(d),a(c)]),{...t,className:"ranking census",empty:"No matching protocols."})}`}function element(e,t=document){let a=t.
 querySelector(e);if(!a)throw new Error(`Missing dashboard element ${e}`);return a}function integrityChecks(e,t,a,{fitted:s,houseRule:n,intervalCounts:l,
-invalidPoints:i,coverageUnavailable:o,loo:d}){let c=e.length,r=new Set(t.map(b=>b?.slug)),u=new Set(a),f=[...u].filter(b=>r.has(b)).length,{
-missLow:v,covered:m,missHigh:k}=l,$=v+m+k,h=n.truePositives.length,M=n.falsePositives.length,{model:P,flatMultiple:p}=d,g=P.n===s&&p.n===s;return[
+invalidPoints:i,coverageUnavailable:o,loo:d}){let c=e.length,r=new Set(t.map(y=>y?.slug)),u=new Set(a),f=[...u].filter(y=>r.has(y)).length,{
+missLow:b,covered:m,missHigh:k}=l,$=b+m+k,h=n.truePositives.length,M=n.falsePositives.length,{model:P,flatMultiple:p}=d,g=P.n===s&&p.n===s;return[
 {pass:c===0,label:c?`Recompute \u2260 published board \xB7 launch values, odds, implied values, ranks, plans, economics (${c} mismatched \xB7 ${e[0]}\
 )`:`Recompute = published board \xB7 ${t.length} ${t.length===1?"row":"rows"}`},{pass:f===u.size,label:`Watchlist ${f}/${u.size}`},{pass:h===
 u.size&&u.size>0,label:`House rule ${h}/${u.size}${M?` \xB7 +${M} via parentProtocol`:""}`},o?{pass:null,label:"Coverage unavailable \xB7 too f\
-ew traded families"}:{pass:i===0&&Object.values(l).every(b=>Number.isInteger(b)&&b>=0)&&$===s&&m/$>=.8,label:`${m}/${$} held-out caps in P10\
+ew traded families"}:{pass:i===0&&Object.values(l).every(y=>Number.isInteger(y)&&y>=0)&&$===s&&m/$>=.8,label:`${m}/${$} held-out caps in P10\
 \u2013P90${$===s?"":` \xB7 ${$}/${s} families`}${i?` \xB7 ${i} invalid`:""}`},{pass:g&&P.medianMultiplier!==null&&p.medianMultiplier!==null&&
 P.medianMultiplier<p.medianMultiplier,label:`LOO ${multiplier(P.medianMultiplier)} vs ${multiplier(p.medianMultiplier)} flat${g?"":` \xB7 model\
  n=${P.n}/${s}, flat n=${p.n}/${s}`}`}]}function integrityStrip(e){return`<ul class="integrity">${e.map(({pass:t,label:a})=>`<li class="${t===
@@ -63,9 +63,9 @@ formatOdds(e/t):"\u2014",nominal=e=>`${e*100}%`;function rangeRows({middle:e,bro
 {stated:s,covered:n,n:l}])=>[a,`${actual(n,l)} \xB7 ${n}/${l}`,nominal(s)])}function termCounts(e){return`${e.terms.length}/${e.steps[0]?.trials.
 length??0}`}function kpiStrip(e,t,a,s,n,l,i){let{leaveOneFamilyOut:o,seededFiveFold:d,walkForward:c}=e.validation,r=m=>[o,d,c].map(k=>multiplier(
 k[m].medianMultiplier)).join("/"),u=({stated:m,covered:k,n:$})=>`${actual(k,$)} / ${nominal(m)}`,f={FARM:0,THIN:0,SKIP:0};for(let{verdict:m}of n)
-f[m]++;let v=m=>m.map(brier).join("/");return[["Nested value error",r("model"),`LOO/5-fold/WF \xB7 flat ${r("flatMultiple")}`],["Range hones\
-ty",`${u(a.middle)} \xB7 ${u(a.broad)}`,"P25\u2013P75 \xB7 P10\u2013P90, actual/stated"],["Nested odds Brier \xB7 10-fold / WF",v(t.scores),
-`vs ${v(t.baselines.baseRate)} base \xB7 ${v(t.baselines.pava)} clock`],["Inputs in implied value",["TVL","growth","age"].map((m,k)=>`${m} ${effectPercent(
+f[m]++;let b=m=>m.map(brier).join("/");return[["Nested value error",r("model"),`LOO/5-fold/WF \xB7 flat ${r("flatMultiple")}`],["Range hones\
+ty",`${u(a.middle)} \xB7 ${u(a.broad)}`,"P25\u2013P75 \xB7 P10\u2013P90, actual/stated"],["Nested odds Brier \xB7 10-fold / WF",b(t.scores),
+`vs ${b(t.baselines.baseRate)} base \xB7 ${b(t.baselines.pava)} clock`],["Inputs in implied value",["TVL","growth","age"].map((m,k)=>`${m} ${effectPercent(
 s[k]?.[0]??NaN)}`).join(" \xB7 "),"per +10% TVL, +10pp 7-day growth, +1 yr since listing \xB7 board medians"],["Worth farming at $10K",Object.
 values(f).join(" / "),"FARM / THIN / SKIP"],["Accounted",`${formatInteger(l)} protocols`,`${n.filter(({watchlist:m})=>m).length}/${i} watchl\
 ist`]].map(([m,k,$])=>`<div><dt>${m}</dt><dd>${k}</dd><small>${$}</small></div>`).join("")}function methodFarmAssumptions(e,t,a){return{title:`\
@@ -80,7 +80,7 @@ s>`}function methodPanel(e,t,a,s){return`<section class="panel"><h2>${e}</h2>${t
 let s=e==="Value"?["LOO log error","WF log error"]:["10-fold Brier","WF Brier"],n=t.steps.flatMap(({baseline:l,trials:i},o)=>[[String(o+1),"\
 Current terms",...l.map(brier),"\u2014"],...i.map(({term:d,scores:c,kept:r})=>[String(o+1),d,...c.map(brier),r?"Kept":"Not kept"])]);return methodPanel(
 `${e} selection trials (full data)`,["Step","Term",...s,"Decision"],n,a)}function methodView({model:e,odds:t,rangeHonesty:a,bootstrap:s,placebo:n,
-effectSummary:l,boardSize:i},o){let{coefficients:{intercept:d,lnTvl:c,lnAge:r},validation:u,selection:f}=e,{baselines:v,scores:m}=t.validation,
+effectSummary:l,boardSize:i},o){let{coefficients:{intercept:d,lnTvl:c,lnAge:r},validation:u,selection:f}=e,{baselines:b,scores:m}=t.validation,
 k=["intercept","logit(S(a))",...t.terms],$=p=>p?.toFixed(6)??"\u2014",{valueErrors:h}=s,M=`${s.replicates} bootstrap refits.`,P=[["Launch va\
 lue",t.terms.includes("lnTvl")&&"odds"],[e.momentum&&"Launch value",t.terms.includes("growth")&&"odds"],[r&&"Launch value","odds clock"]].map(
 p=>p.filter(Boolean).join(" + ")||"\u2014");return`<div class="method compact">${['<div class="method-value">',methodPanel("Launch value mod\
@@ -88,17 +88,17 @@ el",["Term in ln V","Coefficient","Bootstrap SE"],[["Intercept",$(d),$(h.interce
 lnTvl)],...e.fit.terms.includes("age")?[["ln(age)",$(r),$(h.lnAge)]]:[],...Object.entries(e.categoryEffects??{}).map(([p,g])=>[p,$(g),$(h[p])])],
 `Huber ridge \xB7 \u03BB ${e.lambda} \xB7 ${e.n} traded families. ${M}`),methodPanel("Out-of-sample validation",["Scheme","Model","Flat","Ca\
 tegory"],[["Leave one family out",u.leaveOneFamilyOut],["Seeded five-fold",u.seededFiveFold],["Walk-forward",u.walkForward]].map(([p,{model:g,
-flatMultiple:b,categoryMultiple:_}])=>[p,...[g,b,_].map(({medianMultiplier:S,spearman:F})=>`${multiplier(S)} \xB7 ${F?.toFixed(3)??"\u2014"}`)]),
+flatMultiple:y,categoryMultiple:_}])=>[p,...[g,y,_].map(({medianMultiplier:S,spearman:F})=>`${multiplier(S)} \xB7 ${F?.toFixed(3)??"\u2014"}`)]),
 "Median error \xD7k and Spearman \u03C1 use current market caps as a proxy. Terms are selected inside each training set. Walk-forward uses dated fam\
 ilies only. Comparables pass the census product and category rules."),termTrials("Value",f,`Fixed group penalty ${e.fit.categoryPenalty}. Bo\
 th errors must improve.`),'</div><div class="method-odds">',methodPanel("Token-status model",["Term in logit F(a)","Coefficient","Bootstrap \
 SE"],k.map((p,g)=>[p,$(t.coefficients[g]),$(t.standardErrors[g])]),`${t.n} eligible protocols \xB7 ${formatOdds(t.baseRate)} record a token.\
  L2 penalty ${t.penalty}. PAVA share S(a) is clamped to 0.01\u20130.99. P\u2081\u2082 = [F(a+365) \u2212 F(a)] / [1 \u2212 F(a)]. Flat years use tail hazard. Undated\
  age ${t.medianAgeDays}d. ${M}`),termTrials("Odds",t.validation.selection),'</div><div class="method-evidence">',methodPanel("How each input\
- moves the implied value",["Input","Median","P10\u2013P90","Through"],l.map(([p,g,b],_)=>[inputLabels[_]??"",effectPercent(p??NaN),`${effectPercent(
-g??NaN)} to ${effectPercent(b??NaN)}`,P[_]??""]),`${i} rows, before dollar rounding. Growth is 7-day, clipped by the model. Listing age shif\
+ moves the implied value",["Input","Median","P10\u2013P90","Through"],l.map(([p,g,y],_)=>[inputLabels[_]??"",effectPercent(p??NaN),`${effectPercent(
+g??NaN)} to ${effectPercent(y??NaN)}`,P[_]??""]),`${i} rows, before dollar rounding. Growth is 7-day, clipped by the model. Listing age shif\
 ts the clock forward. Missing growth starts at 0 and undated ages use the fitted medians.`),methodPanel("Held-out token status",["Model","10\
--fold Brier","Walk-forward Brier"],[["Base rate",v.baseRate],["Raw PAVA clock",v.pava],["Clock-only model (step 0)",v.clockOnly],["Nested mo\
+-fold Brier","Walk-forward Brier"],[["Base rate",b.baseRate],["Raw PAVA clock",b.pava],["Clock-only model (step 0)",b.clockOnly],["Nested mo\
 del",m]].map(([p,g])=>[p,...g.map(brier)]),"Brier scores current token status. Terms are selected inside each training set. Walk-forward use\
 s dated records only. P\u2081\u2082 assumes the cross-section behaves like a cohort."),methodPanel("Held-out range honesty",["Band","Actual",
 "Stated"],rangeRows(a)),`<section class="panel"><h2>Growth placebo</h2><p class="caption">Fixed-term Brier ${n.real.map(brier).join(" / ")}.\
@@ -126,24 +126,24 @@ abs(e-t);return Number.isFinite(n)&&n<=1e-9*Math.max(1,Math.abs(e),Math.abs(t))}
 isArray(e)&&(!Array.isArray(t)||e.length!==t.length)?false:Object.entries(e).every(([n,l])=>matchesFields(l,t[n],n,s))}function boardInterval(e){
 if(!e)return null;let{interval_p10_usd:t,interval_p90_usd:a}=e;return Number.isInteger(t)&&Number.isInteger(a)&&t>0&&t<=a?[t,a]:null}function boardMismatches(e,t,a){
 let s=t.slice(e.length).map(n=>typeof n?.slug=="string"?n.slug:"(missing slug)");for(let[n,l]of e.entries()){let{rank:i,launch_value_usd:o,implied_value_usd:d,
-plan:c,protocol:{slug:r}}=l,u=t[n],f=a?.(l)??l.farm_steps,{airdropYieldApr:v,...m}=l.economics,k={slug:r,rank:i,launch_value_usd:o,implied_value_usd:d,
-airdrop_yield_apr:v,launch_p12:m.launchProbability12,plan_chain:c.chain,plan_one_time_cost_usd:c.oneTimeCostUsd,plan_recurring_cost_usd:c.recurringCostUsd,
+plan:c,protocol:{slug:r}}=l,u=t[n],f=a?.(l)??l.farm_steps,{airdropYieldApr:b,...m}=l.economics,k={slug:r,rank:i,launch_value_usd:o,implied_value_usd:d,
+airdrop_yield_apr:b,launch_p12:m.launchProbability12,plan_chain:c.chain,plan_one_time_cost_usd:c.oneTimeCostUsd,plan_recurring_cost_usd:c.recurringCostUsd,
 plan_total_cost_usd:c.totalCostUsd,plan_total_minutes:c.totalMinutes,farm_economics:m,...f!==void 0&&{farm_steps:f}};(!boardInterval(u)||!matchesFields(
 k,u))&&s.push(r)}return s}function prepareBoard({board:e,families:t,comparables:a},s,n,l,i,o){let d=new Map(s.flatMap(r=>r?[[r.slug,r]]:[])),
 c=new Set(a.map(({familyKey:r})=>r));return{diagnostics:d,families:new Map(t.filter(({key:r})=>c.has(r)).map(r=>[r.representative.slug,r])),
 protocols:new Map(e.map(r=>[r.protocol.slug,r])),mismatches:boardMismatches(e,s,o),rows:boardViewRows(e,d,i,n,l)}}function boardViewRows(e,t,a,s,n){
-let l=new Set(s);return e.map(({protocol:i,rank:o,implied_value_usd:d,launch_value_usd:c,launchProbability12:r,plan:u,economics:f})=>{let{slug:v,
-name:m,tvl_usd:k,change_7d:$,category:h,chains:M,listed_at:P}=i,p=a.get(v),g=f.deposits.find(({depositUsd:b})=>b===1e4);if(!g)throw new Error(
-"Missing $10K farm economics.");return{slug:v,name:m,rank:o,category:h,chains:M,value:d,launchValue:c,odds:r,tvl:k,growth:$,interval:boardInterval(
-t.get(v)),rankRange:p?[p.rank_p10,p.rank_p90]:null,age:P?n(P):null,cost:u.totalCostUsd,time:u.totalMinutes,verdict:g.verdict,netPerHour:g.netPerHourUsd,
-watchlist:l.has(v)}})}var viewTools={escapeHtml,formatInteger,formatOdds,growthText,statusLabels,svg,table};function valueFormula(e,t){let{intercept:a,
+let l=new Set(s);return e.map(({protocol:i,rank:o,implied_value_usd:d,launch_value_usd:c,launchProbability12:r,plan:u,economics:f})=>{let{slug:b,
+name:m,tvl_usd:k,change_7d:$,category:h,chains:M,listed_at:P}=i,p=a.get(b),g=f.deposits.find(({depositUsd:y})=>y===1e4);if(!g)throw new Error(
+"Missing $10K farm economics.");return{slug:b,name:m,rank:o,category:h,chains:M,value:d,launchValue:c,odds:r,tvl:k,growth:$,interval:boardInterval(
+t.get(b)),rankRange:p?[p.rank_p10,p.rank_p90]:null,age:P?n(P):null,cost:u.totalCostUsd,time:u.totalMinutes,verdict:g.verdict,netPerHour:g.netPerHourUsd,
+watchlist:l.has(b)}})}var viewTools={escapeHtml,formatInteger,formatOdds,growthText,statusLabels,svg,table};function valueFormula(e,t){let{intercept:a,
 lnTvl:s,lnAge:n}=e.coefficients,l=t?4:3,i=t?formatCompactUsd(t.protocol.tvl_usd):"TVL",o=t?Math.exp(t.features.growth).toFixed(3):"(1+g\u2087)",
 d=t?`${Math.exp(t.features.lnAge).toFixed(0)} d`:"age",c=n?` ${signedTerm(n,l)} \xD7 ln(${d})`:"",r=e.categoryEffects?.[t?.features.category??
 "other"]??0,u=e.categoryEffects?t?` ${signedTerm(r,l)}`:" + category effect":"";return`${a.toFixed(l)} ${signedTerm(s,l)} \xD7 ln(${i}${e.momentum?
 ` \xD7 ${o}`:""})${c}${u}`}function protocolView(e,{age:t,model:a,lnValue:s,back:n,usd:l,farm:i,diagnostics:o,families:d,maxOddsAge:c,effects:r}){
-let{protocol:u,plan:f,oddsAge:v,oddsAt:m,launchProbability12:k}=e,{airdropYieldApr:$,breakEvenDepositUsd:h,deposits:M}=e.economics,P=l(e.implied_value_usd),
-p=boardInterval(o)?.map(l).join("\u2013")??"\u2014",g=o?.influence,b=g&&d.get(g.slug)?.representative.name,_=g?.rank_delta===0?"No single co\
-mparable moves this rank":g&&b?`Without ${escapeHtml(b)}, rank moves by ${Math.abs(g.rank_delta)}`:"",S=table(["Action","Est. fee","Min","Wh\
+let{protocol:u,plan:f,oddsAge:b,oddsAt:m,launchProbability12:k}=e,{airdropYieldApr:$,breakEvenDepositUsd:h,deposits:M}=e.economics,P=l(e.implied_value_usd),
+p=boardInterval(o)?.map(l).join("\u2013")??"\u2014",g=o?.influence,y=g&&d.get(g.slug)?.representative.name,_=g?.rank_delta===0?"No single co\
+mparable moves this rank":g&&y?`Without ${escapeHtml(y)}, rank moves by ${Math.abs(g.rank_delta)}`:"",S=table(["Action","Est. fee","Min","Wh\
 en"],f.steps.map(F=>[escapeHtml(F.action),l(F.costUsd),formatInteger(F.minutes),F.cadence]),{total:["Total",l(f.totalCostUsd),formatInteger(
 f.totalMinutes),"\u2014"]});return`<a class="back" href="${escapeHtml(n)}">\u2190 Back to board</a>
     <header class="protocol-heading"><div><h2>${escapeHtml(u.name)}</h2>
@@ -154,19 +154,19 @@ f.totalMinutes),"\u2014"]});return`<a class="back" href="${escapeHtml(n)}">\u219
         <section class="panel"><h3>Implied value</h3>
           <p class="figure">${P}</p>
           <p>P10\u2013P90 \xB7 ${p}</p>
-          <p class="value-equation">ln V \u2248 ${valueFormula(a,e)} \u2248 ${s.toFixed(3)} \u2192 ${l(e.launch_value_usd)} \xD7 P\u2081\u2082(${v.
+          <p class="value-equation">ln V \u2248 ${valueFormula(a,e)} \u2248 ${s.toFixed(3)} \u2192 ${l(e.launch_value_usd)} \xD7 P\u2081\u2082(${b.
 toFixed(0)} d) ${formatOdds(k)} \u2192 ${P}</p>
           ${r?`<p class="caption">${effectLine(r)}</p>`:""}
           ${_?`<p class="caption">${_}</p>`:""}
         </section>
         ${protocolFacts(e,t,l,viewTools)}
-        ${protocolClock(c,v,k,t===null,m,viewTools)}
+        ${protocolClock(c,b,k,t===null,m,viewTools)}
       </div><div class="detail-facts">
         <section class="panel farm"><h3>Farm plan</h3>
           <p class="plan-meta"><strong>${escapeHtml(f.chain??"Chain unlisted")}</strong> \xB7 ${l(f.depositUsd)} plan \xB7 ${f.holdWeeks.toFixed(
 1)} weeks expected</p>
-          ${table(["Deposit","Expected drop","Net","Net per hour","Verdict"],M.map(({depositUsd:F,expectedValueUsd:N,netUsd:x,netPerHourUsd:O,
-verdict:B})=>[l(F),l(N),l(x),l(O),B]),{className:"deposit-grid"})}
+          ${table(["Deposit","Expected drop","Net","Net per hour","Verdict"],M.map(({depositUsd:F,expectedValueUsd:O,netUsd:x,netPerHourUsd:N,
+verdict:B})=>[l(F),l(O),l(x),l(N),B]),{className:"deposit-grid"})}
           <p class="caption">${l(i.hourlyRateUsd)}/h for labor \xB7 ${i.farmerHaircut*100}% farmer haircut</p>
           <p>Expected airdrop yield ${($*100).toFixed(2)}% APR \xB7 Capital cost ${(f.capitalApr*100).toFixed(2)}% APR</p>
           <p>Break-even deposit \xB7 ${h==="never"?"never":l(h)}</p>
@@ -182,33 +182,33 @@ s=new Set,n=[];for(let l of e){if(!l)continue;let{slug:i,actual:o,predicted:d,p1
 r,o,d].every(Number.isFinite)||c>r||s.has(i)||Math.abs(o-Math.log(u))>1e-9||(s.add(i),n.push(l),a[o<c?"missLow":o>r?"missHigh":"covered"]++)}
 return{valid:n,counts:a,invalidPoints:e.length-n.length}}var{boot}=window.Radar?.support??{};function mountBoard(e,t,a,s,{formatUsd:n,compareText:l,
 boardControls:i,view:o,boardHash:d,farmAssumptions:c}){e.innerHTML=a+element("#board-filters").innerHTML+boardTable();let r=o&&i?.(e,o,t),u=element(
-"#results",e),f=element("tbody",e),v=Math.log1p(Math.max(1,...t.flatMap(({value:h,interval:M})=>[h,M?.[1]??0]))),m=element('[name="deposit"]',
+"#results",e),f=element("tbody",e),b=Math.log1p(Math.max(1,...t.flatMap(({value:h,interval:M})=>[h,M?.[1]??0]))),m=element('[name="deposit"]',
 e);m.innerHTML=c.depositsUsd.map(h=>`<option value="${h}"${h===1e4?" selected":""}>$${h/1e3}K</option>`).join("");let k=["csv","json"].map(h=>({
-format:h,link:element(`[download="radar.${h}"]`,e)})),$=h=>{r?.(h);let M=Number(m.value)||1e4,P=t.map(g=>{let b=s.get(g.slug)?.economics.deposits.
-find(({depositUsd:_})=>_===M);return b?{...g,verdict:b.verdict,netPerHour:b.netPerHourUsd}:g}),p=selectRows(P,h,l);u.textContent=`${formatInteger(
-p.length)} of ${formatInteger(t.length)} protocols`,f.innerHTML=boardRows(p,d?.(h)??"#/",v,n);for(let{format:g,link:b}of k)b.href=`data:text\
+format:h,link:element(`[download="radar.${h}"]`,e)})),$=h=>{r?.(h);let M=Number(m.value)||1e4,P=t.map(g=>{let y=s.get(g.slug)?.economics.deposits.
+find(({depositUsd:_})=>_===M);return y?{...g,verdict:y.verdict,netPerHour:y.netPerHourUsd}:g}),p=selectRows(P,h,l);u.textContent=`${formatInteger(
+p.length)} of ${formatInteger(t.length)} protocols`,f.innerHTML=boardRows(p,d?.(h)??"#/",b,n);for(let{format:g,link:y}of k)y.href=`data:text\
 /${g};charset=utf-8,${encodeURIComponent(serializeBoard(p,g,M))}`};return h=>{m.onchange=()=>$(h),$(h)}}function validSeed(e){return typeof e==
 "number"&&e>>>0===e}function replayCheck(e,t,a){let s=a.find(([n])=>!n);return{pass:!s,label:`${e} ${s?.[1]??`\xB7 ${t} refits match`}`}}function start(e,t,a,s,n){
 let{buildRadar:l,daysBetween:i,farmAssumptions:o,formatUsd:d}=s;s.view={...viewTools,element};let{meta:c}=a,r=l(t,a.model.fit,a.odds.terms,c),
-{model:u,odds:f,houseRule:v,census:m}=r,k=new Map(r.board.map(({protocol:y})=>[y.slug,s.impliedValueEffects(y,t.as_of,u,f)])),$=s.summarizeEffects(
-k),{board:{rows:h}}=a,{families:M,diagnostics:P,protocols:p,mismatches:g,rows:b}=prepareBoard(r,h,t.watchlist,y=>i(y,t.as_of),new Map,s.boardFarmSteps);
+{model:u,odds:f,houseRule:b,census:m}=r,k=new Map(r.board.map(({protocol:v})=>[v.slug,s.impliedValueEffects(v,t.as_of,u,f)])),$=s.summarizeEffects(
+k),{board:{rows:h}}=a,{families:M,diagnostics:P,protocols:p,mismatches:g,rows:y}=prepareBoard(r,h,t.watchlist,v=>i(v,t.as_of),new Map,s.boardFarmSteps);
 element("#snapshot-date").textContent=`Snapshot \xB7 ${t.as_of}`,element("#formula").textContent=`ln V = ${valueFormula(u)}`;let _=element("\
-#checks");_.innerHTML=integrityStrip(["Board and validation","Term selection","Bootstrap","Placebo"].map(y=>({pass:null,label:`${y} pending`})));
-let S="<h2>Checking model evidence\u2026</h2>",F,N,x;function O(){try{let y=parseRoute(location.hash),C=y.page==="protocol"?`p/${y.slug}`:y.
-page,H=x&&x!==C;if(x=C,H&&(F=void 0,N=void 0),y.page==="board")F??=mountBoard(e,b,censusSummary(m,p),p,s),F(y.state);else if(y.page==="plan")
-N??=s.mountPlanner?.(e,r.board,c,s),N?N(location.hash):e.innerHTML=element("#plan-unavailable").innerHTML;else if(y.page==="census")e.innerHTML=
-censusView(m,y.state,d,s.compareText,p);else if(y.page==="method")e.innerHTML=S;else{let L=s.boardHash?.(y.state)??"#/",T=y.page==="protocol"?
-p.get(y.slug):void 0,j=T?.protocol.listed_at;e.innerHTML=T?protocolView(T,{age:j?i(j,t.as_of):null,model:u,lnValue:s.logValue(T.features,u),
+#checks");_.innerHTML=integrityStrip(["Board and validation","Term selection","Bootstrap","Placebo"].map(v=>({pass:null,label:`${v} pending`})));
+let S="<h2>Checking model evidence\u2026</h2>",F,O,x;function N(){try{let v=parseRoute(location.hash),C=v.page==="protocol"?`p/${v.slug}`:v.
+page,H=x&&x!==C;if(x=C,H&&(F=void 0,O=void 0),v.page==="board")F??=mountBoard(e,y,censusSummary(m,p),p,s),F(v.state);else if(v.page==="plan")
+O??=s.mountPlanner?.(e,r.board,c,s),O?O(location.hash):e.innerHTML=element("#plan-unavailable").innerHTML;else if(v.page==="census")e.innerHTML=
+censusView(m,v.state,d,s.compareText,p);else if(v.page==="method")e.innerHTML=S;else{let L=s.boardHash?.(v.state)??"#/",T=v.page==="protocol"?
+p.get(v.slug):void 0,j=T?.protocol.listed_at;e.innerHTML=T?protocolView(T,{age:j?i(j,t.as_of):null,model:u,lnValue:s.logValue(T.features,u),
 back:L,usd:d,farm:o,diagnostics:P.get(T.protocol.slug),families:M,maxOddsAge:f.maxAgeDays,effects:k.get(T.protocol.slug)}):`<h2>Page unavail\
 able</h2><a href="${escapeHtml(L)}">Back to board</a>`}H&&(window.scrollTo(0,0),e.focus({preventScroll:true})),e.dataset.ready=""}catch{x="e\
-rror",n()}}function B(){let y=a.bootstrap?.seeds,C=Array.isArray(y)&&y.length===2&&validSeed(y[0])&&validSeed(y[1])?y:void 0,H=validSeed(a.placebo?.
-seed)?a.placebo.seed:void 0,{bootstrap:L,placebo:T}=s.reproduceDiagnostics(r,a.model.fit.terms,t.as_of,C,H);for(let w of b){let E=L.ranks.get(
+rror",n()}}function B(){let v=a.bootstrap?.seeds,C=Array.isArray(v)&&v.length===2&&validSeed(v[0])&&validSeed(v[1])?v:void 0,H=validSeed(a.placebo?.
+seed)?a.placebo.seed:void 0,{bootstrap:L,placebo:T}=s.reproduceDiagnostics(r,a.model.fit.terms,t.as_of,C,H);for(let w of y){let E=L.ranks.get(
 w.slug);E&&(w.rankRange=[E.rank_p10,E.rank_p90])}let j=scatterCoverage(a.looScatter??[],M),A=s.reproduceSelection(r),U=s.rangeHonesty(j.valid),
 I=s.scoreValueEvidence(r.comparables,a.model.evidence),W=s.scoreOddsEvidence(r.population,a.odds.validation.evidence),D={n:0,medianMultiplier:null,
 spearman:null},z={model:D,flatMultiple:D,categoryMultiple:D},V=[null,null],K={...a.model,...u,fit:{terms:a.model.fit.terms,lambda:u.lambda,categoryPenalty:s.
 VALUE_CATEGORY_PENALTY},selection:A.value,validation:I??{leaveOneFamilyOut:z,seededFiveFold:z,walkForward:z}},q={...a.odds,...f,penalty:s.LOGISTIC_PENALTY,
 baseRate:s.baseRate(r.population),standardErrors:L.oddsErrors,validation:{evidence:a.odds.validation.evidence,selection:A.odds,...W??{scores:V,
-baselines:{baseRate:V,pava:V,clockOnly:V}}}},R=integrityChecks(g,h,t.watchlist,{fitted:u.n,houseRule:v,intervalCounts:j.counts,invalidPoints:j.
+baselines:{baseRate:V,pava:V,clockOnly:V}}}},R=integrityChecks(g,h,t.watchlist,{fitted:u.n,houseRule:b,intervalCounts:j.counts,invalidPoints:j.
 invalidPoints,coverageUnavailable:a.looScatter===null&&u.n<s.MIN_BAND_FAMILIES,loo:K.validation.leaveOneFamilyOut});s.boardFarmSteps||R.push(
 {pass:null,label:"Step text comparison unavailable"});let G=matchesFields(A.value,a.model.selection,"",true)&&matchesFields(A.value.terms,a.
 model.fit.terms)&&matchesFields(A.odds,a.odds.validation.selection,"",true)&&matchesFields(A.odds.terms,a.odds.terms);R.push({pass:G,label:`\
@@ -222,9 +222,9 @@ s differ"],[L.replicates===a.bootstrap?.replicates,"refit count differs"],[match
 lue SEs differ"],[matchesFields(L.oddsErrors,a.odds.standardErrors,"",true),"odds SEs differ"],[J,"rank bands differ"]]),replayCheck("Placeb\
 o",T.shuffles,[[H!==void 0,"seed invalid"],[H===s.PLACEBO_SEED,"seed differs"],[T.shuffles===a.placebo?.shuffles,"shuffle count differs"],[matchesFields(
 T.real,a.placebo?.real,"",true),"observed scores differ"],[matchesFields(T.asGoodOrBetter,a.placebo?.asGoodOrBetter,"",true),"shuffle result\
-s differ"]])),element("#kpis").innerHTML=kpiStrip(K,q.validation,U,$,b,m.length,new Set(t.watchlist).size),_.innerHTML=integrityStrip(R),S=methodView(
-{model:K,odds:q,rangeHonesty:U,bootstrap:L,placebo:T,effectSummary:$,boardSize:b.length},w=>methodNotes(v,o,d,formatOdds,w)),(x==="board"||x===
-"method")&&O(),e.dataset.evidenceReady=""}O(),window.addEventListener("hashchange",O),s.bindControls?.(e,O,{isCensusSortKey,isSortKey,parseRoute}),
-requestAnimationFrame(()=>requestAnimationFrame(()=>{try{B()}catch{_.innerHTML=integrityStrip([{pass:false,label:"Evidence checks could not \
-finish"}])}}))}boot?.(start);
+s differ"]])),element("#kpis").innerHTML=kpiStrip(K,q.validation,U,$,y,m.length,new Set(t.watchlist).size),_.innerHTML=integrityStrip(R),S=methodView(
+{model:K,odds:q,rangeHonesty:U,bootstrap:L,placebo:T,effectSummary:$,boardSize:y.length},w=>methodNotes(b,o,d,formatOdds,w)),(x==="board"||x===
+"method")&&N(),e.dataset.evidenceReady=""}N(),window.addEventListener("hashchange",N),s.bindControls?.(e,N,{isCensusSortKey,isSortKey,parseRoute}),
+requestAnimationFrame(()=>requestAnimationFrame(()=>{try{B()}catch{let v="Evidence checks could not finish";_.innerHTML=integrityStrip([{pass:false,
+label:v}]),S=`<h2 role="alert">${v}</h2>`,x==="method"&&N()}}))}boot?.(start);
 })();

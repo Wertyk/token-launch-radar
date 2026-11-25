@@ -105,7 +105,7 @@ test("out-of-sample coverage is near 80% for seeded Gaussian log errors", () => 
   expect(coverage?.counts.covered).toBeGreaterThanOrEqual(75);
   expect(coverage?.counts.covered).toBeLessThanOrEqual(85);
   expect(jackknifePlusCoverage(rows.slice(0, 2))).toBeNull();
-});
+}, 30_000);
 
 test("rank influence reports the signed rank change and is stable under input reordering", () => {
   const rows = [

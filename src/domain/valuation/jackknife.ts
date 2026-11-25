@@ -4,7 +4,7 @@ import type { Comparable } from "./comparables.ts";
 import type { ValueModel } from "./model.ts";
 import { fitValueModel } from "./model.ts";
 import { predictComparable } from "./selection.ts";
-import { VALUE_RIDGE_LAMBDA } from "./value-fit.ts";
+import { cacheCalibrationFits } from "./value-fit-cache.ts";
 import { refitSelectedValue } from "./value-selection.ts";
 
 const TAIL_ALPHA = 0.1;
@@ -82,7 +82,7 @@ export function jackknifePlusBands(
 }
 
 export function jackknifePlusCoverage(rows: readonly CategoryComparable[]) {
-  const bands = jackknifePlusBands(rows, VALUE_RIDGE_LAMBDA);
+  const bands = jackknifePlusBands(rows, cacheCalibrationFits(rows));
   if (!bands.size) return null;
 
   const counts = { missLow: 0, covered: 0, missHigh: 0 };

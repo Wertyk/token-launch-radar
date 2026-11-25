@@ -17,11 +17,13 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import type { BoardRows } from "../../src/application/board-rows.ts";
 import type { ValueDiagnostics } from "../../src/domain/valuation/diagnostics.ts";
+import { rangeHonesty } from "../../src/domain/valuation/jackknife.ts";
 import { buildDossier } from "../../vendor/makefun-board.ts";
 import { dossierCaps, kitSnapshotPath, writeAssetFixture } from "../radar-fixtures.ts";
 
 const main = fileURLToPath(new URL("../../main.ts", import.meta.url));
 const gate = fileURLToPath(new URL("../../tools/gate.ts", import.meta.url));
+const readme = readFileSync(new URL("../../README.md", import.meta.url), "utf8");
 let root: string;
 
 beforeEach(() => {
@@ -93,8 +95,15 @@ test("passes all gate checks, reproduces every byte and rejects coordinated repl
   }
   const { rows }: BoardRows = JSON.parse(readFileSync(join(first, "board.json"), "utf8"));
   const script = readFileSync(join(first, "data.js"), "utf8");
+  const payload = JSON.parse(script.slice("window.RADAR_DATA = ".length, -2));
   const embedded: (BoardRows["rows"][number] & ValueDiagnostics & { launch_p12: number })[] =
-    JSON.parse(script.slice("window.RADAR_DATA = ".length, -2)).board.rows;
+    payload.board.rows;
+  const { middle, broad } = rangeHonesty(payload.looScatter);
+  expect
+    .soft(readme)
+    .toContain(
+      `Held-out coverage is ${middle.covered}/${middle.n} for the middle 50% band and ${broad.covered}/${broad.n} for the middle 80% band.`,
+    );
   expect(
     embedded.map(
       ({ interval_p10_usd, interval_p90_usd, influence, twins, launch_p12, ...row }) => row,
@@ -115,8 +124,15 @@ test("passes all gate checks, reproduces every byte and rejects coordinated repl
     encoding: "utf8",
   });
   expect(result.status, result.stderr || result.stdout || result.error?.message).toBe(0);
-  expect(result.stdout.match(/^PASS /gm)).toHaveLength(9);
-  expect(result.stdout).toContain("PASS regenerated_output");
+  const passedChecks = [...result.stdout.matchAll(/^PASS (\w+)/gm)].map(([, name]) => name);
+  expect(passedChecks).toHaveLength(9);
+  expect(passedChecks.at(-1)).toBe("regenerated_output");
+  expect.soft(readme).toContain(`${passedChecks.length - 1} contract checks`);
+  expect
+    .soft(readme)
+    .toContain(
+      `Check ${passedChecks.length} rebuilds \`board.json\` and \`data.js\` in memory from the snapshot and compares the published files field by field.`,
+    );
   for (const file of ["0-guide.md", "2-core.js", "3-ui.js"]) {
     expect(result.stdout).toContain(`dashboard/${file} shown whole`);
   }
@@ -127,6 +143,7 @@ test("passes all gate checks, reproduces every byte and rejects coordinated repl
   expect(text).toContain("function jackknifePlusBands(");
   expect(text).toContain("function describeBoardValues(");
   expect(text).toContain("function fitOuterFold(");
+  expect.soft(text.includes("function fitOuterOddsFold("), "protected nested odds fit").toBe(true);
 
   const files = outputFiles(first);
   expect(outputFiles(second)).toEqual(files);
@@ -136,7 +153,6 @@ test("passes all gate checks, reproduces every byte and rejects coordinated repl
     );
   }
 
-  const payload = JSON.parse(script.slice("window.RADAR_DATA = ".length, -2));
   payload.board.rows[0].interval_p10_usd++;
   payload.board.rows[0].influence.rank_delta += 25;
   payload.looScatter[0].p10 -= 1;

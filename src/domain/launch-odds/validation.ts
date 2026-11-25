@@ -23,17 +23,20 @@ export function oddsValidationFolds(rows: readonly TokenStatusRow[]) {
   return [splitFolds(seededFolds(rows, 10)), [walkForwardSplit(rows)]];
 }
 
-function predictOddsFolds(
-  folds: readonly Fold<TokenStatusRow>[][],
+function predictOddsFold(
+  { train, test }: Fold<TokenStatusRow>,
   fitPredictor: (train: readonly TokenStatusRow[]) => (row: TokenStatusRow) => number,
 ) {
-  return folds.map((scheme) =>
-    scheme.map(({ train, test }) => {
-      if (!train.length || !test.length) return [];
-      const predict = fitPredictor(train);
-      return test.map((row) => ({ slug: row.slug, actual: row.label, predicted: predict(row) }));
-    }),
-  );
+  if (!train.length || !test.length) return [];
+  const predict = fitPredictor(train);
+  return test.map((row) => ({ slug: row.slug, actual: row.label, predicted: predict(row) }));
+}
+
+function predictOddsFolds(
+  folds: readonly Fold<TokenStatusRow>[][],
+  fitPredictor: Parameters<typeof predictOddsFold>[1],
+) {
+  return folds.map((scheme) => scheme.map((fold) => predictOddsFold(fold, fitPredictor)));
 }
 
 type OddsPredictions = ReturnType<typeof predictOddsFolds>;
@@ -62,6 +65,10 @@ export function selectOddsTerms(
   return selectTerms(ODDS_CANDIDATES, (terms) =>
     scoreOdds(folds, (train) => statusPredictor(train, terms)),
   );
+}
+
+export function fitOuterOddsFold(fold: Fold<TokenStatusRow>) {
+  return predictOddsFold(fold, (train) => statusPredictor(train, selectOddsTerms(train).terms));
 }
 
 const oddsKeys = ["model", "baseRate", "pava", "clockOnly"] as const;
@@ -107,7 +114,7 @@ export function validateOdds(rows: readonly TokenStatusRow[]) {
     return (row) => shareAt(clock, row.ageDays ?? medianAgeDays);
   });
   const evidence = {
-    model: predictOddsFolds(folds, (train) => statusPredictor(train, selectOddsTerms(train).terms)),
+    model: folds.map((scheme) => scheme.map(fitOuterOddsFold)),
     baseRate: rate,
     pava,
     clockOnly: predictOddsFolds(folds, (train) => statusPredictor(train, [])),

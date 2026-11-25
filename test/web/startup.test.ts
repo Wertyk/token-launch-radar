@@ -141,6 +141,22 @@ test("renders a usable board before starting the evidence refits", () => {
   expect(page.main.dataset).toHaveProperty("evidenceReady");
 });
 
+test("Method keeps a terminal message when deferred evidence checks fail", () => {
+  const payload = data();
+  payload.looScatter = {};
+  const page = open(payload, "#/method", true, true, undefined, true);
+  expect(page.main.innerHTML).toContain("Checking model evidence…");
+  page.flushFrame();
+  page.flushFrame();
+  const failure = "Evidence checks could not finish";
+  expect(page.markup.get("#checks")?.innerHTML).toContain(failure);
+  expect(page.main.innerHTML).toContain(failure);
+  page.navigate("#/");
+  expect(page.main.innerHTML).toContain("198 ranked");
+  page.navigate("#/method");
+  expect(page.main.innerHTML).toContain(failure);
+});
+
 test("Method uses fitted labels, population rate and penalty constants", () => {
   const payload = data();
   const original = open(payload, "#/method").main.innerHTML;

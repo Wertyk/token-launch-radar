@@ -372,9 +372,10 @@ function start(
       try {
         finishChecks();
       } catch {
-        checkList.innerHTML = integrityStrip([
-          { pass: false, label: "Evidence checks could not finish" },
-        ]);
+        const label = "Evidence checks could not finish";
+        checkList.innerHTML = integrityStrip([{ pass: false, label }]);
+        method = `<h2 role="alert">${label}</h2>`;
+        if (lastPage === "method") draw();
       }
     }),
   );

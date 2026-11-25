@@ -7,7 +7,11 @@ import {
 import { makeFarmPlan } from "../domain/farming/plans.ts";
 import { baseRate, LOGISTIC_PENALTY, launchProbability12 } from "../domain/launch-odds/model.ts";
 import { growthPlacebo, PLACEBO_SEED } from "../domain/launch-odds/placebo.ts";
-import { scoreOddsEvidence, selectOddsTerms } from "../domain/launch-odds/validation.ts";
+import {
+  fitOuterOddsFold,
+  scoreOddsEvidence,
+  selectOddsTerms,
+} from "../domain/launch-odds/validation.ts";
 import { formatUsd } from "../domain/shared/money.ts";
 import { compareText } from "../domain/shared/order.ts";
 import type { Snapshot } from "../domain/snapshot.ts";
@@ -99,6 +103,7 @@ export const browserApi = {
   BOOTSTRAP_SEEDS,
   PLACEBO_SEED,
   fitOuterFold,
+  fitOuterOddsFold,
   jackknifePlusBands,
   describeBoardValues,
   coefficientEffects,

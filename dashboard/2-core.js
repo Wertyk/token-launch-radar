@@ -29,13 +29,13 @@ checklist:l},{depositUsd:i=defaults.depositsUsd[0],launchProbability12:s=0,exitT
 "The farm plan needs a positive, finite deposit size.");let o=farmGroup(e.category),d=t[o]??t.generic,c=e.category?.toLowerCase().includes("\
 uncollateralized")?n:d,g=o==="bridge",f=expectedHoldYears(s),p=f*defaults.weeksPerYear,h={once:1,"at launch":1,weekly:Math.floor(p),monthly:Math.
 floor(defaults.monthsPerYear*f)},y=h[d.cadence],[b,m,v]=d.transactions,E=(g?0:b)+m*y+v,M=o==="derivatives"?defaults.tradeVolumeUsd*defaults.
-tradingFeeRate:0,C=A=>{let k=A!==null&&Object.hasOwn(a.chains,A)?a.chains[A]:void 0,[x,O]=k??a.fallback,D=roundUsd(b*(g?O:x)),S=roundUsd(M+m*
-x),V=roundUsd(v*x),I=roundUsd(x),le=(g?0:roundUsd(O))+D+V,K=roundUsd(le+I*s),Y=roundUsd(S*y),ie=roundUsd(K+Y);return{chain:A,transactionUsd:x,
-bridgeUsd:O,entryCost:D,reviewCost:S,exitCost:V,claimCost:I,oneTimeCostUsd:K,recurringCostUsd:Y,totalCostUsd:ie,feeAssumed:k===void 0}},{chain:T,
+tradingFeeRate:0,C=A=>{let k=A!==null&&Object.hasOwn(a.chains,A)?a.chains[A]:void 0,[O,x]=k??a.fallback,D=roundUsd(b*(g?x:O)),S=roundUsd(M+m*
+O),V=roundUsd(v*O),I=roundUsd(O),le=(g?0:roundUsd(x))+D+V,K=roundUsd(le+I*s),Y=roundUsd(S*y),ie=roundUsd(K+Y);return{chain:A,transactionUsd:O,
+bridgeUsd:x,entryCost:D,reviewCost:S,exitCost:V,claimCost:I,oneTimeCostUsd:K,recurringCostUsd:Y,totalCostUsd:ie,feeAssumed:k===void 0}},{chain:T,
 transactionUsd:w,bridgeUsd:F,entryCost:z,reviewCost:H,exitCost:j,claimCost:G,oneTimeCostUsd:q,recurringCostUsd:X,totalCostUsd:W,feeAssumed:J}=e.
 chains.map(C).sort((A,k)=>A.totalCostUsd-k.totalCostUsd||compareText(A.chain??"",k.chain??""))[0]??C(null),Q={deposit:formatUsd(i),chain:T??
-"a verified chain",gas:`about ${formatUsd((E+1)*w)} for gas`,share:formatEntryShare(i,e.tvl_usd)},_=(A,k,x,O="once")=>({action:A.replace(/\{(\w+)\}/g,
-(D,S)=>Q[S]??""),chain:T,costUsd:roundUsd(k),minutes:x,cadence:O}),[Z,ee,te]=d.minutes,[N,P,U,L]=l.minutes,R=g?null:_(r.bridge,F,defaults.bridgeMinutes),
+"a verified chain",gas:`about ${formatUsd((E+1)*w)} for gas`,share:formatEntryShare(i,e.tvl_usd)},_=(A,k,O,x="once")=>({action:A.replace(/\{(\w+)\}/g,
+(D,S)=>Q[S]??""),chain:T,costUsd:roundUsd(k),minutes:O,cadence:x}),[Z,ee,te]=d.minutes,[N,P,U,L]=l.minutes,R=g?null:_(r.bridge,F,defaults.bridgeMinutes),
 ae=_(c.review,H,ee,d.cadence),B=`TVL drops under ${formatUsd(e.tvl_usd/2)}`,re=u?.change.toFixed(1).replace("-","\u2212"),ne=u?`Exit if 7-da\
 y TVL change falls below ${re}% (bottom tenth of ${u.label} in this snapshot) or ${B}.`:`Exit if ${B}. No listed pre-token 7-day TVL data.`,
 $=[_(T===null?r.unlisted:r.wallet,0,defaults.setupMinutes-N),_(l.eligibility,0,N),_(d.sizing?.action??l.size,0,P+(d.sizing?.extraMinutes??0)),
@@ -115,12 +115,13 @@ a[l]?.[t]===a[n]?.[t];)l++;for(let i of a.slice(n,l))r.set(i.slug,(n+1+l)/2);n=l
 e),r=ranks(e,"actual"),n=ranks(e,"predicted"),l=(t+1)/2,i=0,s=0,u=0;for(let{slug:d}of e){let c=(r.get(d)??l)-l,g=(n.get(d)??l)-l;i+=c*g,s+=c**
 2,u+=g**2}let o=Math.sqrt(s*u);return{n:t,medianMultiplier:a===void 0?null:Math.exp(a),spearman:o===0?null:clamp(i/o,-1,1)}}function meanBrier(e){
 return e.length?e.reduce((t,{actual:a,predicted:r})=>t+(a-r)**2,0)/e.length:null}function oddsValidationFolds(e){return[splitFolds(seededFolds(
-e,10)),[walkForwardSplit(e)]]}function predictOddsFolds(e,t){return e.map(a=>a.map(({train:r,test:n})=>{if(!r.length||!n.length)return[];let l=t(
-r);return n.map(i=>({slug:i.slug,actual:i.label,predicted:l(i)}))}))}function scoreOddsFolds(e){return e.map(t=>meanBrier(t.flat()))}function scoreOdds(e,t){
-return scoreOddsFolds(predictOddsFolds(e,t))}function statusPredictor(e,t){let{shares:a,clock:r,coefficients:n,medianAgeDays:l}=fitOddsModel(
-e,t);return i=>sigmoid(linearScore(oddsFeatures(i,t,a,r,l),n))}function selectOddsTerms(e,t=oddsValidationFolds(e)){return selectTerms(ODDS_CANDIDATES,
-a=>scoreOdds(t,r=>statusPredictor(r,a)))}var oddsKeys=["model","baseRate","pava","clockOnly"];function oddsScores(e){return{scores:scoreOddsFolds(
-e.model),baselines:{baseRate:scoreOddsFolds(e.baseRate),pava:scoreOddsFolds(e.pava),clockOnly:scoreOddsFolds(e.clockOnly)}}}function scoreOddsEvidence(e,t){
+e,10)),[walkForwardSplit(e)]]}function predictOddsFold({train:e,test:t},a){if(!e.length||!t.length)return[];let r=a(e);return t.map(n=>({slug:n.
+slug,actual:n.label,predicted:r(n)}))}function predictOddsFolds(e,t){return e.map(a=>a.map(r=>predictOddsFold(r,t)))}function scoreOddsFolds(e){
+return e.map(t=>meanBrier(t.flat()))}function scoreOdds(e,t){return scoreOddsFolds(predictOddsFolds(e,t))}function statusPredictor(e,t){let{
+shares:a,clock:r,coefficients:n,medianAgeDays:l}=fitOddsModel(e,t);return i=>sigmoid(linearScore(oddsFeatures(i,t,a,r,l),n))}function selectOddsTerms(e,t=oddsValidationFolds(
+e)){return selectTerms(ODDS_CANDIDATES,a=>scoreOdds(t,r=>statusPredictor(r,a)))}function fitOuterOddsFold(e){return predictOddsFold(e,t=>statusPredictor(
+t,selectOddsTerms(t).terms))}var oddsKeys=["model","baseRate","pava","clockOnly"];function oddsScores(e){return{scores:scoreOddsFolds(e.model),
+baselines:{baseRate:scoreOddsFolds(e.baseRate),pava:scoreOddsFolds(e.pava),clockOnly:scoreOddsFolds(e.clockOnly)}}}function scoreOddsEvidence(e,t){
 let a=oddsValidationFolds(e);for(let r of oddsKeys){let n=t?.[r];if(!Array.isArray(n)||n.length!==a.length)return null;for(let[l,i]of a.entries()){
 let s=n[l];if(!Array.isArray(s)||s.length!==i.length)return null;for(let[u,{train:o,test:d}]of i.entries())if(!matchesPredictions(s[u],o.length?
 d:[],c=>c.label,true))return null}}return oddsScores(t)}var PLACEBO_SEED=10675;function growthPlacebo(e,t,a,r=PLACEBO_SEED){let n=mulberry32(
@@ -223,8 +224,8 @@ watchlist:a}){if(!Array.isArray(t)||!Array.isArray(a)||t.length!==e?.protocolCou
 floor_usd:n,source:l,protocols:t,watchlist:a}}function reproduceSelection({comparables:e,population:t}){return{value:selectValueTerms(e),odds:selectOddsTerms(
 t)}}function reproduceDiagnostics({board:e,comparables:t,population:a,model:r,odds:n},l,i,s,u){return{bootstrap:bootstrapRadar(e,t,a,r,l,n,i,
 EVIDENCE_REPLICATES,s),placebo:growthPlacebo(a,n.terms,EVIDENCE_REPLICATES,u)}}var browserApi={baseRate,LOGISTIC_PENALTY,VALUE_CATEGORY_PENALTY,
-BOOTSTRAP_SEEDS,PLACEBO_SEED,fitOuterFold,jackknifePlusBands,describeBoardValues,coefficientEffects,impliedValueEffects,summarizeEffects,rangeHonesty,
-reproduceSelection,scoreValueEvidence,scoreOddsEvidence,reproduceDiagnostics,MIN_BAND_FAMILIES,depositAmounts,farmEconomicsTerms,makeFarmPlan,
-farmAssumptions:defaults,estimateFarmEconomics,formatUsd,compareText,daysBetween,logValue,buildRadar:recomputeRadar,readPublishedSnapshot};Object.
-assign(window.Radar??={},browserApi);
+BOOTSTRAP_SEEDS,PLACEBO_SEED,fitOuterFold,fitOuterOddsFold,jackknifePlusBands,describeBoardValues,coefficientEffects,impliedValueEffects,summarizeEffects,
+rangeHonesty,reproduceSelection,scoreValueEvidence,scoreOddsEvidence,reproduceDiagnostics,MIN_BAND_FAMILIES,depositAmounts,farmEconomicsTerms,
+makeFarmPlan,farmAssumptions:defaults,estimateFarmEconomics,formatUsd,compareText,daysBetween,logValue,buildRadar:recomputeRadar,readPublishedSnapshot};
+Object.assign(window.Radar??={},browserApi);
 })();

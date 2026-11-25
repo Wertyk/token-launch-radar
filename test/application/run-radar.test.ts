@@ -8,7 +8,11 @@ import { runRadar } from "../../src/application/run-radar.ts";
 import { boardFarmSteps } from "../../src/domain/farming/board-steps.ts";
 import { parseSnapshot } from "../../src/domain/snapshot.ts";
 import type { ValueDiagnostics } from "../../src/domain/valuation/diagnostics.ts";
-import { jackknifePlusBand, leaveOneFamilyOut } from "../../src/domain/valuation/jackknife.ts";
+import {
+  jackknifePlusBand,
+  jackknifePlusCoverage,
+  leaveOneFamilyOut,
+} from "../../src/domain/valuation/jackknife.ts";
 import { predictComparable } from "../../src/domain/valuation/selection.ts";
 import { integrityChecks } from "../../src/presentation/web/integrity.ts";
 import { boardMismatches } from "../../src/presentation/web/recompute.ts";
@@ -242,6 +246,10 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   );
   const scatter = scatterCoverage(data.looScatter, families);
   expect(scatter.counts).toEqual({ missLow: 9, covered: 74, missHigh: 9 });
+  const coverage = jackknifePlusCoverage(browserRadar.comparables);
+  expect(coverage?.counts).toEqual(scatter.counts);
+  expect(coverage?.coveredSlugs.has("fables")).toBe(true);
+  expect(coverage?.coveredSlugs.has("flying-tulip-lend")).toBe(false);
   expect(data.rangeHonesty).toEqual({
     middle: { stated: 0.5, covered: 46, n: 92 },
     broad: { stated: 0.8, covered: 74, n: 92 },
