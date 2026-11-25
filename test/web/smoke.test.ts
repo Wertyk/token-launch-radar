@@ -136,7 +136,7 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
     for (const label of ["Value term selection", "Odds term selection"]) {
       await methodCard(label).getByText("Not kept").first().waitFor();
     }
-    expect(await methodCard("Held-out range honesty").textContent()).toContain("104/128");
+    expect(await methodCard("Held-out range honesty").textContent()).toContain("76/94");
     await page.setViewportSize({ width: 390, height: 844 });
     const mobileOrder = await ready.locator(".method h2").evaluateAll((headings) =>
       headings

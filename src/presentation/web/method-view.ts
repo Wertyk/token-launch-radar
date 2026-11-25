@@ -96,7 +96,7 @@ export function methodView(
             `${multiplier(medianMultiplier)} · ${spearman?.toFixed(3) ?? "—"}`,
         ),
       ]),
-      "Current traded-family market caps proxy for launch value. Median error ×k and Spearman ρ.",
+      "Current traded-family market caps proxy for launch value. Median error ×k and Spearman ρ. Comparables exclude the house-excluded categories (exchange custody, bridged and staked products), the same rule the census applies.",
     ),
     termTrials("Value", selection, `Fixed penalties. ${categoryNote} Both errors must improve.`),
     '</div><div class="method-odds">',

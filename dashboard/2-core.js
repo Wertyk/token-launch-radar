@@ -74,11 +74,36 @@ g","options","options vault"],rwa:["rwa"],bridge:["bridge","canonical bridge","c
 let label=category?.trim().toLowerCase()??"";for(let[group,labels]of Object.entries(categories))if(labels.includes(label))
 return group;return"other"}function categoryTotals(){return Object.fromEntries(Object.keys(categories).map(group=>[group,
 0]))}function groupComparableCategories(rows,families){let groups=new Map(families.map(({key,representative})=>[key,categoryGroup(
-representative.category)]));return rows.map(row=>({...row,category:groups.get(row.familyKey)??"other"}))}function logAge(listedAt,asOf){return Math.log(Math.max(1,daysBetween(listedAt,asOf)))}function logMomentum(change){return change===
+representative.category)]));return rows.map(row=>({...row,category:groups.get(row.familyKey)??"other"}))}function familyKey({slug,gecko_id}){return gecko_id===null?`slug:${slug}`:`gecko:${gecko_id}`}function groupFamilies(protocols){
+let families=new Map;for(let protocol of[...protocols].sort((a,b)=>compareText(a.slug,b.slug))){let{tvl_usd,mcap_usd}=protocol,
+key=familyKey(protocol),marketCap=mcap_usd!==null&&mcap_usd>0?mcap_usd:null,family=families.get(key);family?(family.members.
+push(protocol),family.tvl_usd+=tvl_usd,family.mcap_usd??=marketCap):families.set(key,{key,representative:protocol,members:[
+protocol],tvl_usd,mcap_usd:marketCap})}return[...families.values()]}var BRIDGE_PRODUCT="wrapped and bridged products are",STAKED_PRODUCT="staked products are",HOUSE_RULE=" (house rule).",EXCLUDED_CATEGORIES=new Map(
+[["Bridge",BRIDGE_PRODUCT],["Canonical Bridge",BRIDGE_PRODUCT],["Liquid Staking",STAKED_PRODUCT],["Liquid Restaking",STAKED_PRODUCT],
+["Restaked BTC",STAKED_PRODUCT],["CEX","exchange custody is"]]),VERSION_SUFFIX=/\s(?:v\d+(?:\.\d+)*|\d+(?:\.\d+)+)$/i,PRODUCT_WORD=/(?<![\p{L}\p{M}\p{N}_])(?:wrapped|staked|staking)(?![\p{L}\p{M}\p{N}_])/iu,
+EXCHANGE_NAME=/^(?:Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gemini)(?![\p{L}\p{M}\p{N}_])/iu;function tokenFields({
+gecko_id,symbol}){return gecko_id!==null?symbol===null?"gecko_id":"gecko_id and symbol":symbol===null?null:"symbol"}function exclusionReason(protocol){
+let{category}=protocol,product=category===null?void 0:EXCLUDED_CATEGORIES.get(category);if(product)return`${category} ca\
+tegory: ${product} not ranked${HOUSE_RULE}`;let name=protocol.name.trim();if(VERSION_SUFFIX.test(name))return`Name ends \
+in a version marker${HOUSE_RULE}`;let productWord=name.match(PRODUCT_WORD)?.[0];if(productWord!==void 0)return`Name cont\
+ains “${productWord}”${HOUSE_RULE}`;let exchange=name.match(EXCHANGE_NAME)?.[0];return exchange===void 0?null:`Name \
+starts with the exchange name “${exchange}”${HOUSE_RULE}`}function classify(protocol,marketCap=protocol.mcap_usd){if(marketCap!==
+null&&marketCap>0)return{status:"traded",reason:"The family records a positive market cap."};let fields=tokenFields(protocol);
+if(fields!==null)return{status:"token-unpriced",reason:`The protocol records a token via ${fields} without a positive ma\
+rket cap.`};let reason=exclusionReason(protocol);return reason!==null?{status:"excluded",reason}:{status:"pre-token",reason:"\
+The protocol records no token."}}function buildCensus(protocols,families=groupFamilies(protocols)){let marketCaps=new Map(
+families.map(({key,mcap_usd})=>[key,mcap_usd]));return protocols.map(protocol=>{let key=familyKey(protocol);return{protocol,
+familyKey:key,...classify(protocol,marketCaps.get(key)??null)}})}function houseRuleMembership({protocols,floor_usd,watchlist}){
+let watchlisted=new Set(watchlist),matches=new Set(protocols.filter(protocol=>protocol.tvl_usd>=floor_usd&&tokenFields(protocol)===
+null&&exclusionReason(protocol)===null).map(({slug})=>slug).sort(compareText)),truePositives=[],falsePositives=[];for(let slug of matches)
+(watchlisted.has(slug)?truePositives:falsePositives).push(slug);let falseNegatives=[...watchlisted].filter(slug=>!matches.
+has(slug)).sort(compareText);return{truePositives,falsePositives,falseNegatives}}function boardEntries(census,watchlist){let watchlisted=new Set(watchlist),entries=[];for(let entry of census){let boardReasons=[];
+entry.status==="pre-token"&&boardReasons.push("pre-token"),watchlisted.has(entry.protocol.slug)&&boardReasons.push("watc\
+hlist"),boardReasons.length>0&&entries.push({...entry,boardReasons})}return entries}function logAge(listedAt,asOf){return Math.log(Math.max(1,daysBetween(listedAt,asOf)))}function logMomentum(change){return change===
 null?0:Math.log1p(clamp(change,-50,100)/100)}function comparablesFromFamilies(families,asOf){return families.flatMap(({key,
-representative,tvl_usd,mcap_usd})=>{if(mcap_usd===null)return[];let{slug,listed_at,change_7d}=representative;return[{slug,
-familyKey:key,listedAt:listed_at,lnTvl:Math.log(tvl_usd),lnAge:listed_at===null?null:logAge(listed_at,asOf),growth:logMomentum(
-change_7d),target:Math.log(mcap_usd)}]})}var{fitLogistic,linearScore,sigmoid}=window.Radar?.support??{};var ODDS_CANDIDATES=["lnTvl","growth","lnChains","categoryShare"],PENALTY=1,PRIOR_STRENGTH=20;function protocolFeatures(protocol,ageDays){
+representative,tvl_usd,mcap_usd})=>{let{slug,listed_at,change_7d,category}=representative;return mcap_usd===null||category!==
+null&&EXCLUDED_CATEGORIES.has(category)?[]:[{slug,familyKey:key,listedAt:listed_at,lnTvl:Math.log(tvl_usd),lnAge:listed_at===
+null?null:logAge(listed_at,asOf),growth:logMomentum(change_7d),target:Math.log(mcap_usd)}]})}var{fitLogistic,linearScore,sigmoid}=window.Radar?.support??{};var ODDS_CANDIDATES=["lnTvl","growth","lnChains","categoryShare"],PENALTY=1,PRIOR_STRENGTH=20;function protocolFeatures(protocol,ageDays){
 return{ageDays,lnTvl:Math.log(protocol.tvl_usd),growth:logMomentum(protocol.change_7d),lnChains:Math.log(Math.max(1,protocol.
 chains.length)),category:categoryGroup(protocol.category)}}function oddsPopulation(entries,asOf){return entries.flatMap(
 ({protocol,status})=>{let{slug,listed_at:listedAt}=protocol;return listedAt===null||status==="excluded"?[]:[{...protocolFeatures(
@@ -176,32 +201,7 @@ category:categoryDesign(rows,{lambda,categoryPenaltyMultiple})})}function select
 candidates=categoryTrial?VALUE_CANDIDATES:VALUE_CANDIDATES.filter(term=>term!=="category");return selectTerms(candidates,
 terms=>{let parameters=terms.includes("category")&&categoryTrial?categoryTrial:{lambda},fit={terms,...parameters};return folds.
 map(scheme=>medianLogError(scheme.flatMap(({train,test})=>!train.length||!test.length?[]:modelPredictions(test,refitValueSubset(
-train,fit))))??null)})}function familyKey({slug,gecko_id}){return gecko_id===null?`slug:${slug}`:`gecko:${gecko_id}`}function groupFamilies(protocols){
-let families=new Map;for(let protocol of[...protocols].sort((a,b)=>compareText(a.slug,b.slug))){let{tvl_usd,mcap_usd}=protocol,
-key=familyKey(protocol),marketCap=mcap_usd!==null&&mcap_usd>0?mcap_usd:null,family=families.get(key);family?(family.members.
-push(protocol),family.tvl_usd+=tvl_usd,family.mcap_usd??=marketCap):families.set(key,{key,representative:protocol,members:[
-protocol],tvl_usd,mcap_usd:marketCap})}return[...families.values()]}var BRIDGE_PRODUCT="wrapped and bridged products are",STAKED_PRODUCT="staked products are",HOUSE_RULE=" (house rule).",EXCLUDED_CATEGORIES=new Map(
-[["Bridge",BRIDGE_PRODUCT],["Canonical Bridge",BRIDGE_PRODUCT],["Liquid Staking",STAKED_PRODUCT],["Liquid Restaking",STAKED_PRODUCT],
-["Restaked BTC",STAKED_PRODUCT],["CEX","exchange custody is"]]),VERSION_SUFFIX=/\s(?:v\d+(?:\.\d+)*|\d+(?:\.\d+)+)$/i,PRODUCT_WORD=/(?<![\p{L}\p{M}\p{N}_])(?:wrapped|staked|staking)(?![\p{L}\p{M}\p{N}_])/iu,
-EXCHANGE_NAME=/^(?:Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gemini)(?![\p{L}\p{M}\p{N}_])/iu;function tokenFields({
-gecko_id,symbol}){return gecko_id!==null?symbol===null?"gecko_id":"gecko_id and symbol":symbol===null?null:"symbol"}function exclusionReason(protocol){
-let{category}=protocol,product=category===null?void 0:EXCLUDED_CATEGORIES.get(category);if(product)return`${category} ca\
-tegory: ${product} not ranked${HOUSE_RULE}`;let name=protocol.name.trim();if(VERSION_SUFFIX.test(name))return`Name ends \
-in a version marker${HOUSE_RULE}`;let productWord=name.match(PRODUCT_WORD)?.[0];if(productWord!==void 0)return`Name cont\
-ains “${productWord}”${HOUSE_RULE}`;let exchange=name.match(EXCHANGE_NAME)?.[0];return exchange===void 0?null:`Name \
-starts with the exchange name “${exchange}”${HOUSE_RULE}`}function classify(protocol,marketCap=protocol.mcap_usd){if(marketCap!==
-null&&marketCap>0)return{status:"traded",reason:"The family records a positive market cap."};let fields=tokenFields(protocol);
-if(fields!==null)return{status:"token-unpriced",reason:`The protocol records a token via ${fields} without a positive ma\
-rket cap.`};let reason=exclusionReason(protocol);return reason!==null?{status:"excluded",reason}:{status:"pre-token",reason:"\
-The protocol records no token."}}function buildCensus(protocols,families=groupFamilies(protocols)){let marketCaps=new Map(
-families.map(({key,mcap_usd})=>[key,mcap_usd]));return protocols.map(protocol=>{let key=familyKey(protocol);return{protocol,
-familyKey:key,...classify(protocol,marketCaps.get(key)??null)}})}function houseRuleMembership({protocols,floor_usd,watchlist}){
-let watchlisted=new Set(watchlist),matches=new Set(protocols.filter(protocol=>protocol.tvl_usd>=floor_usd&&tokenFields(protocol)===
-null&&exclusionReason(protocol)===null).map(({slug})=>slug).sort(compareText)),truePositives=[],falsePositives=[];for(let slug of matches)
-(watchlisted.has(slug)?truePositives:falsePositives).push(slug);let falseNegatives=[...watchlisted].filter(slug=>!matches.
-has(slug)).sort(compareText);return{truePositives,falsePositives,falseNegatives}}function boardEntries(census,watchlist){let watchlisted=new Set(watchlist),entries=[];for(let entry of census){let boardReasons=[];
-entry.status==="pre-token"&&boardReasons.push("pre-token"),watchlisted.has(entry.protocol.slug)&&boardReasons.push("watc\
-hlist"),boardReasons.length>0&&entries.push({...entry,boardReasons})}return entries}function radarInputs({protocols,as_of}){let families=groupFamilies(protocols),entries=buildCensus(protocols,families),comparables=comparablesFromFamilies(
+train,fit))))??null)})}function radarInputs({protocols,as_of}){let families=groupFamilies(protocols),entries=buildCensus(protocols,families),comparables=comparablesFromFamilies(
 families,as_of);return{families,entries,comparables,population:oddsPopulation(entries,as_of)}}function rankRadar({watchlist,
 as_of},entries,model,odds,tables){checkClockCoefficient(odds.coefficients[1]);let candidates=boardEntries(entries,watchlist).
 map(entry=>({...entry,...protocolOdds(odds,entry.protocol,as_of)})),thresholds=farmExitThresholds(entries,tables.playbooks);

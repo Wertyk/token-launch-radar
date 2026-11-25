@@ -202,8 +202,8 @@ test("keeps five screenshot-backed rubric bullets with v9b evidence", () => {
   for (const text of [
     "758 protocols",
     "40/40 watchlist recall",
-    "+6.5%, −10.6%, +57.7%",
-    "×3.15",
+    "+5.3%, −10.6%, +57.7%",
+    "×2.24",
     "0.1700/0.2123",
     "9–10 steps",
     "cross-section behaves like a cohort",

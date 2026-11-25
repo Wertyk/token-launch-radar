@@ -97,6 +97,7 @@ function open(
       );
   }
   return {
+    context,
     main,
     markup,
     navigate(next: string) {
@@ -125,6 +126,65 @@ beforeAll(() => {
 function data(published = script) {
   return JSON.parse(published.slice("window.RADAR_DATA = ".length, -2));
 }
+
+test("fits only eligible traded family representatives in the build and page refit", () => {
+  const excluded = [
+    "CEX",
+    "Bridge",
+    "Canonical Bridge",
+    "Liquid Staking",
+    "Liquid Restaking",
+    "Restaked BTC",
+  ];
+  const snapshot = parseSnapshot({
+    as_of: "2026-11-14",
+    floor_usd: 10,
+    source: "comparable fixture",
+    watchlist: ["candidate"],
+    protocols: [
+      protocol({ slug: "candidate", listed_at: "2026-11-01" }),
+      protocol({ slug: "dex", category: "Dexs", mcap_usd: 90_000_000 }),
+      protocol({ slug: "lender", category: "Lending", gecko_id: "lending" }),
+      protocol({
+        slug: "lender-wrapper",
+        category: "Liquid Staking",
+        gecko_id: "lending",
+        mcap_usd: 60_000_000,
+      }),
+      protocol({ slug: "excluded-0-vault", category: "Lending", gecko_id: "excluded-0" }),
+      ...excluded.map((category, i) =>
+        protocol({
+          slug: `excluded-${i}`,
+          category,
+          gecko_id: `excluded-${i}`,
+          mcap_usd: 100_000_000,
+        }),
+      ),
+    ],
+  });
+  const result = buildRadar(snapshot);
+  const payload = data(renderDataScript(snapshot, toBoardRows(result), result, farmTables()));
+  const { context, main, markup } = open(payload, "#/method");
+  const refitSlugs = runInContext(
+    `const { Radar: api, RADAR_DATA: data } = window;
+    api.buildRadar(api.readPublishedSnapshot(data), data.model.fit, data.odds.terms, data.meta)
+      .comparables.map(({ slug }) => slug);`,
+    context,
+  );
+
+  expect.soft(result.model.n).toBe(2);
+  expect
+    .soft(new Set(result.rowDiagnostics.get("candidate")?.twins))
+    .toEqual(new Set(["dex", "lender"]));
+  expect.soft(refitSlugs).toEqual(["dex", "lender"]);
+  expect.soft(main.innerHTML).toContain("2 traded families.");
+  expect
+    .soft(main.innerHTML)
+    .toContain(
+      "Comparables exclude the house-excluded categories (exchange custody, bridged and staked products), the same rule the census applies.",
+    );
+  expect(markup.get("#checks")?.innerHTML).toContain('class="check">✓ Recompute = board.json');
+});
 
 test("clears the board link's unranked filter when changing census status", () => {
   const page = open(data());
@@ -162,13 +222,13 @@ test.each([true, false])(
       .toContain(`≈ ${lnValue.toFixed(3)} → ${formatUsd(Math.round(Math.exp(lnValue)))}`);
     expect.soft(checks?.match(/class="check"/g)).toHaveLength(7);
     expect.soft(checks).toContain('class="check">✓ Recompute = board.json');
-    expect.soft(checks).toContain('class="check">✓ 104/128 held-out traded caps inside P10–P90');
+    expect.soft(checks).toContain('class="check">✓ 76/94 held-out traded caps inside P10–P90');
 
     page.navigate("#/method");
     expect
       .soft(page.main.innerHTML)
       .toContain(`<td>Intercept</td><td>${radar.model.coefficients.intercept.toFixed(6)}</td>`);
-    expect.soft(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 104\/128<\/td>/);
+    expect.soft(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 76\/94<\/td>/);
     expect(page.main.innerHTML).toContain(
       `<td>logit(S(a))</td><td>${radar.odds.coefficients[1]?.toFixed(6)}</td>`,
     );
@@ -205,7 +265,7 @@ test("shows fitted input effects in the KPI, Method and protocol card", () => {
     opened.markup
       .get("#kpis")
       ?.innerHTML.match(/<dt>Inputs in implied value<\/dt><dd>(.+?)<\/dd>/)?.[1];
-  expect(tile(page)).toBe("TVL +6.5% · growth −10.6% · age +57.7%");
+  expect(tile(page)).toBe("TVL +5.3% · growth −10.6% · age +57.7%");
   expect(page.markup.get("#kpis")?.innerHTML).toContain(
     "<small>per +10% TVL, +10pp 7-day growth, +1 yr with no token · board medians</small>",
   );
@@ -285,8 +345,8 @@ test("updates both coverage displays when a published band changes the point's c
   point.p10 = point.actual + 1;
   point.p90 = point.actual + 2;
   const page = open(payload, "#/method");
-  expect(page.markup.get("#checks")?.innerHTML).toContain("103/128 held-out traded caps");
-  expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 103\/128<\/td>/);
+  expect(page.markup.get("#checks")?.innerHTML).toContain("75/94 held-out traded caps");
+  expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 75\/94<\/td>/);
 });
 
 test("ignores impossible counts injected into the payload", () => {
@@ -294,9 +354,9 @@ test("ignores impossible counts injected into the payload", () => {
   payload.intervalCounts = { missLow: -1, covered: 129, missHigh: 0 };
   const page = open(payload, "#/method");
   expect(page.markup.get("#checks")?.innerHTML).toContain(
-    'class="check">✓ 104/128 held-out traded caps',
+    'class="check">✓ 76/94 held-out traded caps',
   );
-  expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 104\/128<\/td>/);
+  expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 76\/94<\/td>/);
 });
 
 test.each(["missing", "non-finite", "reversed"])("flags a band with %s endpoints", (tampering) => {
@@ -307,9 +367,9 @@ test.each(["missing", "non-finite", "reversed"])("flags a band with %s endpoints
   else [point.p10, point.p90] = [point.p90, point.p10];
   const page = open(payload, "#/method");
   expect(page.markup.get("#checks")?.innerHTML).toContain(
-    'class="check-failed">✗ 103/127 held-out traded caps inside P10–P90 · 127/128 families',
+    'class="check-failed">✗ 75/93 held-out traded caps inside P10–P90 · 93/94 families',
   );
-  expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 103\/127<\/td>/);
+  expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 75\/93<\/td>/);
 });
 
 test("flags invalid evidence even when the valid points account for the fitted population", () => {
@@ -317,9 +377,22 @@ test("flags invalid evidence even when the valid points account for the fitted p
   payload.looScatter.push({ ...insidePoint(payload), p10: null });
   const page = open(payload, "#/method");
   expect(page.markup.get("#checks")?.innerHTML).toContain(
-    'class="check-failed">✗ 104/128 held-out traded caps inside P10–P90 · 1 invalid',
+    'class="check-failed">✗ 76/94 held-out traded caps inside P10–P90 · 1 invalid',
   );
-  expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 104\/128<\/td>/);
+  expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 76\/94<\/td>/);
+});
+
+test("rejects range evidence from a family in a house-excluded category", () => {
+  const payload = data();
+  const excluded = payload.protocols.find(({ slug }: { slug: string }) => slug === "lido");
+  if (!(excluded?.mcap_usd > 0)) throw new Error("Expected a priced liquid staking family");
+  const point =
+    payload.looScatter.find(({ slug }: { slug: string }) => slug === excluded.slug) ??
+    insidePoint(payload);
+  const actual = Math.log(excluded.mcap_usd);
+  Object.assign(point, { slug: excluded.slug, actual, p10: actual - 1, p90: actual + 1 });
+  const page = open(payload, "#/method");
+  expect(page.markup.get("#checks")?.innerHTML).toMatch(/class="check-failed">✗ [^<]+ · 1 invalid/);
 });
 
 test.each([9, 10])("respects the publisher's held-out band decision at %i families", (n) => {
@@ -373,9 +446,9 @@ test.each(["steakhouse-financial", "aave-v2", "across"])(
     payload.looScatter[index] = { ...covered, slug };
     const page = open(payload, "#/method");
     expect(page.markup.get("#checks")?.innerHTML).toContain(
-      'class="check-failed">✗ 104/127 held-out traded caps inside P10–P90 · 127/128 families',
+      'class="check-failed">✗ 76/93 held-out traded caps inside P10–P90 · 93/94 families',
     );
-    expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 104\/127<\/td>/);
+    expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 76\/93<\/td>/);
   },
 );
 
@@ -406,7 +479,7 @@ test.each([true, false])("renders all required routes with loadExtras=%s", (load
   for (const [hash, marker] of [
     [`#/p/${slug}`, "Farm plan"],
     ["#/census", "758 of 758 protocols"],
-    ["#/method", "P10–P90</td><td>81.3% · 104/128</td>"],
+    ["#/method", "P10–P90</td><td>80.9% · 76/94</td>"],
     ["#/", "198 ranked"],
   ] as const) {
     page.navigate(hash);
@@ -476,9 +549,9 @@ test("reproduces both selections and renders recomputed trials if a published tr
   expect(clean.markup.get("#checks")?.innerHTML).toContain(`class="check">✓ ${label}`);
   expect(clean.main.innerHTML).toContain("Value term selection");
   expect(clean.main.innerHTML).toContain(
-    "<td>category</td><td>1.3018</td><td>1.3580</td><td>Not kept</td>",
+    "<td>category</td><td>1.3080</td><td>0.7163</td><td>Not kept</td>",
   );
-  expect(clean.main.innerHTML).toContain("Category trial λ 0.1 × 16");
+  expect(clean.main.innerHTML).toContain("Category trial λ 16 × 4");
   expect(clean.main.innerHTML).toContain("Odds term selection");
   payload.model.selection.steps[0].trials[0].scores[0] = 99;
   const tampered = open(payload, "#/method", false);

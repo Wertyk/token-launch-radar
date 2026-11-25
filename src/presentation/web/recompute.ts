@@ -107,16 +107,21 @@ export function boardMismatches<Row extends RecomputedRow>(
 }
 
 export function prepareBoard(
-  { board, families }: ReturnType<typeof browserApi.buildRadar>,
+  { board, families, comparables }: ReturnType<typeof browserApi.buildRadar>,
   published: readonly ((CheckRow & ValueDiagnostics & RankRange) | null)[],
   watchlist: readonly string[],
   age: (date: string) => number,
   steps?: (row: RadarRow) => string[],
 ) {
   const evidence = new Map(published.flatMap((row) => (row ? [[row.slug, row]] : [])));
+  const comparableKeys = new Set(comparables.map(({ familyKey }) => familyKey));
   return {
     diagnostics: evidence,
-    families: new Map(families.map((family) => [family.representative.slug, family])),
+    families: new Map(
+      families
+        .filter(({ key }) => comparableKeys.has(key))
+        .map((family) => [family.representative.slug, family]),
+    ),
     protocols: new Map(board.map((row) => [row.protocol.slug, row])),
     mismatches: boardMismatches(board, published, steps),
     rows: boardViewRows(board, evidence, watchlist, age),

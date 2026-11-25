@@ -6,7 +6,7 @@ import { familyKey, groupFamilies } from "./families.ts";
 const BRIDGE_PRODUCT = "wrapped and bridged products are";
 const STAKED_PRODUCT = "staked products are";
 const HOUSE_RULE = " (house rule).";
-const EXCLUDED_CATEGORIES = new Map([
+export const EXCLUDED_CATEGORIES: ReadonlyMap<string, string> = new Map([
   ["Bridge", BRIDGE_PRODUCT],
   ["Canonical Bridge", BRIDGE_PRODUCT],
   ["Liquid Staking", STAKED_PRODUCT],

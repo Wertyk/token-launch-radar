@@ -71,7 +71,7 @@ test("the kit snapshot produces a complete, valid and deterministic board", () =
   expect(houseRule.falseNegatives).toEqual([]);
   expect(houseRule.recall).toBe(1);
   expect(houseRule.precision).toBe(2 / 3);
-  expect(result.model.n).toBe(128);
+  expect(result.model.n).toBe(94);
   expect(snapshot.watchlist).toHaveLength(40);
   expect(board).toHaveLength(198);
   const boardSlugs = new Set(board.map(({ protocol: row }) => row.slug));
@@ -158,11 +158,13 @@ test("documents the age inputs computed for undated rows in the sealed snapshot"
 test("the nested kit LOO model matches or improves on the flat multiple", () => {
   const { validation, selection } = result.model;
   const loo = validation.leaveOneFamilyOut;
-  expect(loo.model.n).toBe(128);
-  expect(loo.flatMultiple.n).toBe(128);
-  expect(loo.categoryMultiple.n).toBe(128);
-  expect(validation.seededFiveFold.model.n).toBe(128);
-  expect(validation.walkForward.model.n).toBe(38);
+  for (const [scheme, count] of [
+    [loo, 94],
+    [validation.seededFiveFold, 94],
+    [validation.walkForward, 29],
+  ] as const) {
+    expect(Object.values(scheme).map(({ n }) => n)).toEqual([count, count, count]);
+  }
   expect(loo.model.medianMultiplier).not.toBeNull();
   expect(loo.flatMultiple.medianMultiplier).not.toBeNull();
   expect(loo.model.medianMultiplier).toBeLessThanOrEqual(loo.flatMultiple.medianMultiplier ?? 0);

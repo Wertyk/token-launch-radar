@@ -1,3 +1,4 @@
+import { EXCLUDED_CATEGORIES } from "../census/census.ts";
 import type { ProtocolFamily } from "../census/families.ts";
 import { clamp } from "../shared/math.ts";
 import { daysBetween } from "../snapshot.ts";
@@ -30,8 +31,8 @@ export function comparablesFromFamilies(
   asOf: string,
 ): Comparable[] {
   return families.flatMap(({ key, representative, tvl_usd, mcap_usd }) => {
-    if (mcap_usd === null) return [];
-    const { slug, listed_at, change_7d } = representative;
+    const { slug, listed_at, change_7d, category } = representative;
+    if (mcap_usd === null || (category !== null && EXCLUDED_CATEGORIES.has(category))) return [];
     return [
       {
         slug,

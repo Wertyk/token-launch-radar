@@ -121,22 +121,23 @@ categoryEffects??{}).map(([group,effect])=>[group,coef(effect),coef(valueErrors[
 [["Leave one family out",validation.leaveOneFamilyOut],["Seeded five-fold",validation.seededFiveFold],["Walk-forward",validation.
 walkForward]].map(([label,{model:fitted,flatMultiple,categoryMultiple}])=>[label,...[fitted,flatMultiple,categoryMultiple].
 map(({medianMultiplier,spearman})=>`${multiplier(medianMultiplier)} · ${spearman?.toFixed(3)??"—"}`)]),"Current trade\
-d-family market caps proxy for launch value. Median error ×k and Spearman ρ."),termTrials("Value",selection,`Fixed pen\
-alties. ${categoryNote} Both errors must improve.`),'</div><div class="method-odds">',methodPanel("Token-status model",[
-"Term in logit F(a)","Coefficient","Bootstrap SE"],odds.names.map((name,i)=>[name,coef(odds.coefficients[i]),coef(odds.standardErrors[i])]),
-`${odds.n} listed protocols. PAVA share S(a) is clamped to 0.01–0.99. P₁₂ = [F(a+365) − F(a)] / [1 − F(a)]. Flat years u\
-se tail hazard. Undated age ${odds.medianAgeDays}d. ${errorNote}`),termTrials("Odds",odds.validation),'</div><div class=\
-"method-evidence">',methodPanel("How each input moves the implied value",["Input","Median","P10–P90","Through"],effectSummary.
-map(([median,low,high],i)=>[inputLabels[i]??"",effectPercent(median??NaN),`${effectPercent(low??NaN)} to ${effectPercent(
-high??NaN)}`,paths[i]??""]),`${boardSize} rows, before dollar rounding. Growth is 7-day, clipped by the model. Age with \
-no token shifts the clock forward. Missing growth starts at 0 and undated ages use the fitted medians.`),methodPanel("He\
-ld-out token status",["Model","10-fold Brier","Walk-forward Brier"],[["Base rate",baselines.baseRate],["Raw PAVA clock",
-baselines.pava],["Clock-only model (step 0)",baselines.clockOnly],["Final model",scores]].map(([label,pair])=>[label,...pair.
-map(brier)]),"Brier scores current token status. P₁₂ assumes the cross-section behaves like a cohort."),methodPanel(
-"Held-out range honesty",["Band","Actual","Stated"],rangeRows(rangeHonesty)),`<section class="panel"><h2>Growth placebo<\
-/h2><p class="caption">Real Brier ${placebo.real.map(brier).join(" / ")}. ${placebo.asGoodOrBetter.map(rate=>rate===null?
-"—":formatOdds(rate)).join(" / ")} of ${placebo.shuffles} shuffles matched or beat it (10-fold / WF).</p></section>`,notes?.(
-methodPanel)??"","</div>"].join("")}</div>`}function ageSparkline(maxAge,age,odds,oddsAt,svgView){let y=fraction=>((1-fraction)*40).toFixed(2),marker=age/maxAge*100,
+d-family market caps proxy for launch value. Median error ×k and Spearman ρ. Comparables exclude the house-excluded cate\
+gories (exchange custody, bridged and staked products), the same rule the census applies."),termTrials("Value",selection,
+`Fixed penalties. ${categoryNote} Both errors must improve.`),'</div><div class="method-odds">',methodPanel("Token-statu\
+s model",["Term in logit F(a)","Coefficient","Bootstrap SE"],odds.names.map((name,i)=>[name,coef(odds.coefficients[i]),coef(
+odds.standardErrors[i])]),`${odds.n} listed protocols. PAVA share S(a) is clamped to 0.01–0.99. P₁₂ = [F(a+365) − F(a)] \
+/ [1 − F(a)]. Flat years use tail hazard. Undated age ${odds.medianAgeDays}d. ${errorNote}`),termTrials("Odds",odds.validation),
+'</div><div class="method-evidence">',methodPanel("How each input moves the implied value",["Input","Median","P10–P90",
+"Through"],effectSummary.map(([median,low,high],i)=>[inputLabels[i]??"",effectPercent(median??NaN),`${effectPercent(low??
+NaN)} to ${effectPercent(high??NaN)}`,paths[i]??""]),`${boardSize} rows, before dollar rounding. Growth is 7-day, clippe\
+d by the model. Age with no token shifts the clock forward. Missing growth starts at 0 and undated ages use the fitted m\
+edians.`),methodPanel("Held-out token status",["Model","10-fold Brier","Walk-forward Brier"],[["Base rate",baselines.baseRate],
+["Raw PAVA clock",baselines.pava],["Clock-only model (step 0)",baselines.clockOnly],["Final model",scores]].map(([label,
+pair])=>[label,...pair.map(brier)]),"Brier scores current token status. P₁₂ assumes the cross-section behaves like a coh\
+ort."),methodPanel("Held-out range honesty",["Band","Actual","Stated"],rangeRows(rangeHonesty)),`<section class="panel">\
+<h2>Growth placebo</h2><p class="caption">Real Brier ${placebo.real.map(brier).join(" / ")}. ${placebo.asGoodOrBetter.map(
+rate=>rate===null?"—":formatOdds(rate)).join(" / ")} of ${placebo.shuffles} shuffles matched or beat it (10-fold / WF)\
+.</p></section>`,notes?.(methodPanel)??"","</div>"].join("")}</div>`}function ageSparkline(maxAge,age,odds,oddsAt,svgView){let y=fraction=>((1-fraction)*40).toFixed(2),marker=age/maxAge*100,
 line=Array.from({length:33},(_,index)=>{let x=index/32*100;return`${x.toFixed(2)},${y(oddsAt(x/100*maxAge))}`}).join(" ");
 return svgView(100,40,`<polyline points="${line}"></polyline><circle cx="${marker.toFixed(2)}" cy="${y(odds)}" r="2" cla\
 ss="age-point"></circle>`)}var reasonLabels={"pre-token":"Meets the pre-token rule",watchlist:"House watchlist"},flagLabels={"growth-missing":"Miss\
@@ -169,8 +170,9 @@ implied_value_usd,plan,protocol:{slug}}=row,saved=published[index],farm_steps=st
 airdrop_yield_apr,launch_p12:farm_economics.launchProbability12,plan_chain:plan.chain,plan_one_time_cost_usd:plan.oneTimeCostUsd,
 plan_recurring_cost_usd:plan.recurringCostUsd,plan_total_cost_usd:plan.totalCostUsd,plan_total_minutes:plan.totalMinutes,
 farm_economics,farm_steps};(!boardInterval(saved)||!Array.isArray(farm_steps)||!matchesFields(expected,saved))&&slugs.push(
-slug)}return slugs}function prepareBoard({board,families},published,watchlist,age,steps){let evidence=new Map(published.
-flatMap(row=>row?[[row.slug,row]]:[]));return{diagnostics:evidence,families:new Map(families.map(family=>[family.representative.
+slug)}return slugs}function prepareBoard({board,families,comparables},published,watchlist,age,steps){let evidence=new Map(
+published.flatMap(row=>row?[[row.slug,row]]:[])),comparableKeys=new Set(comparables.map(({familyKey})=>familyKey));return{
+diagnostics:evidence,families:new Map(families.filter(({key})=>comparableKeys.has(key)).map(family=>[family.representative.
 slug,family])),protocols:new Map(board.map(row=>[row.protocol.slug,row])),mismatches:boardMismatches(board,published,steps),
 rows:boardViewRows(board,evidence,watchlist,age)}}function boardViewRows(board,evidence,watchlist,age){let watchlisted=new Set(
 watchlist);return board.map(({protocol,rank,implied_value_usd:value,launch_value_usd:launchValue,launchProbability12:odds,
