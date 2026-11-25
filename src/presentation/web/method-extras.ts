@@ -1,35 +1,6 @@
 import type { farmAssumptions, formatUsd } from "../../application/browser-api.ts";
-import type { RadarResult } from "../../application/build-radar.ts";
 import type { formatOdds } from "./format.ts";
 import type { HouseRuleEvidence } from "./integrity.ts";
-import type { table } from "./render.ts";
-
-export function fixedScore(value: number | null): string {
-  return value?.toFixed(4) ?? "—";
-}
-
-export function termTrials(
-  selection: RadarResult["model"]["selection"] | RadarResult["odds"]["validation"],
-  kind: "Value" | "Odds",
-  tableView: typeof table,
-) {
-  const errors =
-    kind === "Value"
-      ? ["LOO log error", "Walk-forward log error"]
-      : ["10-fold Brier", "Walk-forward Brier"];
-  const rows = selection.steps.flatMap(({ baseline, trials }, i) => [
-    [String(i + 1), "Current terms", ...baseline.map(fixedScore), "—"],
-    ...trials.map(({ term, scores, kept }) => [
-      String(i + 1),
-      term,
-      ...scores.map(fixedScore),
-      kept ? "Kept" : "Not kept",
-    ]),
-  ]);
-  return `<details class="panel"><summary>${kind} term selection</summary>
-    <p class="caption">A term stays only if it lowers both held-out errors.</p>
-    ${tableView(["Step", "Term", ...errors, "Decision"], rows)}</details>`;
-}
 
 export function methodFarmAssumptions(
   farm: typeof farmAssumptions,

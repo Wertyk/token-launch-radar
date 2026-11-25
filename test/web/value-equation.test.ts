@@ -63,9 +63,7 @@ test("the card reconstructs launch and implied values within 2% using the kept v
     const x = ((ageDays / odds.maxAgeDays) * 100).toFixed(2);
     const y = ((1 - row.launchProbability12) * 40).toFixed(2);
     expect(html, slug).toContain(`<circle cx="${x}" cy="${y}"`);
-    expect(html, slug).toMatch(
-      /<span>Launch value<\/span>.*<span>× launch odds 12m<\/span>.*<span>Implied value<\/span>/,
-    );
+    expect(html, slug).not.toContain('class="waterfall"');
     expect(html.indexOf('<ol class="waterfall">'), slug).toBeLessThan(
       html.indexOf('<p class="value-equation">'),
     );

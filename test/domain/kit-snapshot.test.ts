@@ -121,7 +121,9 @@ test("the kit snapshot produces a complete, valid and deterministic board", () =
     }
   }
   const recomputed = recomputeRadar(snapshot, result.model.fit, result.odds.terms, farmTables());
-  expect(toBoardRows({ board: recomputed.board, houseRule })).toEqual(toBoardRows(result));
+  expect(
+    toBoardRows({ board: recomputed.board, houseRule, rankRanges: result.rankRanges }),
+  ).toEqual(toBoardRows(result));
 });
 
 test("the parent flag still matches the house-rule audit on the published kit board", () => {
@@ -208,4 +210,17 @@ test("the kit planner rejects BTCFi CDP when the route allows 2.4 minutes per we
   });
   expect(positions.map(({ slug }) => slug)).not.toContain("btcfi-cdp");
   expect(closest).toEqual([]);
+});
+
+test("publishes integer bootstrap rank bands and coefficient errors", () => {
+  const { rows } = toBoardRows(result);
+  expect(rows).toHaveLength(198);
+  for (const { rank_p10, rank_p90 } of rows) {
+    expect(Number.isInteger(rank_p10) && Number.isInteger(rank_p90)).toBe(true);
+    expect(rank_p10).toBeGreaterThanOrEqual(1);
+    expect(rank_p90).toBeLessThanOrEqual(rows.length);
+    expect(rank_p10).toBeLessThanOrEqual(rank_p90);
+  }
+  expect(result.bootstrap.replicates).toBe(200);
+  expect(result.odds.standardErrors).toHaveLength(result.odds.coefficients.length);
 });

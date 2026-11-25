@@ -135,6 +135,15 @@ export function launchProbability12(
   gamma: number,
 ): number {
   checkClockCoefficient(gamma);
+  return conditionalProbability(clock, age, otherLogit, gamma);
+}
+
+function conditionalProbability(
+  clock: readonly ClockPoint[],
+  age: number,
+  otherLogit: number,
+  gamma: number,
+) {
   const future = clockLogit(clock, age + YEAR_DAYS);
   const rise = future - clockLogit(clock, age);
   // On a flat year, v8 uses the last rising segment's annual tail hazard,
@@ -143,7 +152,12 @@ export function launchProbability12(
   return clamp(sigmoid(otherLogit + gamma * future) * -Math.expm1(-gamma * rise), 0, 1);
 }
 
-export function protocolOdds(model: OddsModel, protocol: Protocol, asOf: string) {
+export function protocolOdds(
+  model: OddsModel,
+  protocol: Protocol,
+  asOf: string,
+  probability = launchProbability12,
+) {
   const ageDays =
     protocol.listed_at === null
       ? model.medianAgeDays
@@ -153,6 +167,17 @@ export function protocolOdds(model: OddsModel, protocol: Protocol, asOf: string)
   features[0] = 0;
   const otherLogit = linearScore(features, coefficients);
   const gamma = coefficients[1] ?? 0;
-  const oddsAt = (days: number) => launchProbability12(clock, days, otherLogit, gamma);
+  const oddsAt = (days: number) => probability(clock, days, otherLogit, gamma);
   return { oddsAge: ageDays, oddsAt, launchProbability12: oddsAt(ageDays) };
+}
+
+// A bootstrap fit can flatten the clock or have a nonpositive slope. Constrain
+// its rise to zero in that case and retain the model's flat-year fallback.
+export function bootstrapProbability12(
+  clock: readonly ClockPoint[],
+  age: number,
+  otherLogit: number,
+  gamma: number,
+) {
+  return conditionalProbability(clock, age, otherLogit, Math.max(0, gamma));
 }

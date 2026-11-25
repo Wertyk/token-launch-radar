@@ -31,11 +31,9 @@ export function seededFolds<Row extends FoldRow>(
   const assignments = new Map<string, number>();
   while (keys.length > 0) {
     const index = Math.floor(next() * keys.length);
-    const key = keys[index];
-    const last = keys.pop();
-    if (key === undefined || last === undefined) throw new Error("Missing fold family.");
+    assignments.set(keys[index] as string, assignments.size % count);
+    const last = keys.pop() as string;
     if (index < keys.length) keys[index] = last;
-    assignments.set(key, assignments.size % count);
   }
   const folds: Row[][] = Array.from({ length: count }, () => []);
   for (const row of ordered) folds[assignments.get(row.familyKey) ?? -1]?.push(row);
@@ -51,13 +49,12 @@ export function splitFolds<Row extends FoldRow>(heldOut: readonly Row[][]): Fold
 }
 
 export function walkForwardSplit<Row extends FoldRow>(rows: readonly Row[]): Fold<Row> {
-  const dated = rows.flatMap((row) => (row.listedAt === null ? [] : [{ row, date: row.listedAt }]));
-  dated.sort((a, b) => compareText(a.date, b.date) || bySlug(a.row, b.row));
+  const dated = rows
+    .filter((row): row is Row & { listedAt: string } => row.listedAt !== null)
+    .sort((a, b) => compareText(a.listedAt, b.listedAt) || bySlug(a, b));
   const cutoff = Math.floor(dated.length * 0.6);
-  const lastTrainingDate = dated[cutoff - 1]?.date;
-  const test = dated
-    .slice(cutoff)
-    .flatMap(({ row, date }) => (date === lastTrainingDate ? [] : [row]));
+  const lastTrainingDate = dated[cutoff - 1]?.listedAt;
+  const test = dated.slice(cutoff).filter(({ listedAt }) => listedAt !== lastTrainingDate);
   const heldOut = new Set(test.map(({ familyKey }) => familyKey));
   return { train: rows.filter((row) => !heldOut.has(row.familyKey)).sort(bySlug), test };
 }

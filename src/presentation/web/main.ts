@@ -3,27 +3,24 @@ import type { boardFarmSteps } from "../../domain/farming/board-steps.ts";
 import type { planPortfolio } from "../../domain/farming/portfolio.ts";
 import type { Snapshot } from "../../domain/snapshot.ts";
 import { type BoardRow, selectRows } from "./board.ts";
+import { serializeBoard } from "./board-export.ts";
 import { boardRows, boardTable } from "./board-view.ts";
 import { censusSummary, censusView } from "./census-view.ts";
 import type { bindControls, boardControls } from "./controls.ts";
 import { element } from "./dom.ts";
 import { escapeHtml as esc, formatInteger, formatOdds } from "./format.ts";
 import { integrityChecks, integrityStrip } from "./integrity.ts";
-import type { methodNotes, termTrials } from "./method-extras.ts";
+import { kpiStrip, termCounts } from "./kpis.ts";
+import type { methodNotes } from "./method-extras.ts";
 import { methodView } from "./method-view.ts";
 import type { MountPlanner } from "./planner.ts";
 import type { ProtocolExtras } from "./protocol-extras.ts";
 import { protocolView, valueFormula } from "./protocol-view.ts";
-import { prepareBoard } from "./recompute.ts";
+import { matchesFields, prepareBoard } from "./recompute.ts";
+import { isCensusSortKey, isSortKey, parseRoute } from "./route.ts";
 import { scatterCoverage } from "./scatter-view.ts";
 import { boot, type RadarData } from "./startup.ts";
-import {
-  type BoardState,
-  type boardHash,
-  isCensusSortKey,
-  isSortKey,
-  parseRoute,
-} from "./state.ts";
+import type { BoardState, boardHash } from "./state.ts";
 import { type ViewTools, viewTools } from "./view-tools.ts";
 
 declare global {
@@ -38,7 +35,6 @@ declare global {
           boardFarmSteps: (row: Parameters<typeof boardFarmSteps>[0]) => string[];
           boardHash: typeof boardHash;
           methodNotes: typeof methodNotes;
-          termTrials: typeof termTrials;
           view: ViewTools & { element: typeof element };
         }
       >;
@@ -50,7 +46,8 @@ function mountBoard(
   main: HTMLElement,
   rows: readonly BoardRow[],
   summary: string,
-  { formatUsd: usd, compareText, boardControls, view, boardHash }: Window["Radar"],
+  protocols: ReadonlyMap<string, BrowserApi.RadarRow>,
+  { formatUsd: usd, compareText, boardControls, view, boardHash, farmAssumptions }: Window["Radar"],
 ) {
   main.innerHTML =
     summary + element<HTMLTemplateElement>("#board-filters").innerHTML + boardTable();
@@ -58,14 +55,41 @@ function mountBoard(
   const results = element("#results", main);
   const body = element("tbody", main);
   const maxLogValue = Math.log1p(
-    Math.max(1, ...rows.map(({ value, interval }) => Math.max(value, interval?.[1] ?? 0))),
+    Math.max(1, ...rows.flatMap(({ value, interval }) => [value, interval?.[1] ?? 0])),
   );
 
-  return (state: BoardState) => {
+  const deposit = element<HTMLSelectElement>('[name="deposit"]', main);
+  deposit.innerHTML = farmAssumptions.depositsUsd
+    .map(
+      (amount) =>
+        `<option value="${amount}"${amount === 10_000 ? " selected" : ""}>$${amount / 1000}K</option>`,
+    )
+    .join("");
+  const exports = (["csv", "json"] as const).map((format) => ({
+    format,
+    link: element<HTMLAnchorElement>(`[download="radar.${format}"]`, main),
+  }));
+  const render = (state: BoardState) => {
     sync?.(state);
-    const selected = selectRows(rows, state, compareText);
+    const amount = Number(deposit.value) || 10_000;
+    const live = rows.map((row) => {
+      const economics = protocols
+        .get(row.slug)
+        ?.economics.deposits.find(({ depositUsd }) => depositUsd === amount);
+      return economics
+        ? { ...row, verdict: economics.verdict, netPerHour: economics.netPerHourUsd }
+        : row;
+    });
+    const selected = selectRows(live, state, compareText);
     results.textContent = `${formatInteger(selected.length)} of ${formatInteger(rows.length)} protocols`;
     body.innerHTML = boardRows(selected, boardHash?.(state) ?? "#/", maxLogValue, usd);
+    for (const { format, link } of exports) {
+      link.href = `data:text/${format};charset=utf-8,${encodeURIComponent(serializeBoard(selected, format))}`;
+    }
+  };
+  return (state: BoardState) => {
+    deposit.onchange = () => render(state);
+    render(state);
   };
 }
 
@@ -89,9 +113,14 @@ function start(
     radar,
     published,
     snapshot.watchlist,
+    (date) => daysBetween(date, snapshot.as_of),
     api.boardFarmSteps,
   );
   const scatter = scatterCoverage(data.looScatter ?? [], families);
+  const selection = api.reproduceSelection(radar, data.model.trialFit ?? data.model.fit);
+  const rangeHonesty = api.rangeHonesty(scatter.valid);
+  const valueModel = { ...data.model, ...model, selection: selection.value };
+  const oddsModel = { ...data.odds, ...odds, validation: selection.odds };
   const checks = integrityChecks(mismatches, published, snapshot.watchlist, {
     fitted: model.n,
     houseRule,
@@ -102,10 +131,25 @@ function start(
   });
   if (checks[0] && !api.boardFarmSteps) checks[0].label += " · step text unchecked";
   element("#snapshot-date").textContent = `Snapshot · ${snapshot.as_of}`;
-  const counts = [snapshot.protocols.length, model.n, rows.length, odds.n];
-  document.querySelectorAll("#summary dd, #clock-count").forEach((count, i) => {
-    count.textContent = formatInteger(counts[i] ?? null);
+  const selectionMatches =
+    matchesFields(selection.value, data.model.selection, "", true) &&
+    matchesFields(selection.value.terms, data.model.fit.terms) &&
+    matchesFields(selection.odds, data.odds.validation, "", true) &&
+    matchesFields(selection.odds.terms, data.odds.terms);
+  checks.push({
+    pass: selectionMatches,
+    label: `Term selection ${selectionMatches ? "reproduced" : "differs"} · value ${termCounts(selection.value)} kept · odds ${termCounts(selection.odds)} kept`,
   });
+  if (!matchesFields(rangeHonesty, data.rangeHonesty))
+    checks.push({ pass: false, label: "Held-out coverage totals differ from published data" });
+  element("#kpis").innerHTML = kpiStrip(
+    valueModel,
+    selection.odds,
+    rangeHonesty,
+    rows,
+    snapshot.protocols.length,
+    new Set(snapshot.watchlist).size,
+  );
   element("#formula").textContent = `ln V = ${valueFormula(model)}`;
   element("#checks").innerHTML = integrityStrip(checks);
 
@@ -116,7 +160,7 @@ function start(
   function draw(): void {
     try {
       const route = parseRoute(location.hash);
-      const page = route.page === "protocol" ? `protocol/${route.slug}` : route.page;
+      const page = route.page === "protocol" ? `p/${route.slug}` : route.page;
       const changedPage = lastPage && lastPage !== page;
       lastPage = page;
       if (changedPage) {
@@ -124,7 +168,7 @@ function start(
         updatePlan = undefined;
       }
       if (route.page === "board") {
-        updateBoard ??= mountBoard(main, rows, censusSummary(census, protocols), api);
+        updateBoard ??= mountBoard(main, rows, censusSummary(census, protocols), protocols, api);
         updateBoard(route.state);
       } else if (route.page === "plan") {
         updatePlan ??= api.mountPlanner?.(main, radar.board, meta, api);
@@ -135,13 +179,14 @@ function start(
       } else if (route.page === "method") {
         main.innerHTML = methodView(
           {
-            model: { ...data.model, ...model },
-            odds: { ...data.odds, ...odds },
-            scatter,
+            model: valueModel,
+            odds: oddsModel,
+            rangeHonesty,
+            bootstrap: data.bootstrap,
+            placebo: data.placebo,
           },
           (panel) =>
             api.methodNotes?.(houseRule, farmAssumptions, formatUsd, formatOdds, panel) ?? "",
-          api.termTrials,
         );
       } else {
         const back = api.boardHash?.(route.state) ?? "#/";
@@ -181,4 +226,4 @@ function start(
   api.bindControls?.(main, draw, { isCensusSortKey, isSortKey, parseRoute });
 }
 
-boot(start);
+boot?.(start);

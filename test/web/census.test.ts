@@ -4,7 +4,8 @@ import type { CensusRecord } from "../../src/domain/census/census.ts";
 import { boardEntries, buildCensus } from "../../src/domain/census/census.ts";
 import { compareText } from "../../src/domain/shared/order.ts";
 import { censusSummary, censusView, selectCensus } from "../../src/presentation/web/census-view.ts";
-import { censusHash, defaultCensus, parseRoute } from "../../src/presentation/web/state.ts";
+import { parseRoute } from "../../src/presentation/web/route.ts";
+import { censusHash, defaultCensus } from "../../src/presentation/web/state.ts";
 import { protocol } from "../domain/protocol-fixture.ts";
 
 const first: CensusRecord = {
@@ -90,7 +91,7 @@ test("board counts and links exclude two protocols ranked by a watchlist overrid
   expect([...board]).toEqual(["pre", "forced-traded", "forced-excluded"]);
   const summary = censusSummary(census, board);
   expect(summary.replace(/<[^>]+>/g, "")).toContain(
-    "All 6 protocols accounted for: 3 ranked · 1 traded · 1 token, unpriced · 1 excluded (wrapped, staked, bridged, exchange or versioned names)",
+    "All 6 protocols accounted for: 3 ranked · 1 traded · 1 token, unpriced · 1 excluded",
   );
   for (const [status, slug] of [
     ["traded", "traded"],

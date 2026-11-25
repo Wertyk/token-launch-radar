@@ -73,6 +73,8 @@ export function recomputeRadar(
     odds,
     board: rankRadar(snapshot, entries, model, odds, tables),
     families,
+    comparables,
+    population,
     houseRule: houseRuleMembership(snapshot),
   };
 }

@@ -3,6 +3,7 @@ import type { ValueDiagnostics } from "../../domain/valuation/diagnostics.ts";
 import type { BoardRow } from "./board.ts";
 
 type Economics = RadarRow["economics"];
+type RankRange = Pick<BoardRows["rows"][number], "rank_p10" | "rank_p90">;
 type Interval = Pick<ValueDiagnostics, "interval_p10_usd" | "interval_p90_usd">;
 type RankedFields = Pick<RadarRow, "rank" | "launch_value_usd" | "implied_value_usd">;
 export type RecomputedRow = RankedFields & {
@@ -37,12 +38,12 @@ export type CheckRow = RankedFields &
 // Plan fees use exact cents and must match exactly.
 const tolerance = 1e-9;
 
-function matchesFields(a: unknown, b: unknown, field = ""): boolean {
+export function matchesFields(a: unknown, b: unknown, field = "", scores = false): boolean {
   if (a === b) return true;
   if (
     typeof a === "number" &&
     typeof b === "number" &&
-    !Number.isInteger(a) &&
+    (scores || !Number.isInteger(a)) &&
     !/^plan_/.test(field)
   ) {
     const delta = Math.abs(a - b);
@@ -51,7 +52,7 @@ function matchesFields(a: unknown, b: unknown, field = ""): boolean {
   if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
   if (Array.isArray(a) && (!Array.isArray(b) || a.length !== b.length)) return false;
   return Object.entries(a).every(([key, value]) =>
-    matchesFields(value, (b as Record<string, unknown>)[key], key),
+    matchesFields(value, (b as Record<string, unknown>)[key], key, scores),
   );
 }
 
@@ -107,8 +108,9 @@ export function boardMismatches<Row extends RecomputedRow>(
 
 export function prepareBoard(
   { board, families }: ReturnType<typeof browserApi.buildRadar>,
-  published: readonly ((CheckRow & ValueDiagnostics) | null)[],
+  published: readonly ((CheckRow & ValueDiagnostics & RankRange) | null)[],
   watchlist: readonly string[],
+  age: (date: string) => number,
   steps?: (row: RadarRow) => string[],
 ) {
   const evidence = new Map(published.flatMap((row) => (row ? [[row.slug, row]] : [])));
@@ -117,14 +119,15 @@ export function prepareBoard(
     families: new Map(families.map((family) => [family.representative.slug, family])),
     protocols: new Map(board.map((row) => [row.protocol.slug, row])),
     mismatches: boardMismatches(board, published, steps),
-    rows: boardViewRows(board, evidence, watchlist),
+    rows: boardViewRows(board, evidence, watchlist, age),
   };
 }
 
 function boardViewRows(
   board: readonly RadarRow[],
-  evidence: ReadonlyMap<string, Interval>,
+  evidence: ReadonlyMap<string, Interval & RankRange>,
   watchlist: readonly string[],
+  age: (date: string) => number,
 ): BoardRow[] {
   const watchlisted = new Set(watchlist);
   return board.map(
@@ -137,7 +140,19 @@ function boardViewRows(
       plan,
       economics,
     }) => {
-      const { slug, name, tvl_usd, change_7d, category, chains } = protocol;
+      const { slug, name, tvl_usd, change_7d, category, chains, listed_at } = protocol;
+      const saved = evidence.get(slug);
+      const { rank_p10: low, rank_p90: high } = saved ?? {};
+      const rankRange =
+        low != null &&
+        high != null &&
+        Number.isInteger(low) &&
+        Number.isInteger(high) &&
+        low >= 1 &&
+        low <= high &&
+        high <= board.length
+          ? ([low, high] as const)
+          : null;
       const deposit = economics.deposits.find(({ depositUsd }) => depositUsd === 10_000);
       if (!deposit) throw new Error("Missing $10K farm economics.");
       return {
@@ -151,7 +166,9 @@ function boardViewRows(
         odds,
         tvl: tvl_usd,
         growth: change_7d,
-        interval: boardInterval(evidence.get(slug)),
+        interval: boardInterval(saved),
+        rankRange,
+        age: listed_at ? age(listed_at) : null,
         cost: plan.totalCostUsd,
         time: plan.totalMinutes,
         verdict: deposit.verdict,

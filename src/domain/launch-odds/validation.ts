@@ -18,32 +18,43 @@ export function meanBrier(
   );
 }
 
-export function validateOdds(rows: readonly TokenStatusRow[]) {
-  const folds = [splitFolds(seededFolds(rows, 10)), [walkForwardSplit(rows)]];
-  function score(
-    fitPredictor: (train: readonly TokenStatusRow[]) => (row: TokenStatusRow) => number,
-  ) {
-    const predict = ({ train, test }: Fold<TokenStatusRow>) => {
-      if (!train.length || !test.length) return [];
-      const predictRow = fitPredictor(train);
-      return test.map((row) => ({ actual: row.label, predicted: predictRow(row) }));
-    };
-    return folds.map((scheme) => meanBrier(scheme.flatMap(predict)));
-  }
+export function oddsValidationFolds(rows: readonly TokenStatusRow[]) {
+  return [splitFolds(seededFolds(rows, 10)), [walkForwardSplit(rows)]];
+}
 
-  const rate = score((train) => {
+export function scoreOdds(
+  folds: readonly Fold<TokenStatusRow>[][],
+  fitPredictor: (train: readonly TokenStatusRow[]) => (row: TokenStatusRow) => number,
+) {
+  return folds.map((scheme) =>
+    meanBrier(
+      scheme.flatMap(({ train, test }) => {
+        if (!train.length || !test.length) return [];
+        const predict = fitPredictor(train);
+        return test.map((row) => ({ actual: row.label, predicted: predict(row) }));
+      }),
+    ),
+  );
+}
+
+export function statusPredictor(train: readonly TokenStatusRow[], terms: readonly OddsTerm[]) {
+  const { shares, clock, coefficients } = fitOddsModel(train, terms);
+  return (row: TokenStatusRow) =>
+    sigmoid(linearScore(oddsFeatures(row, terms, shares, clock), coefficients));
+}
+
+export function validateOdds(rows: readonly TokenStatusRow[]) {
+  const folds = oddsValidationFolds(rows);
+  const rate = scoreOdds(folds, (train) => {
     const share = baseRate(train);
     return () => share;
   });
-  const pava = score((train) => {
+  const pava = scoreOdds(folds, (train) => {
     const points = fitAgeShares(train);
     return (row) => shareAt(points, row.ageDays);
   });
-  const selection = selectTerms(ODDS_CANDIDATES, (terms: readonly OddsTerm[]) =>
-    score((train) => {
-      const { shares, clock, coefficients } = fitOddsModel(train, terms);
-      return (row) => sigmoid(linearScore(oddsFeatures(row, terms, shares, clock), coefficients));
-    }),
+  const selection = selectTerms(ODDS_CANDIDATES, (terms) =>
+    scoreOdds(folds, (train) => statusPredictor(train, terms)),
   );
   return {
     ...selection,

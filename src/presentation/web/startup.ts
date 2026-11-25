@@ -9,7 +9,7 @@ type PublishedRow = BrowserApi.BoardRows["rows"][number] &
 
 export interface RadarData
   extends BrowserApi.PublishedSnapshot,
-    Pick<RadarResult, "odds" | "census" | "looScatter"> {
+    Pick<RadarResult, "odds" | "census" | "looScatter" | "rangeHonesty" | "bootstrap" | "placebo"> {
   model: Omit<RadarResult["model"], "coefficients">;
   valueCoefficients: RadarResult["model"]["coefficients"];
   meta: BrowserApi.PublishedSnapshot["meta"] & FarmTables;

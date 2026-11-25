@@ -25,7 +25,7 @@ import {
   protocolHash,
   statusLabels,
 } from "../src/presentation/web/state.ts";
-import { imageDimensions, screenshotTarget, shotNames } from "./gate/image.ts";
+import { imageDimensions, shotNames } from "./gate/image.ts";
 
 interface Shot {
   name: string;
@@ -35,7 +35,10 @@ interface Shot {
 }
 
 const repo = resolve(import.meta.dirname, "..");
-const viewport = { width: 1440, height: 900 };
+export const screenshotViewport = { width: 1440, height: 1200 };
+const viewport = screenshotViewport;
+// Four encoded images leave room for the 65,536-byte dossier transcript and metadata.
+const screenshotTarget = 278_000;
 
 function renderRadar(out: string): BoardRows {
   const input = process.env.RADAR_SNAPSHOT
@@ -111,7 +114,7 @@ async function capture(page: Page, name: string): Promise<Shot> {
     }
   }
   if (bytes.length > screenshotTarget)
-    throw new Error(`${name} exceeds 350 KB at every JPEG quality`);
+    throw new Error(`${name} exceeds ${screenshotTarget} bytes at every JPEG quality`);
   const dimensions = imageDimensions(bytes);
   if (dimensions?.width !== viewport.width || dimensions.height !== viewport.height) {
     throw new Error(`${name} is not a whole ${viewport.width}×${viewport.height} image`);
@@ -151,21 +154,16 @@ async function takeShots(
       try {
         await page.goto(url.href);
         await page.locator("main[data-ready]").waitFor({ state: "visible" });
-        if (name === shotNames.detail) {
-          const evidence = [
-            page.getByText(/^P10–P90 · /),
-            page.locator(".waterfall"),
-            page.locator(".value-equation"),
-            page.locator(".farm .deposit-grid"),
-          ];
-          for (const item of evidence) {
-            const box = await item.boundingBox();
-            if (!box || box.y < 0 || box.y + box.height > viewport.height) {
-              throw new Error(
-                `${name} must show the range, value breakdown, equation and verdicts above the fold`,
-              );
-            }
-          }
+        const evidence =
+          name === shotNames.detail
+            ? [".value-equation", ".farm"]
+            : name === shotNames.method
+              ? [".method-value", ".method-odds", ".method-evidence"]
+              : [];
+        for (const selector of evidence) {
+          const box = await page.locator(selector).boundingBox();
+          if (!box || box.y < 0 || box.y + box.height > viewport.height)
+            throw new Error(`${name} must show all of ${selector} in the viewport`);
         }
         if (name === shotNames.filtered) {
           const status = page.locator('select[name="status"]');

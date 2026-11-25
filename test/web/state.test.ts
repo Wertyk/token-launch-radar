@@ -1,10 +1,10 @@
 import { expect, test } from "vitest";
 import { parsePlanState, planHash } from "../../src/presentation/web/plan-state.ts";
+import { parseRoute } from "../../src/presentation/web/route.ts";
 import {
   boardHash,
   censusHash,
   defaultState,
-  parseRoute,
   protocolHash,
 } from "../../src/presentation/web/state.ts";
 

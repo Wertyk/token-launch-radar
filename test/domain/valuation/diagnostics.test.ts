@@ -7,6 +7,7 @@ import {
   jackknifePlusBand,
   jackknifePlusCoverage,
   leaveOneFamilyOut,
+  rangeHonesty,
 } from "../../../src/domain/valuation/jackknife.ts";
 import { fitValueModel, rankBoard } from "../../../src/domain/valuation/model.ts";
 import { selectLambda } from "../../../src/domain/valuation/selection.ts";
@@ -39,7 +40,7 @@ test("jackknife+ takes both quantiles of predictions shifted by skewed signed re
     residual,
   }));
   // The finite-sample ranks are 1 and 14. Absolute-residual tails would give 5 and 41.
-  expect(jackknifePlusBand(samples)).toEqual({ p10: 9, p90: 39 });
+  expect(jackknifePlusBand(samples)).toEqual({ p10: 9, p25: 12, p75: 30, p90: 39 });
 });
 
 test("jackknife+ uses finite-sample ranks 12 and 117 for 128 candidates", () => {
@@ -48,7 +49,7 @@ test("jackknife+ uses finite-sample ranks 12 and 117 for 128 candidates", () => 
     prediction: 128 - i,
     residual: 0,
   }));
-  expect(jackknifePlusBand(samples)).toEqual({ p10: 12, p90: 117 });
+  expect(jackknifePlusBand(samples)).toEqual({ p10: 12, p25: 32, p75: 97, p90: 117 });
 });
 
 test("left-out board refits use the published penalty and their own signed residuals", () => {
@@ -218,4 +219,18 @@ test("rank influence names a family when every deletion leaves the rank unchange
   const [row] = describeBoardValues(ranked, rows, refits, asOf);
   expect(row?.diagnostics.influence).toEqual({ family_key: "gecko:a", slug: "a", rank_delta: 0 });
   expect(describeBoardValues(ranked, rows, [], asOf)[0]?.diagnostics.influence).toBeNull();
+});
+
+test("counts held-out caps on the boundaries of the two bands", () => {
+  const points = [-1, 0, 1, 2, 3, 4].map((actual) => ({
+    actual,
+    p10: 0,
+    p25: 1,
+    p75: 2,
+    p90: 3,
+  }));
+  expect(rangeHonesty(points)).toEqual({
+    middle: { stated: 0.5, covered: 2, n: 6 },
+    broad: { stated: 0.8, covered: 4, n: 6 },
+  });
 });

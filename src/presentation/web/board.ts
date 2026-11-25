@@ -12,6 +12,8 @@ export interface BoardRow {
   interval: readonly [number, number] | null;
   tvl: number;
   growth: number | null;
+  age: number | null;
+  rankRange: readonly [number, number] | null;
   cost: number;
   time: number;
   verdict: FarmEconomics["deposits"][number]["verdict"];

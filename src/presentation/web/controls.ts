@@ -1,16 +1,13 @@
 import type { BoardRow } from "./board.ts";
 import { options } from "./filter-options.ts";
+import type * as Route from "./route.ts";
 import type * as State from "./state.ts";
 import { boardHash, censusHash } from "./state.ts";
 
 export function bindControls(
   main: HTMLElement,
   draw: () => void,
-  {
-    isCensusSortKey,
-    isSortKey,
-    parseRoute,
-  }: Pick<typeof State, "isCensusSortKey" | "isSortKey" | "parseRoute">,
+  { isCensusSortKey, isSortKey, parseRoute }: typeof Route,
 ): void {
   main.addEventListener("click", (event) => {
     if (!(event.target instanceof Element)) return;

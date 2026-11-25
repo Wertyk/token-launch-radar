@@ -21,28 +21,10 @@
         <a href="#/plan">Farm planner</a>
       </nav>
       <div id="summary">
-        <dl class="kpis">
-          <div>
-            <dt>Protocols scanned</dt>
-            <dd></dd>
-          </div>
-          <div>
-            <dt>Traded comparables</dt>
-            <dd></dd>
-          </div>
-          <div>
-            <dt>Board rows</dt>
-            <dd></dd>
-          </div>
-        </dl>
+        <dl class="kpis" id="kpis"></dl>
         <section class="model" aria-label="Value model">
           <p class="equation">
             Implied value = launch value × 12-month launch odds · <span id="formula"></span>
-          </p>
-          <p class="caption">
-            Launch value is the conditional market cap at launch. Launch odds come from a
-            token-status model fitted on <span id="clock-count"></span> listed protocols. A PAVA
-            clock maps listing age to token share.
           </p>
           <div id="checks"></div>
         </section>
@@ -72,11 +54,16 @@
           </select></label
         >
         <label class="toggle"><input type="checkbox" name="wl"> Watchlist only</label>
+        <label class="field">Deposit<select name="deposit"></select></label>
+        <div class="export">
+          <a href="data:text/csv," download="radar.csv">CSV</a
+          ><a href="data:application/json,%5B%5D" download="radar.json">JSON</a>
+        </div>
         <output id="results" aria-live="polite"></output>
       </form>
     </template>
-    <script src="2-core.js"></script>
     <script src="5-extras.js"></script>
+    <script src="2-core.js"></script>
     <script src="3-ui.js"></script>
   </body>
 </html>

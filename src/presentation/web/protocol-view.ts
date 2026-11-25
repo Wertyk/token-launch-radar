@@ -13,40 +13,10 @@ import {
 } from "./format.ts";
 import type { ProtocolExtras } from "./protocol-extras.ts";
 import { boardInterval } from "./recompute.ts";
-import { svg, table } from "./render.ts";
+import { table } from "./render.ts";
 import { viewTools } from "./view-tools.ts";
 
 type FormatUsd = (value: number) => string;
-
-function decomposition(row: RadarRow, usd: FormatUsd): string {
-  const { base, multipliers } = row.decomposition;
-  const { lnTvl, growth, lnAge, category = 1 } = multipliers;
-  const afterTvl = base * lnTvl;
-  const stages = [
-    ["Base", base],
-    ["TVL", afterTvl, lnTvl],
-    ...(growth === 1 ? [] : [["7d growth", afterTvl * growth, growth] as const]),
-    ...(lnAge === 1 ? [] : [["Age", afterTvl * growth * lnAge, lnAge] as const]),
-    ...(category === 1 ? [] : [["Category", row.valueUsd, category] as const]),
-    ["Launch value", row.launch_value_usd],
-    ["× launch odds 12m", null, row.launchProbability12],
-    ["Implied value", row.implied_value_usd],
-  ] as const;
-  const largest = Math.max(
-    1,
-    ...stages.map(([, value]) => (Number.isFinite(value) ? (value ?? 0) : 0)),
-  );
-  return `<ol class="waterfall">${stages
-    .map(([label, value, factor]) => {
-      if (value === null)
-        return `<li><span>${label}</span><span>(${formatOdds(factor)})</span></li>`;
-      const finite = Number.isFinite(value);
-      const width = finite ? ((value / largest) * 100).toFixed(2) : "0";
-      const term = factor === undefined ? "" : `×${factor.toPrecision(4)}`;
-      return `<li><span>${label}</span><span>${term}</span>${svg(100, 6, `<rect width="${width}" height="6"></rect>`)}<strong>${finite ? usd(Math.round(value)) : "—"}</strong></li>`;
-    })
-    .join("")}</ol>`;
-}
 
 interface CardOptions {
   age: number | null;
@@ -112,7 +82,6 @@ export function protocolView(
         <section class="panel"><h3>Implied value</h3>
           <p class="figure">${implied}</p>
           <p>P10–P90 · ${interval}</p>
-          ${decomposition(row, usd)}
           <p class="value-equation">ln V ≈ ${valueFormula(model, row)} ≈ ${lnValue.toFixed(3)} → ${usd(row.launch_value_usd)} × P₁₂(${oddsAge.toFixed(0)} d) ${formatOdds(p12)} → ${implied}</p>
           ${influenceLine ? `<p class="caption">${influenceLine}</p>` : ""}
         </section>
@@ -136,7 +105,7 @@ export function protocolView(
           <p>Break-even deposit · ${breakEvenDepositUsd === "never" ? "never" : usd(breakEvenDepositUsd)}</p>
           <p class="caption">${esc(plan.steps.at(-1)?.exitCondition ?? "")}</p>
           ${steps}
-          <p class="caption">Minutes and fees per occurrence. Assumptions ${plan.assumptionsAsOf}${plan.flags.length ? " · fallback fees" : ""}.</p>
+          <p class="caption">Per-occurrence fees and minutes. Assumptions ${plan.assumptionsAsOf}${plan.flags.length ? " · fallback fees" : ""}.</p>
         </section>
         ${nearestComparables?.(diagnostics?.twins ?? [], families, usd, viewTools) ?? ""}
       </div>

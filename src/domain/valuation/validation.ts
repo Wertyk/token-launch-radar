@@ -78,11 +78,12 @@ function evaluateFolds(
 
 export function validateModel(
   rows: readonly CategoryComparable[],
+  fixedSelection?: ModelValidation["selection"],
 ): ModelValidation & { looPredictions: Prediction[] } {
   const loo = splitFolds(rows.map((row) => [row]));
   const walkForward = [walkForwardSplit(rows)];
   const predictions = new Map<string, { loo: Prediction[]; walkForward: Prediction[] }>();
-  const selection = selectTerms(VALUE_CANDIDATES, (terms: readonly ValueTerm[]) => {
+  const evaluate = (terms: readonly ValueTerm[]) => {
     const key = terms.join(",");
     const heldOut = {
       loo: loo.flatMap((fold) => predictFold(fold, terms)),
@@ -90,7 +91,9 @@ export function validateModel(
     };
     predictions.set(key, heldOut);
     return [medianLogError(heldOut.loo) ?? null, medianLogError(heldOut.walkForward) ?? null];
-  });
+  };
+  const selection = fixedSelection ?? selectTerms(VALUE_CANDIDATES, evaluate);
+  if (fixedSelection) evaluate(fixedSelection.terms);
   const selected = predictions.get(selection.terms.join(","));
   if (!selected) throw new Error("Missing selected value model predictions.");
   const fiveFold = splitFolds(seededFolds(rows));

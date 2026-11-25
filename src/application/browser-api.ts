@@ -6,12 +6,15 @@ import {
 } from "../domain/farming/economics.ts";
 import { makeFarmPlan } from "../domain/farming/plans.ts";
 import { launchProbability12 } from "../domain/launch-odds/model.ts";
+import { validateOdds } from "../domain/launch-odds/validation.ts";
 import { formatUsd } from "../domain/shared/money.ts";
 import { compareText } from "../domain/shared/order.ts";
 import type { Snapshot } from "../domain/snapshot.ts";
 import { daysBetween } from "../domain/snapshot.ts";
-import { MIN_BAND_FAMILIES } from "../domain/valuation/jackknife.ts";
+import { groupComparableCategories } from "../domain/valuation/categories.ts";
+import { MIN_BAND_FAMILIES, rangeHonesty } from "../domain/valuation/jackknife.ts";
 import { logValue } from "../domain/valuation/model.ts";
+import { selectValueTerms, type ValueTrialFit } from "../domain/valuation/value-selection.ts";
 import { recomputeRadar } from "./recompute-radar.ts";
 
 export type { BoardRows } from "./board-rows.ts";
@@ -46,7 +49,19 @@ export function readPublishedSnapshot({
   return { as_of, floor_usd, source, protocols, watchlist };
 }
 
+function reproduceSelection(
+  { comparables, families, population }: ReturnType<typeof recomputeRadar>,
+  trialFit: ValueTrialFit,
+) {
+  return {
+    value: selectValueTerms(groupComparableCategories(comparables, families), trialFit),
+    odds: validateOdds(population),
+  };
+}
+
 export const browserApi = {
+  rangeHonesty,
+  reproduceSelection,
   MIN_BAND_FAMILIES,
   depositAmounts,
   farmEconomicsTerms,

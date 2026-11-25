@@ -46,11 +46,16 @@ export function jackknifePlusBand(samples: readonly JackknifeSample[]) {
     .sort((a, b) => a.value - b.value || compareText(a.slug, b.slug));
   // Barber et al., Appendix A. The one-based ranks are floor((n + 1) * alpha)
   // and its mirror, ceil((n + 1) * (1 - alpha)).
-  const tailRank = Math.floor((candidates.length + 1) * TAIL_ALPHA);
-  return {
-    p10: candidates[tailRank - 1]?.value ?? Number.NEGATIVE_INFINITY,
-    p90: candidates[candidates.length - tailRank]?.value ?? Number.POSITIVE_INFINITY,
+  const atTail = (alpha: number) => {
+    const rank = Math.floor((candidates.length + 1) * alpha);
+    return [
+      candidates[rank - 1]?.value ?? -Infinity,
+      candidates[candidates.length - rank]?.value ?? Infinity,
+    ] as const;
   };
+  const [p10, p90] = atTail(TAIL_ALPHA);
+  const [p25, p75] = atTail(0.25);
+  return { p10, p25, p75, p90 };
 }
 
 export function jackknifePlusBands<Row extends Comparable>(
@@ -90,4 +95,22 @@ export function jackknifePlusCoverage(rows: readonly Comparable[]) {
   }
   counts.covered = coveredSlugs.size;
   return { counts, coveredSlugs };
+}
+
+type RangePoint = { actual: number } & Record<"p10" | "p25" | "p75" | "p90", number | null>;
+
+export function rangeHonesty(points: readonly RangePoint[]) {
+  const count = (low: "p10" | "p25", high: "p75" | "p90", stated: number) => {
+    let covered = 0;
+    let n = 0;
+    for (const point of points) {
+      const a = point[low];
+      const b = point[high];
+      if (a === null || b === null || !Number.isFinite(a) || !Number.isFinite(b) || a > b) continue;
+      n++;
+      if (a <= point.actual && point.actual <= b) covered++;
+    }
+    return { stated, covered, n };
+  };
+  return { middle: count("p25", "p75", 0.5), broad: count("p10", "p90", 0.8) };
 }

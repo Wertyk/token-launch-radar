@@ -1,5 +1,6 @@
 import type { CategoryComparable } from "./categories.ts";
-import { categoryDesign, selectCategoryFit } from "./category-model.ts";
+import { categoryDesign } from "./category-design.ts";
+import { selectCategoryFit } from "./category-model.ts";
 import type { Comparable } from "./comparables.ts";
 import type { CategoryDesign } from "./model.ts";
 import { fitValueModel } from "./model.ts";
@@ -27,10 +28,10 @@ export function refitValue(rows: readonly Comparable[], fit: ValueFit) {
 }
 
 export function refitValueSubset(rows: readonly CategoryComparable[], fit: ValueFit) {
-  if (fit.categoryPenaltyMultiple === undefined) return refitValue(rows, fit);
-  const category = categoryDesign(rows, {
-    lambda: fit.lambda,
-    categoryPenaltyMultiple: fit.categoryPenaltyMultiple,
+  const { lambda, categoryPenaltyMultiple } = fit;
+  if (categoryPenaltyMultiple === undefined) return refitValue(rows, fit);
+  return refitValue(rows, {
+    ...fit,
+    category: categoryDesign(rows, { lambda, categoryPenaltyMultiple }),
   });
-  return refitValue(rows, { ...fit, category });
 }

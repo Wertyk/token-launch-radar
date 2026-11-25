@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import { compareText } from "../../src/domain/shared/order.ts";
 import type { BoardRow } from "../../src/presentation/web/board.ts";
 import { selectRows as select } from "../../src/presentation/web/board.ts";
+import { serializeBoard } from "../../src/presentation/web/board-export.ts";
 import type { BoardState, SortKey } from "../../src/presentation/web/state.ts";
 import { defaultState } from "../../src/presentation/web/state.ts";
 
@@ -18,6 +19,8 @@ const alpha: BoardRow = {
   interval: null,
   tvl: 120,
   growth: 2,
+  age: 40,
+  rankRange: [1, 2],
   cost: 0.45,
   time: 40,
   verdict: "FARM",
@@ -111,4 +114,11 @@ test("sorts all three verdicts in economic order and breaks net-per-hour ties by
   expect(
     selectRows(rows, { ...defaultState, sort: "netPerHour", dir: "desc" }).map(({ slug }) => slug),
   ).toEqual(["a", "b", "c"]);
+});
+
+test("exports exactly the filtered rows in display order", () => {
+  const visible = selectRows([beta, alpha], { ...defaultState, wl: true });
+  expect(JSON.parse(serializeBoard(visible, "json"))).toEqual([alpha]);
+  expect(serializeBoard(visible, "csv")).toContain('"Alpha Capital"');
+  expect(serializeBoard(visible, "csv")).not.toContain("Beta Capital");
 });

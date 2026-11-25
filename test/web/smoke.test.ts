@@ -30,7 +30,7 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
     const url = pathToFileURL(join(out, "dashboard", "index.html"));
     const context = await browser.newContext({
       serviceWorkers: "block",
-      viewport: { width: 1440, height: 900 },
+      viewport: { width: 1440, height: 1200 },
     });
     const nonFileRequests: string[] = [];
     context.on("request", (request) => {
@@ -62,16 +62,12 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
       .locator(".integrity .check")
       .filter({ hasText: "Recompute = board.json · launch values, odds, implied values, ranks" })
       .waitFor({ timeout: 4_000 });
-    expect(await page.locator(".integrity .check").count()).toBe(5);
-    const definition = page.locator("#summary .model > .caption");
-    await definition.waitFor({ state: "visible", timeout: 4_000 });
-    expect((await definition.textContent())?.replace(/\s+/g, " ").trim()).toBe(
-      "Launch value is the conditional market cap at launch. " +
-        "Launch odds come from a token-status model fitted on 518 listed protocols. " +
-        "A PAVA clock maps listing age to token share.",
-    );
+    expect(await page.locator(".integrity .check").count()).toBe(6);
+    expect(await page.locator("#kpis dt").count()).toBe(6);
+    expect(await page.locator("#kpis").textContent()).toContain("40/40 watchlist");
+    expect(await page.locator("#checks").textContent()).toContain("Term selection reproduced");
     expect(await ready.locator(".census-summary").textContent()).toBe(
-      "All 758 protocols accounted for: 198 ranked · 128 traded · 288 token, unpriced · 144 excluded (wrapped, staked, bridged, exchange or versioned names)",
+      "All 758 protocols accounted for: 198 ranked · 128 traded · 288 token, unpriced · 144 excluded",
     );
     await ready.getByRole("link", { name: "144 excluded", exact: true }).click();
     await heading("Protocol census");
@@ -96,9 +92,11 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
     const rows = ready.locator("tr[data-protocol]");
     const originalCount = await rows.count();
     const firstRank = rows.first().locator("td").first();
-    expect(await firstRank.textContent()).toBe("1");
+    expect(await firstRank.evaluate((cell) => cell.firstChild?.textContent)).toBe("1");
     await ready.locator('button[data-sort="rank"]').click();
-    await expect.poll(() => firstRank.textContent()).toBe(String(originalCount));
+    await expect
+      .poll(() => firstRank.evaluate((cell) => cell.firstChild?.textContent))
+      .toBe(String(originalCount));
     await ready.getByRole("checkbox", { name: "Watchlist only" }).check();
     await expect.poll(() => rows.count()).toBeLessThan(originalCount);
     expect(await rows.count()).toBeGreaterThan(0);
@@ -123,30 +121,22 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
     for (const name of [
       "Launch value model",
       "Out-of-sample validation",
+      "Value term selection",
       "Token-status model",
+      "Odds term selection",
       "Held-out token status",
-      "Predicted launch value vs current market cap",
+      "Held-out range honesty",
     ]) {
       const bounds = await methodCard(name).boundingBox();
       if (!bounds) throw new Error(`Expected a visible ${name} card`);
       expect(bounds.y, name).toBeGreaterThanOrEqual(0);
-      expect(bounds.y + bounds.height, name).toBeLessThanOrEqual(900);
+      expect(bounds.y + bounds.height, name).toBeLessThanOrEqual(1200);
     }
     expect(await methodCard("Token-status model").textContent()).toContain("P₁₂ = [F(a+365)");
     for (const label of ["Value term selection", "Odds term selection"]) {
-      const summary = ready.locator("summary").filter({ hasText: label });
-      await summary.click();
-      await summary.locator("..").getByText("Not kept").first().waitFor();
-      await summary.click();
+      await methodCard(label).getByText("Not kept").first().waitFor();
     }
-    const scatter = methodCard("Predicted launch value vs current market cap");
-    const identity = await scatter.locator("svg .identity").boundingBox();
-    expect(identity?.height).toBeGreaterThanOrEqual(169);
-    expect(await scatter.locator("svg circle.inside").count()).toBe(104);
-    expect(await scatter.locator("svg circle.outside").count()).toBe(24);
-    expect(await scatter.textContent()).toContain(
-      "104/128 inside held-out P10–P90 · LOO median error ×3.56 vs ×5.07 flat",
-    );
+    expect(await methodCard("Held-out range honesty").textContent()).toContain("104/128");
     await page.setViewportSize({ width: 390, height: 844 });
     const mobileOrder = await ready.locator(".method h2").evaluateAll((headings) =>
       headings
@@ -155,7 +145,7 @@ test("runs every dashboard route offline and responds to sorting, filtering and 
         .map(({ name }) => name),
     );
     expect(mobileOrder.slice(0, 2)).toEqual(["Launch value model", "Token-status model"]);
-    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.setViewportSize({ width: 1440, height: 1200 });
     await nav.getByRole("link", { name: "Census", exact: true }).click();
     await heading("Protocol census");
     expect(await ready.locator('th[aria-sort="descending"] button[data-sort="tvl"]').count()).toBe(

@@ -12,7 +12,20 @@ export function renderDataScript(
     rowDiagnostics,
     looScatter,
     odds,
-  }: Pick<RadarResult, "census" | "model" | "rowDiagnostics" | "looScatter" | "odds">,
+    rangeHonesty,
+    bootstrap,
+    placebo,
+  }: Pick<
+    RadarResult,
+    | "census"
+    | "model"
+    | "rowDiagnostics"
+    | "looScatter"
+    | "odds"
+    | "rangeHonesty"
+    | "bootstrap"
+    | "placebo"
+  >,
   tables: FarmTables,
 ): string {
   const { as_of, floor_usd, source, protocols, watchlist } = snapshot;
@@ -33,6 +46,9 @@ export function renderDataScript(
     valueCoefficients: model.coefficients,
     looScatter,
     odds,
+    rangeHonesty,
+    bootstrap,
+    placebo,
     board: {
       rows: board.rows.map((row) => {
         const diagnostics = rowDiagnostics.get(row.slug);

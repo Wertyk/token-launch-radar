@@ -35,7 +35,7 @@ export function boardRows(
         ? `<rect class="band" x="${scale(low).toFixed(2)}" y="5" width="${(scale(high) - scale(low)).toFixed(2)}" height="3"></rect>`
         : "";
       return [
-        formatInteger(row.rank),
+        `${row.rank}<small class="rank-range" title="Bootstrap P10–P90 rank">${row.rankRange?.join("–") ?? "—"}</small>`,
         `<a class="protocol-name" href="${href}">${esc(row.name)}</a>
        <div class="chips" title="${esc(chains.join(", "))}">${labels.map((label) => chip(label)).join("")}</div>`,
         `<div class="value" ${row.interval ? `title="P10–P90: ${usd(low)}–${usd(high)}"` : ""}><strong>${usd(row.value)}</strong>
@@ -44,8 +44,8 @@ export function boardRows(
         formatOdds(row.odds),
         usd(row.tvl),
         growthText(row.growth),
-        usd(row.cost),
-        `${formatInteger(row.time)} min`,
+        formatInteger(row.age),
+        `${usd(row.cost)} · ${row.time} min`,
         row.verdict,
         usd(row.netPerHour),
         row.watchlist ? chip("Watchlist", "badge") : "—",

@@ -1,24 +1,41 @@
 import type { RadarResult } from "../../application/build-radar.ts";
+import { formatOdds } from "./format.ts";
 import { multiplier } from "./integrity.ts";
-import type { termTrials } from "./method-extras.ts";
+import { brier, rangeRows } from "./kpis.ts";
 import { table } from "./render.ts";
-import type { scatterCoverage } from "./scatter-view.ts";
-import { launchValueScatter } from "./scatter-view.ts";
 
 export function methodPanel(title: string, headers: string[], rows: string[][], note?: string) {
   return `<section class="panel"><h2>${title}</h2>${table(headers, rows)}${note ? `<p class="caption">${note}</p>` : ""}</section>`;
+}
+
+function termTrials(
+  kind: "Value" | "Odds",
+  selection: RadarResult["model"]["selection"] | RadarResult["odds"]["validation"],
+  note?: string,
+) {
+  const errors =
+    kind === "Value" ? ["LOO log error", "WF log error"] : ["10-fold Brier", "WF Brier"];
+  const rows = selection.steps.flatMap(({ baseline, trials }, i) => [
+    [String(i + 1), "Current terms", ...baseline.map(brier), "—"],
+    ...trials.map(({ term, scores, kept }) => [
+      String(i + 1),
+      term,
+      ...scores.map(brier),
+      kept ? "Kept" : "Not kept",
+    ]),
+  ]);
+  return methodPanel(`${kind} term selection`, ["Step", "Term", ...errors, "Decision"], rows, note);
 }
 
 export function methodView(
   {
     model,
     odds,
-    scatter,
-  }: Pick<RadarResult, "model" | "odds"> & {
-    scatter: ReturnType<typeof scatterCoverage>;
-  },
+    rangeHonesty,
+    bootstrap,
+    placebo,
+  }: Pick<RadarResult, "model" | "odds" | "rangeHonesty" | "bootstrap" | "placebo">,
   notes?: (panel: typeof methodPanel) => string,
-  renderTrials?: typeof termTrials,
 ): string {
   const {
     coefficients: { intercept, lnTvl, lnAge },
@@ -26,23 +43,32 @@ export function methodView(
     selection,
   } = model;
   const { baselines, scores } = odds.validation;
-  const brier = (x: number | null) => x?.toFixed(4) ?? "—";
+  const coef = (value?: number | null) => value?.toFixed(6) ?? "—";
+  const { valueErrors } = bootstrap;
+  const errorNote = `${bootstrap.replicates} bootstrap refits.`;
+  const category = model.trialFit?.categoryTrial;
+  const categoryNote = category
+    ? `Category trial λ ${category.lambda} × ${category.categoryPenaltyMultiple} for group effects.`
+    : "Category trial parameters unavailable.";
+
   const cards = [
     '<div class="method-value">',
     methodPanel(
       "Launch value model",
-      ["Term in ln V", "Coefficient"],
+      ["Term in ln V", "Coefficient", "Bootstrap SE"],
       [
-        ["Intercept", intercept.toFixed(6)],
-        [model.momentum ? "ln(TVL·(1+g₇))" : "ln(TVL)", lnTvl.toFixed(6)],
-        ...(selection.terms.includes("age") ? [["ln(age)", lnAge.toFixed(6)]] : []),
+        ["Intercept", coef(intercept), coef(valueErrors.intercept)],
+        [model.momentum ? "ln(TVL·(1+g₇))" : "ln(TVL)", coef(lnTvl), coef(valueErrors.lnTvl)],
+        ...(selection.terms.includes("age")
+          ? [["ln(age)", coef(lnAge), coef(valueErrors.lnAge)]]
+          : []),
         ...Object.entries(model.categoryEffects ?? {}).map(([group, effect]) => [
           group,
-          effect.toFixed(6),
+          coef(effect),
+          coef(valueErrors[group]),
         ]),
-        ["Ridge penalty λ", String(model.lambda)],
       ],
-      `Huber ridge on ${model.n} traded families.`,
+      `Huber ridge · λ ${model.lambda} · ${model.n} traded families. ${errorNote}`,
     ),
     methodPanel(
       "Out-of-sample validation",
@@ -62,14 +88,16 @@ export function methodView(
       ]),
       "Current traded-family market caps proxy for launch value. Median error ×k and Spearman ρ.",
     ),
-    renderTrials?.(selection, "Value", table) ?? "",
-    "</div><div>",
+    termTrials("Value", selection, `Fixed penalties. ${categoryNote} Both errors must improve.`),
+    '</div><div class="method-odds">',
     methodPanel(
       "Token-status model",
-      ["Term in logit F(a)", "Coefficient"],
-      odds.names.map((name, i) => [name, odds.coefficients[i]?.toFixed(6) ?? "—"]),
-      `S(a) is the PAVA share clamped to 0.01–0.99. P₁₂ = [F(a+365) − F(a)] / [1 − F(a)]. Flat years use the annual tail hazard. Undated age ${odds.medianAgeDays} days.`,
+      ["Term in logit F(a)", "Coefficient", "Bootstrap SE"],
+      odds.names.map((name, i) => [name, coef(odds.coefficients[i]), coef(odds.standardErrors[i])]),
+      `${odds.n} listed protocols. PAVA share S(a) is clamped to 0.01–0.99. P₁₂ = [F(a+365) − F(a)] / [1 − F(a)]. Flat years use tail hazard. Undated age ${odds.medianAgeDays}d. ${errorNote}`,
     ),
+    termTrials("Odds", odds.validation),
+    '</div><div class="method-evidence">',
     methodPanel(
       "Held-out token status",
       ["Model", "10-fold Brier", "Walk-forward Brier"],
@@ -81,11 +109,10 @@ export function methodView(
           ["Final model", scores],
         ] as const
       ).map(([label, pair]) => [label, ...pair.map(brier)]),
-      "Each fold refits its clock. Brier scores current token status. P₁₂ assumes the cross-section behaves like a cohort.",
+      "Brier scores current token status. P₁₂ assumes the cross-section behaves like a cohort.",
     ),
-    renderTrials?.(odds.validation, "Odds", table) ?? "",
-    "</div><div>",
-    launchValueScatter(scatter, validation.leaveOneFamilyOut),
+    methodPanel("Held-out range honesty", ["Band", "Actual", "Stated"], rangeRows(rangeHonesty)),
+    `<section class="panel"><h2>Growth placebo</h2><p class="caption">Real Brier ${placebo.real.map(brier).join(" / ")}. ${placebo.asGoodOrBetter.map((rate) => (rate === null ? "—" : formatOdds(rate))).join(" / ")} of ${placebo.shuffles} shuffles matched or beat it (10-fold / WF).</p></section>`,
     notes?.(methodPanel) ?? "",
     "</div>",
   ];

@@ -5,7 +5,7 @@ import { farmTables } from "../../src/domain/farming/playbook-data.ts";
 import type { BoardRow } from "../../src/presentation/web/board.ts";
 import { boardRows, boardTable } from "../../src/presentation/web/board-view.ts";
 import { formatOdds } from "../../src/presentation/web/format.ts";
-import { methodNotes, termTrials } from "../../src/presentation/web/method-extras.ts";
+import { methodNotes } from "../../src/presentation/web/method-extras.ts";
 import { methodView } from "../../src/presentation/web/method-view.ts";
 import {
   nearestComparables,
@@ -13,14 +13,13 @@ import {
   protocolFacts,
 } from "../../src/presentation/web/protocol-extras.ts";
 import { protocolView } from "../../src/presentation/web/protocol-view.ts";
-import { scatterCoverage } from "../../src/presentation/web/scatter-view.ts";
 import { protocol } from "../domain/protocol-fixture.ts";
 
-test("labels the board plan fees and $10K columns and places both launch inputs next to implied value", () => {
+test("labels the board plan and verdict columns and places both launch inputs next to implied value", () => {
   const html = boardTable();
-  expect(html).toContain('data-sort="cost">Plan fees');
-  expect(html).toContain('data-sort="verdict">$10K verdict');
-  expect(html).toContain('data-sort="netPerHour">$10K net/h');
+  expect(html).toContain('data-sort="cost">Plan');
+  expect(html).toContain('data-sort="verdict">Verdict');
+  expect(html).toContain('data-sort="netPerHour">Net/h');
   expect(html).toMatch(/Implied value<\/button>.*Launch value<\/button>.*Odds 12m<\/button>/);
 });
 
@@ -121,6 +120,8 @@ test("draws a separate P10–P90 band below the board value", () => {
     odds: 0.5,
     tvl: 100,
     growth: null,
+    age: null,
+    rankRange: [1, 1],
     verdict: "THIN",
     netPerHour: 1,
     cost: 0,
@@ -136,7 +137,7 @@ test("draws a separate P10–P90 band below the board value", () => {
   expect(html).not.toContain("xmlns");
 });
 
-test("shows the published validation, selection, scatter and dated assumptions in Method", () => {
+test("shows whole validation tables in their Method columns with the dated assumptions", () => {
   const snapshot = {
     as_of: "2026-11-14",
     floor_usd: 10,
@@ -175,21 +176,8 @@ test("shows the published validation, selection, scatter and dated assumptions i
       ],
     },
   };
-  const looScatter = [
-    { slug: "a", actual: Math.log(100), predicted: Math.log(1_000), p10: 0, p90: Math.log(500) },
-    { slug: "b", actual: Math.log(10_000), predicted: Math.log(100), p10: 0, p90: Math.log(500) },
-  ];
-  const scatter = scatterCoverage(
-    looScatter,
-    new Map([
-      ["a", { mcap_usd: 100 }],
-      ["b", { mcap_usd: 10_000 }],
-    ]),
-  );
-  const html = methodView(
-    { ...data, model, scatter },
-    (panel) => methodNotes(data.houseRule, farmAssumptions, formatUsd, formatOdds, panel),
-    termTrials,
+  const html = methodView({ ...data, model }, (panel) =>
+    methodNotes(data.houseRule, farmAssumptions, formatUsd, formatOdds, panel),
   );
   for (const text of [
     "λ",
@@ -204,10 +192,7 @@ test("shows the published validation, selection, scatter and dated assumptions i
     "Raw PAVA clock",
     "Clock-only model (step 0)",
     "Not kept",
-    "Predicted launch value vs current market cap",
-    "1/2 inside held-out P10–P90 · LOO median error ×2.11 vs ×2.22 flat",
-    "Actual market cap (log USD)",
-    "Predicted (log USD)",
+    "Held-out range honesty",
     "Current traded-family market caps proxy for launch value.",
     "F(a)",
     "Brier scores current token status.",
@@ -217,15 +202,22 @@ test("shows the published validation, selection, scatter and dated assumptions i
   ]) {
     expect(html).toContain(text);
   }
-  expect(html.match(/<table/g)).toHaveLength(8);
-  expect(html.match(/<circle/g)).toHaveLength(2);
-  expect(html).toContain('<circle class="inside" cx="59.00" cy="93.00"');
-  expect(html).toContain(
-    '<circle class="outside" cx="372.00" cy="178.00" r="3" fill="none" stroke="currentColor">',
-  );
-  expect(html).toContain(
-    '<path class="identity" d="M59 178L372 8" stroke="currentColor" stroke-dasharray="4 3">',
-  );
+  expect(html.match(/<table/g)).toHaveLength(9);
+  const headings = (column: string) =>
+    [...column.matchAll(/<h2>([^<]+)<\/h2>/g)].map(([, title]) => title);
+  const [value, odds = "", evidence = ""] = html.split(/<div class="method-(?:odds|evidence)">/);
+  expect(headings(value ?? "")).toEqual([
+    "Launch value model",
+    "Out-of-sample validation",
+    "Value term selection",
+  ]);
+  expect(headings(odds)).toEqual(["Token-status model", "Odds term selection"]);
+  expect(headings(evidence).slice(0, 3)).toEqual([
+    "Held-out token status",
+    "Held-out range honesty",
+    "Growth placebo",
+  ]);
+  expect(html).not.toContain("Predicted launch value vs current market cap");
   expect(html).not.toMatch(/xmlns|https?:\/\//);
   const tableRows = (rows: string[][]) =>
     `<tbody>${rows.map((cells) => `<tr><td>${cells.join("</td><td>")}</td></tr>`).join("")}</tbody>`;

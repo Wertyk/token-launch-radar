@@ -23,6 +23,7 @@ class Select {
   name = "";
   value = "";
   selectedIndex = 0;
+  onchange?: () => void;
 
   insertAdjacentHTML() {}
   querySelector() {
@@ -30,11 +31,12 @@ class Select {
   }
 }
 
-function open(data: Record<string, unknown>, hash = "#/", loadExtras = true, loadUi = true) {
+function open(data: Record<string, unknown>, hash = "#/", loadEnhancements = true, loadUi = true) {
   const location = { hash };
-  const markup = new Map<string, { innerHTML: string; textContent?: string }>();
+  const markup = new Map<string, { innerHTML: string; textContent?: string; href?: string }>();
   const listeners = new Map<string, (event: { target: Select }) => void>();
   const windowListeners = new Map<string, () => void>();
+  const deposit = new Select();
   const main = {
     innerHTML: html.match(/<main[^>]*>([\s\S]*?)<\/main>/)?.[1] ?? "",
     dataset: {},
@@ -43,6 +45,7 @@ function open(data: Record<string, unknown>, hash = "#/", loadExtras = true, loa
       listeners.set(type, listener);
     },
     querySelector(selector: string) {
+      if (selector === '[name="deposit"]') return deposit;
       return selector.startsWith("[name=") ? new Select() : node(selector);
     },
     querySelectorAll() {
@@ -77,8 +80,15 @@ function open(data: Record<string, unknown>, hash = "#/", loadExtras = true, loa
     HTMLSelectElement: Select,
   });
   for (const { file, source } of scripts) {
-    if ((!loadExtras && file === "5-extras.js") || (!loadUi && file === "3-ui.js")) continue;
+    if (!loadUi && file === "3-ui.js") continue;
     runInContext(source, context);
+    if (!loadEnhancements && file === "5-extras.js")
+      runInContext(
+        `for (const name of ["boardFarmSteps", "mountPlanner", "protocolFacts",
+        "protocolClock", "nearestComparables", "methodNotes", "boardControls", "bindControls", "boardHash"])
+        delete window.Radar[name];`,
+        context,
+      );
   }
   return {
     main,
@@ -86,6 +96,10 @@ function open(data: Record<string, unknown>, hash = "#/", loadExtras = true, loa
     navigate(next: string) {
       location.hash = next;
       windowListeners.get("hashchange")?.();
+    },
+    changeDeposit(value: string) {
+      deposit.value = value;
+      deposit.onchange?.();
     },
     selectStatus(value: string) {
       listeners.get("change")?.({ target: Object.assign(new Select(), { name: "status", value }) });
@@ -140,7 +154,7 @@ test.each([true, false])(
     expect
       .soft(page.main.innerHTML)
       .toContain(`≈ ${lnValue.toFixed(3)} → ${formatUsd(Math.round(Math.exp(lnValue)))}`);
-    expect.soft(checks?.match(/class="check"/g)).toHaveLength(5);
+    expect.soft(checks?.match(/class="check"/g)).toHaveLength(6);
     expect.soft(checks).toContain('class="check">✓ Recompute = board.json');
     expect.soft(checks).toContain('class="check">✓ 104/128 held-out traded caps inside P10–P90');
 
@@ -148,8 +162,7 @@ test.each([true, false])(
     expect
       .soft(page.main.innerHTML)
       .toContain(`<td>Intercept</td><td>${radar.model.coefficients.intercept.toFixed(6)}</td>`);
-    expect.soft(page.main.innerHTML).toContain("104/128 inside held-out P10–P90");
-    expect.soft(page.main.innerHTML.match(/class="inside"/g)).toHaveLength(104);
+    expect.soft(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 104\/128<\/td>/);
     expect(page.main.innerHTML).toContain(
       `<td>logit(S(a))</td><td>${radar.odds.coefficients[1]?.toFixed(6)}</td>`,
     );
@@ -200,8 +213,7 @@ test("updates both coverage displays when a published band changes the point's c
   point.p90 = point.actual + 2;
   const page = open(payload, "#/method");
   expect(page.markup.get("#checks")?.innerHTML).toContain("103/128 held-out traded caps");
-  expect(page.main.innerHTML).toContain("103/128 inside held-out P10–P90");
-  expect(page.main.innerHTML.match(/class="inside"/g)).toHaveLength(103);
+  expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 103\/128<\/td>/);
 });
 
 test("ignores impossible counts injected into the payload", () => {
@@ -211,7 +223,7 @@ test("ignores impossible counts injected into the payload", () => {
   expect(page.markup.get("#checks")?.innerHTML).toContain(
     'class="check">✓ 104/128 held-out traded caps',
   );
-  expect(page.main.innerHTML).toContain("104/128 inside held-out P10–P90");
+  expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 104\/128<\/td>/);
 });
 
 test.each(["missing", "non-finite", "reversed"])("flags a band with %s endpoints", (tampering) => {
@@ -224,7 +236,7 @@ test.each(["missing", "non-finite", "reversed"])("flags a band with %s endpoints
   expect(page.markup.get("#checks")?.innerHTML).toContain(
     'class="check-failed">✗ 103/127 held-out traded caps inside P10–P90 · 127/128 families',
   );
-  expect(page.main.innerHTML).toContain("103/127 inside held-out P10–P90");
+  expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 103\/127<\/td>/);
 });
 
 test("flags invalid evidence even when the valid points account for the fitted population", () => {
@@ -234,7 +246,7 @@ test("flags invalid evidence even when the valid points account for the fitted p
   expect(page.markup.get("#checks")?.innerHTML).toContain(
     'class="check-failed">✗ 104/128 held-out traded caps inside P10–P90 · 1 invalid',
   );
-  expect(page.main.innerHTML).toContain("104/128 inside held-out P10–P90");
+  expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 104\/128<\/td>/);
 });
 
 test.each([9, 10])("respects the publisher's held-out band decision at %i families", (n) => {
@@ -260,7 +272,7 @@ test.each([9, 10])("respects the publisher's held-out band decision at %i famili
       'class="check-unavailable">Coverage unavailable · too few traded families',
     );
     expect(checks).not.toContain("0/0 held-out traded caps");
-    expect(page.main.innerHTML).toContain("No valid held-out bands to display.");
+    expect(page.main.innerHTML).toContain("P10–P90</td><td>— · 0/0</td>");
   } else {
     expect(payload.looScatter).toHaveLength(n);
     expect(checks).toContain("/10 held-out traded caps");
@@ -290,19 +302,19 @@ test.each(["steakhouse-financial", "aave-v2", "across"])(
     expect(page.markup.get("#checks")?.innerHTML).toContain(
       'class="check-failed">✗ 104/127 held-out traded caps inside P10–P90 · 127/128 families',
     );
-    expect(page.main.innerHTML).toContain("104/127 inside held-out P10–P90");
+    expect(page.main.innerHTML).toMatch(/P10–P90<\/td><td>[^<]+ · 104\/127<\/td>/);
   },
 );
 
-test("replaces a rendered board with the alert when Method data disappears before navigation", () => {
+test("uses the computed Method selection if publication disappears after startup", () => {
   const payload = data();
   const page = open(payload);
   expect(page.main.innerHTML).toContain("198 ranked");
   const { selection } = payload.model;
   delete payload.model.selection;
   page.navigate("#/method");
-  expect(page.main.innerHTML).toContain('role="alert"');
-  expect(page.main.dataset).not.toHaveProperty("ready");
+  expect(page.main.innerHTML).toContain("Value term selection");
+  expect(page.main.dataset).toHaveProperty("ready");
   payload.model.selection = selection;
   page.navigate("#/");
   expect(page.main.innerHTML).toContain("198 ranked");
@@ -321,13 +333,13 @@ test.each([true, false])("renders all required routes with loadExtras=%s", (load
   for (const [hash, marker] of [
     [`#/p/${slug}`, "Farm plan"],
     ["#/census", "758 of 758 protocols"],
-    ["#/method", "104/128 inside held-out P10–P90"],
+    ["#/method", "P10–P90</td><td>81.3% · 104/128</td>"],
     ["#/", "198 ranked"],
   ] as const) {
     page.navigate(hash);
     expect(page.main.innerHTML).toContain(marker);
     const checks = page.markup.get("#checks")?.innerHTML;
-    expect(checks?.match(/class="check"/g)).toHaveLength(5);
+    expect(checks?.match(/class="check"/g)).toHaveLength(6);
   }
   if (!loadExtras) {
     const checks = page.markup.get("#checks")?.innerHTML;
@@ -384,9 +396,77 @@ test.each([
   expect(open(payload, "#/census").main.innerHTML).toContain('role="alert"');
 });
 
-test("hides a successful summary on census while keeping failed checks visible", () => {
-  const css = readFileSync(new URL("4-app.css", dashboard), "utf8");
-  expect(css).toMatch(
-    /body:has\(main \.census\) #summary:not\(:has\(\.check-failed\)\)\s*\{\s*display: none/,
+test("reproduces both selections and renders recomputed trials if a published trial is tampered", () => {
+  const payload = data();
+  const clean = open(payload, "#/method", false);
+  const label = "Term selection reproduced · value 0/3 kept · odds 3/4 kept";
+  expect(clean.markup.get("#checks")?.innerHTML).toContain(`class="check">✓ ${label}`);
+  expect(clean.main.innerHTML).toContain("Value term selection");
+  expect(clean.main.innerHTML).toContain(
+    "<td>category</td><td>1.3018</td><td>1.3580</td><td>Not kept</td>",
   );
+  expect(clean.main.innerHTML).toContain("Category trial λ 0.1 × 16");
+  expect(clean.main.innerHTML).toContain("Odds term selection");
+  payload.model.selection.steps[0].trials[0].scores[0] = 99;
+  const tampered = open(payload, "#/method", false);
+  expect(tampered.markup.get("#checks")?.innerHTML).toContain(
+    'class="check-failed">✗ Term selection',
+  );
+  expect(tampered.main.innerHTML).toBe(clean.main.innerHTML);
+});
+
+test("keeps the KPI strip on every route and uses held-out band data", () => {
+  const payload = data();
+  const page = open(payload);
+  const kpis = page.markup.get("#kpis");
+  expect(kpis?.innerHTML.match(/<dt>/g)).toHaveLength(6);
+  expect(kpis?.innerHTML).toContain("40/40 watchlist");
+  const original = kpis?.innerHTML;
+  page.navigate("#/census");
+  expect(page.markup.get("#kpis")?.innerHTML).toBe(original);
+  payload.model.validation.walkForward.model.medianMultiplier = 6;
+  expect(open(payload).markup.get("#kpis")?.innerHTML).toContain("×6.00");
+  payload.rangeHonesty.middle.covered -= 1;
+  expect(open(payload).markup.get("#checks")?.innerHTML).toContain(
+    'class="check-failed">✗ Held-out coverage totals differ',
+  );
+  const point = insidePoint(payload);
+  point.p10 = point.actual + 1;
+  point.p90 = point.actual + 2;
+  expect(open(payload).markup.get("#kpis")?.innerHTML).not.toBe(original);
+});
+
+test("changes the board verdict and net per hour when the deposit changes", () => {
+  const candidate = radar.board.find(({ economics: { deposits } }) =>
+    deposits.some(({ verdict }) => verdict !== deposits[0]?.verdict),
+  );
+  if (!candidate) throw new Error("Expected different verdicts across deposits");
+  const page = open(data(), `#/?q=${encodeURIComponent(candidate.protocol.name)}`, false);
+  const body = page.markup.get("tbody");
+  const at10K = candidate.economics.deposits.find(({ depositUsd }) => depositUsd === 10_000);
+  const other = candidate.economics.deposits.find(({ verdict }) => verdict !== at10K?.verdict);
+  if (!at10K || !other) throw new Error("Expected deposits with different verdicts");
+  expect(body?.innerHTML).toContain(
+    `<td>${at10K.verdict}</td><td>${formatUsd(at10K.netPerHourUsd)}</td>`,
+  );
+  page.changeDeposit(String(other.depositUsd));
+  expect(body?.innerHTML).toContain(
+    `<td>${other.verdict}</td><td>${formatUsd(other.netPerHourUsd)}</td>`,
+  );
+});
+
+test("exports the same sorted filtered rows shown on the board after edits", () => {
+  const page = open(data(), "#/?wl=1&sort=rank&dir=desc");
+  const href = (format: string) => page.markup.get(`[download="radar.${format}"]`)?.href ?? "";
+  const slugs = () =>
+    [...(page.markup.get("tbody")?.innerHTML ?? "").matchAll(/href="#\/p\/([^"?]+)/g)].map(
+      ([, slug]) => slug,
+    );
+  const json = () => JSON.parse(decodeURIComponent(href("json").split(",")[1] ?? ""));
+  expect(json().map(({ slug }: { slug: string }) => slug)).toEqual(slugs());
+  expect(slugs()).toHaveLength(40);
+  expect(decodeURIComponent(href("csv")).split("\r\n")).toHaveLength(41);
+  page.navigate("#/?q=----");
+  expect(json()).toEqual([]);
+  expect(slugs()).toEqual([]);
 });

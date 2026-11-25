@@ -161,6 +161,9 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     valueCoefficients: radar.model.coefficients,
     looScatter: radar.looScatter,
     odds: radar.odds,
+    rangeHonesty: radar.rangeHonesty,
+    bootstrap: radar.bootstrap,
+    placebo: radar.placebo,
   });
   expect(
     publishedRows.map(
@@ -176,6 +179,15 @@ test("runs the ports in order and publishes the kit board and browser data", () 
   ).toEqual(rows);
   expect(data.model.validation.leaveOneFamilyOut.model.n).toBe(128);
   expect(data.model.selection.terms).toEqual(data.model.fit.terms);
+  expect(data.model.trialFit).toEqual({
+    lambda: 1,
+    categoryTrial: { lambda: 0.1, categoryPenaltyMultiple: 16 },
+  });
+  const categoryTrial = radar.model.selection.steps[0]?.trials.find(
+    ({ term }) => term === "category",
+  );
+  expect(categoryTrial?.kept).toBe(false);
+  expect(categoryTrial?.scores.map((error) => error?.toFixed(4))).toEqual(["1.3018", "1.3580"]);
   expect(data.model).not.toHaveProperty("coefficients");
   expect(data.protocols).toHaveLength(758);
 
@@ -243,6 +255,8 @@ test("runs the ports in order and publishes the kit board and browser data", () 
     "slug",
     "name",
     "rank",
+    "rank_p10",
+    "rank_p90",
     "launch_value_usd",
     "implied_value_usd",
     "farm_steps",

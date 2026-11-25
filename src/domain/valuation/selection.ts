@@ -21,22 +21,15 @@ export function predictionsFor<Row extends Comparable>(
   return rows.map((row) => ({ slug: row.slug, actual: row.target, predicted: predict(row) }));
 }
 
-export function modelFeatures(row: Comparable, medianLnAge: number) {
-  return {
-    lnTvl: row.lnTvl,
-    growth: row.growth,
-    lnAge: row.lnAge ?? medianLnAge,
-  };
-}
-
 export function modelPredictions(rows: readonly Comparable[], model: ValueModel) {
   return predictionsFor(rows, (row) => predictComparable(row, model));
 }
 
 export function predictComparable(row: Comparable, model: ValueModel) {
-  const features = modelFeatures(row, model.medianLnAge);
+  const { lnTvl, growth, lnAge } = row;
+  const category = (row as Partial<{ category: CategoryGroup }>).category;
   return logValue(
-    { ...features, ...("category" in row && { category: row.category as CategoryGroup }) },
+    { lnTvl, growth, lnAge: lnAge ?? model.medianLnAge, category: category ?? "other" },
     model,
   );
 }

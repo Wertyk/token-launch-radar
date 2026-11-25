@@ -19,7 +19,7 @@ export function censusSummary(rows: readonly CensusRecord[], ranked?: BoardMembe
     `<a href="#/census?status=${status}${ranked ? "&amp;unranked=1" : ""}">${formatInteger(counts[status])} ${label}</a>`;
   const parts = [link("traded"), link("token-unpriced", "token, unpriced"), link("excluded")];
   const total = formatInteger(rows.length);
-  return `<p class="census-summary">${ranked ? `All ${total} protocols accounted for: ${formatInteger(included)} ranked · ${parts.join(" · ")} (wrapped, staked, bridged, exchange or versioned names)` : `${total} protocols = ${link("pre-token", "pre-token (ranked)")} + ${parts.join(" + ")}`}</p>`;
+  return `<p class="census-summary">${ranked ? `All ${total} protocols accounted for: ${formatInteger(included)} ranked · ${parts.join(" · ")}` : `${total} protocols = ${link("pre-token", "pre-token (ranked)")} + ${parts.join(" + ")}`}</p>`;
 }
 
 export function selectCensus(
